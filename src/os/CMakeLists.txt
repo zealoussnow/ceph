@@ -25,7 +25,8 @@ set(libos_srcs
   kstore/kstore_types.cc
   fs/FS.cc
   fs/aio.cc
-  ${libos_xfs_srcs})
+  ${libos_xfs_srcs}
+  $<TARGET_OBJECTS:common_util_obj>)
 
 if(HAVE_LIBAIO)
   list(APPEND libos_srcs

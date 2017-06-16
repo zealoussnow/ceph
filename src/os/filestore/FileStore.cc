@@ -34,6 +34,7 @@
 #include <map>
 
 #include "include/linux_fiemap.h"
+#include "include/util.h"
 
 #include "common/xattr.h"
 #include "chain_xattr.h"
@@ -597,11 +598,14 @@ FileStore::FileStore(CephContext* cct, const std::string &base,
   current_op_seq_fn = sss.str();
 
   ostringstream omss;
-  if (cct->_conf->filestore_omap_backend_path != "") {
-      omap_dir = cct->_conf->filestore_omap_backend_path;
-  } else {
-      omss << basedir << "/current/omap";
-      omap_dir = omss.str();
+  string filestore_omap_path(cct->_conf->filestore_omap_backend_path);
+  bool omap_in_ssd = cct->_conf->omap_in_ssd;
+
+  if (omap_in_ssd && !filestore_omap_path.empty())
+    omap_dir = filestore_omap_path;
+  else {
+    omss << basedir << "/current/omap";
+    omap_dir = omss.str();
   }
 
   // initialize logger
@@ -945,6 +949,12 @@ int FileStore::mkfs()
       }
     }
     VOID_TEMP_FAILURE_RETRY(::close(fd));
+  }
+
+  ret = mkdirs(omap_dir, 0755);
+  if (ret < 0) {
+    derr << "mkfs: failed to create omap_dir" << cpp_strerror(ret) << dendl;
+    goto close_fsid_fd;
   }
   ret = KeyValueDB::test_init(superblock.omap_backend, omap_dir);
   if (ret < 0) {
@@ -5171,18 +5181,47 @@ int FileStore::_create_collection(
   int bits,
   const SequencerPosition &spos)
 {
+  int r = -1;
   char fn[PATH_MAX];
-  get_cdir(c, fn, sizeof(fn));
-  dout(15) << "create_collection " << fn << dendl;
-  int r = ::mkdir(fn, 0755);
-  if (r < 0)
-    r = -errno;
-  if (r == -EEXIST && replaying)
-    r = 0;
-  dout(10) << "create_collection " << fn << " = " << r << dendl;
+  stringstream pgmeta_ss;
+  bool  omap_in_ssd = g_conf->omap_in_ssd;
+  string filestore_pgmeta_path(g_conf->filestore_pgmeta_path);
 
-  if (r < 0)
-    return r;
+  get_cdir(c, fn, sizeof(fn));
+  if (c.is_meta() && omap_in_ssd && !filestore_pgmeta_path.empty()) {
+    r = mkdirs(filestore_pgmeta_path, 0755);
+    if (r < 0) {
+      r = -errno;
+      if (r == -EEXIST)
+        r = 0;
+      else {
+        derr << "create_collection error: " << filestore_pgmeta_path  << dendl;
+        return r;
+      }
+    }
+    r = symlink(filestore_pgmeta_path.c_str(), fn);
+    if (r < 0) {
+      r = -errno;
+      if (r == -EEXIST)
+        r = 0;
+      else {
+        derr << "creating symlink error, " << filestore_pgmeta_path << dendl;
+        return r;
+      }
+    }
+  } else {
+    dout(15) << "create_collection " << fn << dendl;
+    r = ::mkdir(fn, 0755);
+    if (r < 0)
+      r = -errno;
+    if (r == -EEXIST && replaying)
+      r = 0;
+    dout(10) << "create_collection " << fn << " = " << r << dendl;
+
+    if (r < 0)
+      return r;
+  }
+
   r = init_index(c);
   if (r < 0)
     return r;

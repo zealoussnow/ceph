@@ -23,6 +23,8 @@
 #include "common/strtol.h"
 #include "common/version.h"
 
+#include <sys/stat.h>
+
 #ifdef HAVE_SYS_VFS_H
 #include <sys/vfs.h>
 #endif
@@ -303,4 +305,25 @@ string cleanbin(string &str)
   if (base64)
     result = "Base64:" + result;
   return result;
+}
+
+int mkdirs(string path, mode_t mode)
+{
+  string::size_type pos;
+  struct stat st;
+  int ret = -1;
+
+  if (path == "/")
+    return 0;
+  if ((pos = path.rfind("/")) == string::npos) {
+    ret = mkdir(path.c_str(), mode);
+    return ret;
+  }
+  if (stat(path.c_str(), &st) != 0) {
+    string p = path.substr(0, pos);
+    mkdirs(p, mode);
+    ret = mkdir(path.c_str(), mode);
+  }
+
+  return ret;
 }

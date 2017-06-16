@@ -889,7 +889,6 @@ ln -sf %{_sbindir}/mount.ceph %{buildroot}/sbin/mount.ceph
 # udev rules
 install -m 0644 -D udev/50-rbd.rules %{buildroot}%{_udevrulesdir}/50-rbd.rules
 install -m 0644 -D udev/60-ceph-by-parttypeuuid.rules %{buildroot}%{_udevrulesdir}/60-ceph-by-parttypeuuid.rules
-install -m 0644 -D udev/95-ceph-osd.rules %{buildroot}%{_udevrulesdir}/95-ceph-osd.rules
 
 #set up placeholder directories
 mkdir -p %{buildroot}%{_sysconfdir}/ceph
@@ -950,7 +949,6 @@ rm -rf %{buildroot}
 %{_libdir}/libos_tp.so*
 %{_libdir}/libosd_tp.so*
 %endif
-%config %{_sysconfdir}/bash_completion.d/ceph
 %config(noreplace) %{_sysconfdir}/logrotate.d/ceph
 %if 0%{?fedora} || 0%{?rhel}
 %config(noreplace) %{_sysconfdir}/sysconfig/ceph
@@ -1058,6 +1056,7 @@ DISABLE_RESTART_ON_UPDATE="yes"
 %{_datadir}/ceph/id_rsa_drop.ceph.com
 %{_datadir}/ceph/id_rsa_drop.ceph.com.pub
 %dir %{_sysconfdir}/ceph/
+%config %{_sysconfdir}/bash_completion.d/ceph
 %config %{_sysconfdir}/bash_completion.d/rados
 %config %{_sysconfdir}/bash_completion.d/rbd
 %config %{_sysconfdir}/bash_completion.d/radosgw-admin
@@ -1381,11 +1380,9 @@ fi
 %{_bindir}/ceph-objectstore-tool
 %{_bindir}/ceph-osd
 %{_sbindir}/ceph-disk
-%{_sbindir}/ceph-disk-udev
 %{_libexecdir}/ceph/ceph-osd-prestart.sh
 %dir %{_udevrulesdir}
 %{_udevrulesdir}/60-ceph-by-parttypeuuid.rules
-%{_udevrulesdir}/95-ceph-osd.rules
 %{_mandir}/man8/ceph-clsinfo.8*
 %{_mandir}/man8/ceph-disk.8*
 %{_mandir}/man8/ceph-osd.8*

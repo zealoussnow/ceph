@@ -84,4 +84,5 @@ void dump_services(Formatter* f, const map<string, list<int> >& services, const 
 
 string cleanbin(bufferlist &bl, bool &b64);
 string cleanbin(string &str);
+int mkdirs(string path, mode_t mode);
 #endif /* CEPH_UTIL_H */

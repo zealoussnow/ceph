@@ -23,6 +23,7 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/types.h>
 
 // <macro hackery>
 // temporarily remap __le* to ceph_le* for benefit of shared kernel/userland headers

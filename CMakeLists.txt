@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 2.8.11)
 
 project(ceph)
 set(VERSION 12.0.3)
+set(ALLOCATOR tcmalloc_minimal)
 
 if(POLICY CMP0046)
   # Tweak policies (this one disables "missing" dependency warning)
@@ -636,5 +637,5 @@ add_tags(ctags
   SRC_DIR src
   TAG_FILE tags
   EXCLUDE_OPTS ${CTAG_EXCLUDES}
-  EXCLUDES "*.js")
+  EXCLUDES "*.js" "*.css")
 add_custom_target(tags DEPENDS ctags)

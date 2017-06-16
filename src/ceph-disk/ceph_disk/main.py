@@ -26,6 +26,7 @@ import errno
 import fcntl
 import json
 import logging
+import logging.handlers
 import os
 import platform
 import re
@@ -67,6 +68,10 @@ PTYPE = {
             # identical because creating a block is atomic
             'ready': '5ce17fce-4087-4169-b7ff-056cc58473f9',
             'tobe': '5ce17fce-4087-4169-b7ff-056cc58472be',
+        },
+        'metadata': {
+            'ready': '0951e356-080b-45f2-8f39-279d1633ec8a',
+            'tobe': '0951e356-080b-45f2-8f39-279d1633ec8a',
         },
         'osd': {
             'ready': '4fbd7e29-9d25-41b8-afd0-062c0ceff05d',
@@ -227,6 +232,9 @@ OSD_STATUS_OUT_DOWN = 0
 OSD_STATUS_OUT_UP = 1
 OSD_STATUS_IN_DOWN = 2
 OSD_STATUS_IN_UP = 3
+SSD_INDEX = 0
+ACTIVATE_ONE = False
+OSD_ID = 0
 
 MOUNT_OPTIONS = dict(
     btrfs='noatime,user_subvol_rm_allowed',
@@ -235,7 +243,7 @@ MOUNT_OPTIONS = dict(
     # issues with ext4 before the xatts-in-leveldb work, and it seemed
     # that user_xattr helped
     ext4='noatime,user_xattr',
-    xfs='noatime,inode64',
+    xfs='noatime,inode64,nouuid',
 )
 
 MKFS_ARGS = dict(
@@ -272,8 +280,13 @@ STATEDIR = '/var/lib/ceph'
 
 SYSCONFDIR = '/etc/ceph'
 
+METADIR='/var/lib/ceph/osd-meta'
+
+have_to_prepare_meta = False
 prepare_lock = None
+prepare_meta_lock = None
 activate_lock = None
+activate_meta_lock = None
 SUPPRESS_PREFIX = None
 
 # only warn once about some things
@@ -288,7 +301,16 @@ if 'TERM' in os.environ:
 LOG_NAME = __name__
 if LOG_NAME == '__main__':
     LOG_NAME = os.path.basename(sys.argv[0])
+log_level = logging.DEBUG or logging.INFO
 LOG = logging.getLogger(LOG_NAME)
+
+# TODO Output log to a file, only used in debug mode
+# LOG.setLevel(log_level)
+# LOG_FORMAT = "%(asctime)s [%(funcName)s,%(lineno)d] [%(process)d]: %(message)s"
+# formatter = logging.Formatter(LOG_FORMAT)
+# handler = logging.handlers.RotatingFileHandler("/tmp/.ceph-disk.log", "a",  1024 * 1000, 10, encoding="UTF-8")
+# handler.setFormatter(formatter)
+# LOG.addHandler(handler)
 
 # Allow user-preferred values for subprocess user and group
 CEPH_PREF_USER = None
@@ -1066,6 +1088,15 @@ def allocate_osd_id(
     """
 
     LOG.debug('Allocating OSD id...')
+    global OSD_ID
+    omap_in_ssd = get_conf(
+        cluster='ceph',
+        variable='omap_in_ssd'
+    )
+    if str(omap_in_ssd).lower() in 'true' and ACTIVATE_ONE:
+        osd_id = OSD_ID
+    else:
+        osd_id = ''
     try:
         osd_id = _check_output(
             args=[
@@ -1075,6 +1106,7 @@ def allocate_osd_id(
                 '--keyring', keyring,
                 'osd', 'create', '--concise',
                 fsid,
+                osd_id,
             ],
         )
     except subprocess.CalledProcessError as e:
@@ -1401,16 +1433,25 @@ def mount(
         options = MOUNT_OPTIONS.get(fstype, '')
 
     myTemp = STATEDIR + '/tmp'
-    # mkdtemp expect 'dir' to be existing on the system
-    # Let's be sure it's always the case
-    if not os.path.exists(myTemp):
-        os.makedirs(myTemp)
 
-    # mount
-    path = tempfile.mkdtemp(
-        prefix='mnt.',
-        dir=myTemp,
-    )
+    # if we want to mount metadata partition,
+    # should mount to a correct position
+    global have_to_prepare_meta
+    if have_to_prepare_meta:
+        path = METADIR + '/%d' % SSD_INDEX
+        if not os.path.exists(path):
+            os.makedirs(path, 0755)
+    else:
+        # mkdtemp expect 'dir' to be existing on the system
+        # Let's be sure it's always the case
+        if not os.path.exists(myTemp):
+            os.makedirs(myTemp)
+
+        # mount
+        path = tempfile.mkdtemp(
+            prefix='mnt.',
+            dir=myTemp,
+        )
     try:
         LOG.debug('Mounting %s on %s with options %s', dev, path, options)
         command_check_call(
@@ -1465,8 +1506,8 @@ def unmount(
             else:
                 time.sleep(0.5 + retries * 1.0)
                 retries += 1
-
-    os.rmdir(path)
+    if os.path.isdir(path):
+        os.rmdir(path)
 
 
 ###########################################
@@ -3446,6 +3487,7 @@ def mount_activate(
     dmcrypt,
     dmcrypt_key_dir,
     reactivate=False,
+    activate_one=False
 ):
 
     if dmcrypt:
@@ -3461,6 +3503,8 @@ def mount_activate(
             e,
         )
 
+    global ACTIVATE_ONE
+    ACTIVATE_ONE = activate_one
     # TODO always using mount options from cluster=ceph for
     # now; see http://tracker.newdream.net/issues/3253
     mount_options = get_mount_options(cluster='ceph', fs_type=fstype)
@@ -3653,7 +3697,6 @@ def activate(
             fsid=fsid,
             keyring=keyring,
         )
-        write_one_line(path, 'whoami', osd_id)
     LOG.debug('OSD id is %s', osd_id)
 
     if not os.path.exists(os.path.join(path, 'ready')):
@@ -3708,6 +3751,9 @@ def main_activate(args):
     cluster = None
     osd_id = None
 
+    global OSD_ID
+    OSD_ID = args.osd_id
+
     LOG.info('path = ' + str(args.path))
     if not os.path.exists(args.path):
         raise Error('%s does not exist' % args.path)
@@ -3732,6 +3778,7 @@ def main_activate(args):
                 dmcrypt=args.dmcrypt,
                 dmcrypt_key_dir=args.dmcrypt_key_dir,
                 reactivate=args.reactivate,
+                activate_one=args.activate_one
             )
             osd_data = get_mount_point(cluster, osd_id)
 
@@ -4791,6 +4838,16 @@ def main_trigger(args):
             ]
         )
 
+    elif parttype in (PTYPE['regular']['metadata']['ready']):
+        LOG.debug("main_trigger: " + args.dev)
+        out, err, ret = command(
+            ceph_disk +
+            [
+                'activate-meta',
+                args.dev,
+            ]
+        )
+
     elif parttype in (PTYPE['plain']['osd']['ready'],
                       PTYPE['luks']['osd']['ready']):
         out, err, ret = command(
@@ -5059,11 +5116,26 @@ def setup_statedir(dir):
     global prepare_lock
     prepare_lock = FileLock(STATEDIR + '/tmp/ceph-disk.prepare.lock')
 
+    global prepare_meta_lock
+    prepare_meta_lock = FileLock(STATEDIR + '/tmp/ceph-disk.preparemeta.lock')
+
     global activate_lock
     activate_lock = FileLock(STATEDIR + '/tmp/ceph-disk.activate.lock')
 
+    global activate_meta_lock
+    activate_meta_lock = FileLock(STATEDIR + '/tmp/ceph_disk.activate_meta.lock')
+
     global SUPPRESS_PREFIX
     SUPPRESS_PREFIX = STATEDIR + '/tmp/suppress-activate.'
+
+
+def setup_metadir(dir):
+    # if journa is ssd, will put metadata in journal partition
+    global METADIR
+    METADIR = dir
+    # create the metadir, must chown and chmod
+    if not os.path.exists(METADIR):
+        os.mkdir(METADIR)
 
 
 def setup_sysconfdir(dir):
@@ -5100,6 +5172,13 @@ def parse_args(argv):
               '(default /var/lib/ceph)'),
     )
     parser.add_argument(
+        '--metadir',
+        metavar='PATH',
+        default='/var/lib/ceph/osd-meta',
+        help=('directory in which osd metadata is preserved '
+               '(default /var/lib/ceph/osd-meta)'),
+    )
+    parser.add_argument(
         '--sysconfdir',
         metavar='PATH',
         default='/etc/ceph',
@@ -5130,7 +5209,9 @@ def parse_args(argv):
     )
 
     Prepare.set_subparser(subparsers)
+    make_prepare_meta_parser(subparsers)
     make_activate_parser(subparsers)
+    make_activate_meta_parser(subparsers)
     make_activate_lockbox_parser(subparsers)
     make_activate_block_parser(subparsers)
     make_activate_journal_parser(subparsers)
@@ -5229,6 +5310,182 @@ def make_trigger_parser(subparsers):
     return trigger_parser
 
 
+def create_meta_partition(path, meta_uuid):
+    size = int(get_conf(
+        cluster='ceph',
+        variable='osd_meta_size',
+    ))
+    num = 0
+    ptype_tobe = PTYPE['regular']['metadata']['tobe']
+    if num == 0:
+        num = get_free_partition_index(path)
+    if size > 0:
+        new = '--new={num}:0:+{size}M'.format(num=num, size=size)
+        if size > get_dev_size(path):
+            LOG.error('refusing to create %s on %s' % ('metadata', path))
+            raise Error('%s device size is not big enough' % path)
+    else:
+        raise Error('please set a not-zero size')
+    LOG.debug('Create %s partition num %d size %d on %s',
+        'metadata', num, size, path)
+    command_check_call(
+        [
+            'sgdisk',
+            new,
+            '--change-name={num}:ceph {name}'.format(num=num, name='metadata'),
+            '--partition-guid={num}:{uuid}'.format(num=num, uuid=meta_uuid),
+            '--typecode={num}:{uuid}'.format(num=num, uuid=ptype_tobe),
+            '--mbrtogpt',
+            '--',
+            path,
+        ]
+    )
+    update_partition(path, 'created')
+    return num
+
+
+def populate_metadata_path(path):
+    mounted_point = is_mounted(path)
+    if not mounted_point:
+        args = ['mkfs', '-t', 'xfs']
+        args.extend(MKFS_ARGS.get('xfs', []))
+        args.extend([
+            '--',
+            path
+        ])
+        try:
+            LOG.info("mkfs args: %s", args)
+            LOG.debug('Creating xfs fs on %s', command_check_call(args))
+        except subprocess.CalledProcessError as e:
+            raise Error(e)
+
+
+        # just mount metadata to metadir and use default options
+        return mount(path, 'xfs', options=None)
+    else:
+        return mounted_point
+
+
+def prepare_meta_part(args):
+    omap_in_ssd = get_conf(
+        cluster='ceph',
+        variable='omap_in_ssd'
+    )
+    if str(omap_in_ssd).lower() not in 'true':
+        return
+
+    meta_uuid = str(uuid.uuid4())
+    global have_to_prepare_meta
+    have_to_prepare_meta = True
+    # always use first partition as metadata
+    part_num = create_meta_partition(args.path[0], meta_uuid)
+
+    ssdindex = read_one_line(METADIR, '.ssdindex')
+    new_ssdindex = 0
+    if ssdindex is None:
+        global SSD_INDEX
+        write_one_line(METADIR, '.ssdindex', '%d' % SSD_INDEX)
+    else:
+        import string
+        new_ssdindex = string.atoi(ssdindex) + 1
+        write_one_line(METADIR, '.ssdindex', '%d' % new_ssdindex)
+        SSD_INDEX = new_ssdindex
+
+    # just use the default mkfs options
+    meta_part = '{path}{path_num}'.format(path=args.path[0], path_num=part_num)
+    meta_path = populate_metadata_path(meta_part)
+    if meta_path:
+        if which('restorecon'):
+            command(['restorecon', '-R', meta_path])
+        command(['chown', '-R', 'ceph:ceph', meta_path])
+        os.chmod(meta_path, 0755)
+        # TODO Write a file named .meta_uuid, the content is the mount_point
+        write_one_line(METADIR, '.' + meta_uuid , '%d' % SSD_INDEX)
+    else:
+        raise Error('populate_metadata_path error')
+
+
+def main_prepare_meta(args):
+    with prepare_meta_lock:
+        prepare_meta_part(args)
+
+
+def make_prepare_meta_parser(subparsers):
+    prepare_meta_parser = subparsers.add_parser(
+        'prepare-metadata',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=textwrap.fill(textwrap.dedent("""\
+        Prepare the metadata partition while we want to use ssd
+        as journal, By default, it is mounted on
+        {statedir}/osd-meta.
+        """.format(statedir=STATEDIR))),
+        help='Prepare metadata partition while use journal ssd')
+    prepare_meta_parser.add_argument(
+        'path',
+        metavar='PATH',
+        nargs='*',
+        help='path to block device'
+    )
+    prepare_meta_parser.set_defaults(
+        func=main_prepare_meta,
+    )
+    return prepare_meta_parser
+
+
+def make_activate_meta_parser(subparsers):
+    activate_meta_parser = subparsers.add_parser(
+        'activate-meta',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=textwrap.fill(textwrap.dedent("""\
+        Activate the metadata found at PATH.
+        """)),
+        help='Activate metadata partition while use journal ssd')
+    activate_meta_parser.add_argument(
+        'path',
+        metavar='PATH',
+        help='path to block device or directory'
+    )
+    activate_meta_parser.set_defaults(
+        func=main_activate_meta,
+    )
+    return activate_meta_parser
+
+
+def activate_meta_part(args):
+    # TODO The mount_point should read the file .meta_uuid
+    meta_uuid = get_partition_uuid(args.path)
+    ssdindex = read_one_line(args.metadir, '.' + meta_uuid)
+    if ssdindex is None:
+        raise Error('missing index file, can not find correct location')
+    mount_point = args.metadir + '/' + ssdindex
+    fstype = 'xfs'
+    options = MOUNT_OPTIONS.get(fstype, '')
+    LOG.debug('Mounting %s on %s with options %s', args.path, mount_point, options)
+    try:
+        command_check_call(
+            [
+                'mount',
+                '-t', fstype,
+                '-o', options,
+                '--',
+                args.path,
+                mount_point,
+            ]
+        )
+        if which('restorecon'):
+            command(
+                ['restorecon', mount_point],
+            )
+    except subprocess.CalledProcessError as e:
+        raise MountError(e)
+
+
+# just use default options to mount the metadata partition
+def main_activate_meta(args):
+    with activate_meta_lock:
+        activate_meta_part(args)
+
+
 def make_activate_parser(subparsers):
     activate_parser = subparsers.add_parser(
         'activate',
@@ -5248,6 +5505,18 @@ def make_activate_parser(subparsers):
         run yet.
         """.format(statedir=STATEDIR))),
         help='Activate a Ceph OSD')
+    activate_parser.add_argument(
+        '--osd-id',
+        metavar='OSDID',
+        help='specified a osd id if you like',
+        dest='osd_id'
+    )
+    activate_parser.add_argument(
+        '--activate-one',
+        action='store_true', default=None,
+        help='if activate all, do not pass osd id',
+
+    )
     activate_parser.add_argument(
         '--mount',
         action='store_true', default=None,
@@ -5632,6 +5901,7 @@ def main(argv):
         os.environ['PATH'] = args.prepend_to_path + ":" + path
 
     setup_statedir(args.statedir)
+    setup_metadir(args.metadir)
     setup_sysconfdir(args.sysconfdir)
 
     global CEPH_PREF_USER
