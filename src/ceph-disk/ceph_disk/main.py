@@ -259,7 +259,7 @@ MKFS_ARGS = dict(
         # partition table, we often recreate it exactly the same way,
         # so we'll see ghosts of filesystems past
         '-f',
-        '-i', 'size=2048',
+        '-i', 'size=1024',
     ],
     zfs=[
         '-o', 'atime=off'
