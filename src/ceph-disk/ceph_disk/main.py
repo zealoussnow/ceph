@@ -308,7 +308,7 @@ LOG = logging.getLogger(LOG_NAME)
 # LOG.setLevel(log_level)
 # LOG_FORMAT = "%(asctime)s [%(funcName)s,%(lineno)d] [%(process)d]: %(message)s"
 # formatter = logging.Formatter(LOG_FORMAT)
-# handler = logging.handlers.RotatingFileHandler("/tmp/.ceph-disk.log", "a",  1024 * 1000, 10, encoding="UTF-8")
+# handler = logging.handlers.RotatingFileHandler("/var/log/ceph/ceph-disk.log", "a",  1024 * 1000, 10, encoding="UTF-8")
 # handler.setFormatter(formatter)
 # LOG.addHandler(handler)
 
@@ -5101,12 +5101,12 @@ def main_fix(args):
     )
 
 
-def setup_statedir(dir):
+def setup_statedir(args):
     # XXX The following use of globals makes linting
     # really hard. Global state in Python is iffy and
     # should be avoided.
     global STATEDIR
-    STATEDIR = dir
+    STATEDIR = args.statedir
 
     if not os.path.exists(STATEDIR):
         os.mkdir(STATEDIR)
@@ -5120,7 +5120,13 @@ def setup_statedir(dir):
     prepare_meta_lock = FileLock(STATEDIR + '/tmp/ceph-disk.preparemeta.lock')
 
     global activate_lock
-    activate_lock = FileLock(STATEDIR + '/tmp/ceph-disk.activate.lock')
+    # If option is activate-all, path is not specified
+    lock_path = '/tmp/ceph-disk.activate_lock.lock'
+    try:
+       lock_path = '/tmp/ceph-disk-%s.lock' % args.path.replace('/', '')
+    except AttributeError as e:
+        pass
+    activate_lock = FileLock(STATEDIR + lock_path)
 
     global activate_meta_lock
     activate_meta_lock = FileLock(STATEDIR + '/tmp/ceph_disk.activate_meta.lock')
@@ -5900,7 +5906,7 @@ def main(argv):
         path = os.environ.get('PATH', os.defpath)
         os.environ['PATH'] = args.prepend_to_path + ":" + path
 
-    setup_statedir(args.statedir)
+    setup_statedir(args)
     setup_metadir(args.metadir)
     setup_sysconfdir(args.sysconfdir)
 
