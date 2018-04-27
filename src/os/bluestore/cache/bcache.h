@@ -305,8 +305,16 @@ struct io {
 	struct list_head	lru;
 
 	unsigned long		jiffies;
-	unsigned		sequential;
+	uint64_t                sequential;
 	sector_t		last;
+};
+
+struct current_thread {
+        pthread_t               thread_id;
+        
+        struct list_head        list;
+        unsigned int            sequential_io;
+        unsigned int            sequential_io_avg;
 };
 
 struct cached_dev {
@@ -382,6 +390,7 @@ struct cached_dev {
 	struct io		io[RECENT_IO]; /* 记录顺序读写信息？*/
 	struct hlist_head	io_hash[RECENT_IO + 1];
 	struct list_head	io_lru;
+        struct list_head        io_thread;
 	//spinlock_t		io_lock;
 
 	//struct cache_accounting	accounting;
