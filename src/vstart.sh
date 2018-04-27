@@ -153,6 +153,7 @@ usage=$usage"\t--rgw_compression specify the rgw compression plugin\n"
 usage=$usage"\t-b, --bluestore use bluestore as the osd objectstore backend\n"
 usage=$usage"\t--memstore use memstore as the osd objectstore backend\n"
 usage=$usage"\t--cache <pool>: enable cache tiering on pool\n"
+usage=$usage"\t--block_type <type>: choose block_type[cache, kernel,pmem,ust-nvme\n"
 usage=$usage"\t--short: short object names only; necessary for ext4 dev\n"
 usage=$usage"\t--nolockdep disable lockdep\n"
 usage=$usage"\t--multimds <count> allow multimds with maximum active count\n"
@@ -316,6 +317,10 @@ case $1 in
         CEPH_MAX_MDS="$2"
         shift
         ;;
+    --block_type )
+        BLOCK_TYPE="$2"
+        shift
+        ;;
     * )
 	    usage_exit
 esac
@@ -325,6 +330,8 @@ done
 if [ $kill_all -eq 1 ]; then
     $SUDO $INIT_CEPH stop
 fi
+
+[ -z "${BLOCK_TYPE}" ] && BLOCK_TYPE="kernel"
 
 if [ "$overwrite_conf" -eq 0 ]; then
     CEPH_ASOK_DIR=`dirname $($CEPH_BIN/ceph-conf --show-config-value admin_socket)`
@@ -412,6 +419,7 @@ prepare_conf() {
         num rgw = $CEPH_NUM_RGW
 
 [global]
+        block_type=$BLOCK_TYPE
         fsid = $(uuidgen)
         osd pg bits = 3
         osd pgp bits = 5  ; (invalid, but ceph should cope!)

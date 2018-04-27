@@ -134,7 +134,8 @@ int BlueFS::add_block_device(unsigned id, const string& path)
   dout(10) << __func__ << " bdev " << id << " path " << path << dendl;
   assert(id < bdev.size());
   assert(bdev[id] == NULL);
-  BlockDevice *b = BlockDevice::create(cct, path, NULL, NULL);
+  BlockDevice *b = BlockDevice::create(cct, path, NULL, NULL, 
+                        cct->_conf->block_type);
   int r = b->open(path);
   if (r < 0) {
     delete b;

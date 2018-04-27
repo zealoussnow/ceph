@@ -1011,6 +1011,10 @@ OPTION(bluestore_spdk_coremask, OPT_STR)
 // Specify the maximal I/Os to be batched completed while checking queue pair completions.
 // Default value 0 means that let SPDK nvme library determine the value.
 OPTION(bluestore_spdk_max_io_completion, OPT_U32)
+
+// t2cache
+OPTION(block_type, OPT_STR)
+
 OPTION(bluestore_block_path, OPT_STR)
 OPTION(bluestore_block_size, OPT_U64)  // 10gb for testing
 OPTION(bluestore_block_create, OPT_BOOL)

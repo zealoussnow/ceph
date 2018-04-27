@@ -51,8 +51,50 @@ void IOContext::aio_wait()
 }
 
 BlockDevice *BlockDevice::create(CephContext* cct, const string& path,
-				 aio_callback_t cb, void *cbpriv)
+        aio_callback_t cb, void *cbpriv, const std::string &block_type)
 {
+
+  assert(!block_type.empty());
+
+  if (block_type == "cache" ) {
+    //return new CacheDevice(cct, db, cbpriv);
+  } else if (block_type == "kernel") {
+    return new KernelDevice(cct, cb, cbpriv);
+  } else if (block_type == "pmem") {
+#if defined(HAVE_PMEM)
+    int is_pmem = 0;
+    void *addr = pmem_map_file(path.c_str(), 1024*1024, PMEM_FILE_EXCL, O_RDONLY, NULL, &is_pmem);
+    if (addr != NULL) {
+      if (is_pmem) {
+        pmem_unmap(addr, 1024*1024);
+        return new PMEMDevice(cct, cb, cbpriv);
+      }
+      pmem_unmap(addr, 1024*1024);
+      assert(" device not pmem block_type " == 0);
+    }
+#endif
+    assert(" HAVE_PMEM not enable " == 0);
+  } else if (block_type == "ust-nvme") {
+#if defined(HAVE_SPDK)
+    char buf[PATH_MAX + 1];
+    int r = ::readlink(path.c_str(), buf, sizeof(buf) - 1);
+    if (r >= 0) {
+      buf[r] = '\0';
+      char *bname = ::basename(buf);
+      if (strncmp(bname, SPDK_PREFIX, sizeof(SPDK_PREFIX)-1) != 0) {
+        assert(" device not ust-nvme block_type " == 0);
+      }
+    }
+    return new NVMEDevice(cct, cb, cbpriv);
+#endif
+    assert(" HAVE_SPDK not enable " == 0);
+  }
+
+  derr << __func__ << " unknown backend " << block_type << dendl;
+  ceph_abort();
+  return NULL;
+
+#if 0
   string type = "kernel";
   char buf[PATH_MAX + 1];
   int r = ::readlink(path.c_str(), buf, sizeof(buf) - 1);
@@ -96,6 +138,7 @@ BlockDevice *BlockDevice::create(CephContext* cct, const string& path,
   derr << __func__ << " unknown backend " << type << dendl;
   ceph_abort();
   return NULL;
+#endif
 }
 
 void BlockDevice::queue_reap_ioc(IOContext *ioc)

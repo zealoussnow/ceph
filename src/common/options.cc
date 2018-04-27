@@ -3193,6 +3193,12 @@ std::vector<Option> get_global_options() {
     .set_default(0)
     .set_description(""),
 
+    // t2cache
+    Option("block_type", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_enum_allowed({"cache", "kernel", "pmem", "ust-nvme"})
+    .set_default("")
+    .set_description("backend store block type"),
+
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")
     .add_tag("mkfs")

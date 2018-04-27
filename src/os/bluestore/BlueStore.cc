@@ -4167,7 +4167,7 @@ int BlueStore::_open_bdev(bool create)
 {
   assert(bdev == NULL);
   string p = path + "/block";
-  bdev = BlockDevice::create(cct, p, aio_cb, static_cast<void*>(this));
+  bdev = BlockDevice::create(cct, p, aio_cb, static_cast<void*>(this), cct->_conf->block_type);
   int r = bdev->open(p);
   if (r < 0)
     goto fail;
