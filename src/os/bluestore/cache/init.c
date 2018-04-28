@@ -1310,7 +1310,7 @@ int item_write_next(struct ring_item *item, bool dirty)
 
   return ret;
 free_keylist:
-  free(insert_keys);
+  free(item->insert_keys);
   return -1;
 }
 
