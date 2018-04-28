@@ -909,7 +909,7 @@ found:
   ca->set->fd = ca->fd;
   ca->set->hdd_fd = ca->hdd_fd;
 
-  c->dc = malloc(sizeof(struct cached_dev));
+  c->dc = calloc(1, sizeof(struct cached_dev));
   memcpy(&c->dc->sb, &c->sb, sizeof(struct cache_sb));
   c->dc->c = c;
   cached_dev_init(c->dc);
@@ -1289,6 +1289,7 @@ int item_write_next(struct ring_item *item, bool dirty)
   struct bkey *k = NULL;
   k = get_init_bkey(item->insert_keys, (item->o_offset + item->io.len));
   if ( !k ) {
+    goto free_keylist;
     assert ( " keylist is not enough, need realloc " == 0);
   }
 
@@ -1308,6 +1309,9 @@ int item_write_next(struct ring_item *item, bool dirty)
   bch_keylist_push(item->insert_keys);
 
   return ret;
+free_keylist:
+  free(insert_keys);
+  return -1;
 }
 
 // 对于写来说，不管ssd还是hdd，都是要把所有的io写完才能
@@ -1330,8 +1334,8 @@ aio_write_completion(void *cb)
     // 如果是写hdd完成
     switch (item->strategy) {
       case CACHE_MODE_WRITEAROUND:
-          bch_data_insert_keys(ca->set, item->insert_keys);
-          break;
+        bch_data_insert_keys(ca->set, item->insert_keys);
+        break;
       case CACHE_MODE_WRITETHROUGH:
         // write through 写完hhd之后，开始写ssd
         // 如果是write through写ssd完成，则插入btree
@@ -1340,14 +1344,19 @@ aio_write_completion(void *cb)
           item->write_through_done = true;
           item->io.pos = item->data;
           item->io.offset = item->o_offset;
-          item->io.len = item->o_len;
+          item->io.len = 0;
           // write through的bkey不需要设置dirty=true
-          item_write_next(item, false);
+          if (!item_write_next(item, false)) {
+            assert(" item init failed " == 0);
+          }
           ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
           if ( ret < 0) {
               assert(" test aio enqueue faild " == 0);
           }
           return ;
+        } else {
+          bch_data_insert_keys(ca->set, item->insert_keys);
+          break;
         }
       case CACHE_MODE_WRITEBACK:
         bch_data_insert_keys(ca->set, item->insert_keys);
@@ -1396,7 +1405,7 @@ do_write_writearound(struct ring_item * item)
   /*SET_KEY_OFFSET(k, (item->o_offset>>9));*/
   k = get_init_bkey(insert_keys, item->o_offset);
   if ( !k ) {
-    assert(" keylist is not enough, need realloc " == 0);
+    goto free_keylist;
   }
 
   SET_KEY_OFFSET(k, KEY_OFFSET(k) + (item->o_len >> 9));
@@ -1439,7 +1448,8 @@ do_write_writeback(struct ring_item * item)
   bch_keylist_init(insert_keys);
   k = get_init_bkey(insert_keys, item->o_offset);
   if ( !k ) {
-    assert(" keylist is not enough, need realloc " == 0);
+    goto free_keylist;
+    /*assert(" keylist is not enough, need realloc " == 0);*/
   }
   SET_KEY_DIRTY(k, true);
   ret = bch_alloc_sectors(ca->set, k, (item->o_len >> 9), 0, 0, 1);
@@ -1462,6 +1472,38 @@ do_write_writeback(struct ring_item * item)
   return ret;
 free_keylist:
   free(insert_keys);
+err:
+  return -1;
+}
+
+int 
+do_write_writethrough(struct ring_item * item)
+{
+  int ret = 0;
+  struct cache *ca = (struct cache *) item->ca_handler;
+  struct keylist *insert_keys = NULL;
+  struct bkey *k = NULL;
+
+  insert_keys = calloc(1, sizeof(*insert_keys));
+  if ( !insert_keys ) {
+    goto err;
+  }
+  bch_keylist_init(insert_keys);
+
+  item->io.pos = item->data;
+  item->io.offset = item->o_offset;
+  item->io.len = item->o_len;
+  item->iou_arg = item;
+  item->iou_completion_cb = aio_write_completion;
+  item->insert_keys = insert_keys;
+
+  ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
+
+  if (ret < 0) {
+    assert( "test aio_enqueue error  " == 0);
+  }
+
+  return ret;
 err:
   return -1;
 }
@@ -1613,6 +1655,10 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
       }
       break;
     case CACHE_MODE_WRITETHROUGH:
+      ret = do_write_writethrough(item);
+      if (ret < 0) {
+        goto free_item;
+      }
       break;
     case CACHE_MODE_WRITEAROUND:
       ret = do_write_writearound(item);
