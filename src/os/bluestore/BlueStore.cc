@@ -8764,6 +8764,10 @@ void BlueStore::_deferred_queue(TransContext *txc)
 	cct, wt.seq, e.offset, e.length, p);
     }
   }
+  // linbing
+  // 这哥deferred_aggressive会导致rbd的基础
+  // 对象没有写入后端，保留在db中，如何解决？
+  //if( !txc->osr->deferred_running ) {
   if (deferred_aggressive &&
       !txc->osr->deferred_running) {
     _deferred_submit_unlock(txc->osr.get());

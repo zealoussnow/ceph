@@ -768,79 +768,79 @@ struct bbio {
 
 static inline size_t sector_to_bucket(struct cache_set *c, sector_t s)
 {
-	return s >> c->bucket_bits;
+  return s >> c->bucket_bits;
 }
 
 #define IS_ERR_VALUE(x) unlikely((unsigned long)(void *)(x) >= (unsigned long)-MAX_ERRNO)
 
 static inline void * ERR_PTR(long error)
 {
-        return (void *) error;
+  return (void *) error;
 }
 
 static inline long PTR_ERR(__force const void *ptr)
 {
-        return (long) ptr;
+  return (long) ptr;
 }
 
 static inline bool IS_ERR(__force const void *ptr)
 {
-        return IS_ERR_VALUE((unsigned long)ptr);
+  return IS_ERR_VALUE((unsigned long)ptr);
 }
 
 static inline bool IS_ERR_OR_NULL(__force const void *ptr)
 {
-          return unlikely(!ptr) || IS_ERR_VALUE((unsigned long)ptr);
+  return unlikely(!ptr) || IS_ERR_VALUE((unsigned long)ptr);
 }
 
 /* 将bucket的个数转换为多少个扇区数 */
 static inline sector_t bucket_to_sector(struct cache_set *c, size_t b)
 {
-	return ((sector_t) b) << c->bucket_bits;
+  return ((sector_t) b) << c->bucket_bits;
 }
 
 static inline sector_t bucket_remainder(struct cache_set *c, sector_t s)
 {
-	return s & (c->sb.bucket_size - 1);
+  return s & (c->sb.bucket_size - 1);
 }
 
 static inline struct cache *PTR_CACHE(struct cache_set *c,
 				      const struct bkey *k,
 				      unsigned ptr)
 {
-	return c->cache[PTR_DEV(k, ptr)];
+  return c->cache[PTR_DEV(k, ptr)];
 }
 
 static inline size_t PTR_BUCKET_NR(struct cache_set *c,
 				   const struct bkey *k,
 				   unsigned ptr)
 {
-	return sector_to_bucket(c, PTR_OFFSET(k, ptr));
+  return sector_to_bucket(c, PTR_OFFSET(k, ptr));
 }
 
 static inline struct bucket *PTR_BUCKET(struct cache_set *c,
 					const struct bkey *k,
 					unsigned ptr)
 {
-	return PTR_CACHE(c, k, ptr)->buckets + PTR_BUCKET_NR(c, k, ptr);
+  return PTR_CACHE(c, k, ptr)->buckets + PTR_BUCKET_NR(c, k, ptr);
 }
 
 static inline uint8_t gen_after(uint8_t a, uint8_t b)
 {
-	uint8_t r = a - b;
-	return r > 128U ? 0 : r;
+  uint8_t r = a - b;
+  return r > 128U ? 0 : r;
 }
 
 static inline uint8_t ptr_stale(struct cache_set *c, const struct bkey *k,
 				unsigned i)
 {
-	return gen_after(PTR_BUCKET(c, k, i)->gen, PTR_GEN(k, i));
+  return gen_after(PTR_BUCKET(c, k, i)->gen, PTR_GEN(k, i));
 }
 
 static inline bool ptr_available(struct cache_set *c, const struct bkey *k,
 				 unsigned i)
 {
-	return (PTR_DEV(k, i) < MAX_CACHES_PER_SET) && PTR_CACHE(c, k, i);
+  return (PTR_DEV(k, i) < MAX_CACHES_PER_SET) && PTR_CACHE(c, k, i);
 }
 
 /* Btree key macros */

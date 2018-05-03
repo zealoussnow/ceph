@@ -589,6 +589,7 @@ void CacheDevice::_aio_stop()
 
 void io_complete(void *t)
 {
+  //printf("   CacheDevice io completion \n");
   Task *task = static_cast<Task*>(t);
   CacheDevice *cache_device = task->device;
   ++cache_device->completed_op_seq;
@@ -599,7 +600,9 @@ void io_complete(void *t)
   if (task->command == IOCommand::WRITE_COMMAND) {
     if (ctx->priv) {
       if (!--ctx->num_running) {
+        //printf(" call bluestore aio completion \n");
         task->device->aio_callback(task->device->aio_callback_priv, ctx->priv);
+        //printf(" call bluestore aio completion done\n");
       }
     } else {
       ctx->try_aio_wake();

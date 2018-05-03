@@ -599,58 +599,51 @@ out:
 
 void __bch_bucket_free(struct cache *ca, struct bucket *b)
 {
-	SET_GC_MARK(b, 0);
-	SET_GC_SECTORS_USED(b, 0);
+  SET_GC_MARK(b, 0);
+  SET_GC_SECTORS_USED(b, 0);
 }
 
 void bch_bucket_free(struct cache_set *c, struct bkey *k)
 {
-	unsigned i;
-
-	/* KEY_PTRS表示cache设备的个数 */
-	for (i = 0; i < KEY_PTRS(k); i++)
-		__bch_bucket_free(PTR_CACHE(c, k, i),
-				  PTR_BUCKET(c, k, i));
+  unsigned i;
+  /* KEY_PTRS表示cache设备的个数 */
+  for (i = 0; i < KEY_PTRS(k); i++){
+    __bch_bucket_free(PTR_CACHE(c, k, i), PTR_BUCKET(c, k, i));
+  }
 }
 
 int __bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
 			   struct bkey *k, int n, bool wait)
 {
-	int i;
+  int i;
+  //lockdep_assert_held(&c->bucket_lock);
+  BUG_ON(!n || n > c->caches_loaded || n > 8);
+  bkey_init(k);
+  /* sort by free space/prio of oldest data in caches */
+  for (i = 0; i < n; i++) {
+    struct cache *ca = c->cache_by_alloc[i];
+    long b = bch_bucket_alloc(ca, reserve, wait);
+    /*printf(" alloc.c FUN %s: bucket alloc bucket nr=%ld\n",__func__,b);*/
+    if (b == -1) {
+      goto err;
+    }
+    /*
+    * #define PTR(gen, offset, dev)                             \
+    *       ((((__u64) dev) << 51) | ((__u64) offset) << 8 | gen)
+    *
+    * (((__u64)ca->sb.nr_this_dev)<<51) |
+    *   (((__u64)bucket_to_sector(c, b)) << 8 | ca->buckets[b].gen)
+    */
+    k->ptr[i] = PTR(ca->buckets[b].gen, bucket_to_sector(c, b),
+                        ca->sb.nr_this_dev);
+    SET_KEY_PTRS(k, i + 1);
+  }
 
-	//lockdep_assert_held(&c->bucket_lock);
-        BUG_ON(!n || n > c->caches_loaded || n > 8);
-
-	bkey_init(k);
-
-	/* sort by free space/prio of oldest data in caches */
-
-	for (i = 0; i < n; i++) {
-		struct cache *ca = c->cache_by_alloc[i];
-		long b = bch_bucket_alloc(ca, reserve, wait);
-                /*printf(" alloc.c FUN %s: bucket alloc bucket nr=%ld\n",__func__,b);*/
-
-		if (b == -1)
-			goto err;
-
-		/*
-		 * #define PTR(gen, offset, dev)                             \
-		 *       ((((__u64) dev) << 51) | ((__u64) offset) << 8 | gen)
-		 *
-		 * (((__u64)ca->sb.nr_this_dev)<<51) |
-		 *   (((__u64)bucket_to_sector(c, b)) << 8 | ca->buckets[b].gen)
-		 */
-		k->ptr[i] = PTR(ca->buckets[b].gen,
-				bucket_to_sector(c, b),
-				ca->sb.nr_this_dev);
-		SET_KEY_PTRS(k, i + 1);
-	}
-
-	return 0;
+  return 0;
 err:
-	bch_bucket_free(c, k);
-	bkey_put(c, k);
-	return -1;
+  bch_bucket_free(c, k);
+  bkey_put(c, k);
+  return -1;
 }
 
 int bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,

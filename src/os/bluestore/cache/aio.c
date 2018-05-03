@@ -41,6 +41,7 @@ struct thread_options {
   uint16_t type;
   char *conf;
   char *name;
+  char *thread_name;
   uint64_t period_microseconds;
 };
 
@@ -65,6 +66,8 @@ cache_thread_poller_fn( void *thread_ctx)
 {
   struct spdk_cache_thread *tc = thread_ctx;
   struct spdk_cache_poller *cp = tc->cp;
+
+  pthread_setname_np(pthread_self(), "poller_thread");
 
   while(1) {
     // 调用bdev_aio层，进行io_getevents，得到成功的io，会回调
@@ -145,7 +148,7 @@ spdk_cache_init_thread(struct thread_data *td)
     goto err;
   }
   cache_thread->thread = spdk_allocate_thread(spdk_cache_send_msg, spdk_cache_start_poller,
-                                   spdk_cache_stop_poller, cache_thread, "cache_thread");
+                                   spdk_cache_stop_poller, cache_thread, td->t_options->thread_name);
 
   if (!cache_thread->thread) {
     spdk_ring_free(cache_thread->ring);
@@ -437,6 +440,7 @@ aio_init(void * ca)
   t_options->conf = path;
   t_options->type = CACHE_THREAD_CACHE;
   t_options->name = "AIO0";
+  t_options->thread_name = "aio_init_thread";
   /*t_options->period_microseconds = 1000000;*/
   t_options->period_microseconds = 100000;
 
@@ -452,10 +456,20 @@ aio_init(void * ca)
   /*max = spdk_env_get_core_count();*/
 
   struct thread_options hdd_options;
+  struct thread_options ssd_options;
+
   hdd_options.name = "AIO1";
+  hdd_options.thread_name = "aio_hdd_thread";
   hdd_options.conf = path;
   hdd_options.period_microseconds = 1000000;
   hdd_options.type = CACHE_THREAD_BACKEND;
+
+  ssd_options.name = "AIO0";
+  ssd_options.thread_name = "aio_cache_thread";
+  ssd_options.conf = path;
+  t_options->type = CACHE_THREAD_CACHE;
+  t_options->period_microseconds = 100000;
+
 
   TAILQ_INIT(&handler->cache_threads);
   TAILQ_INIT(&handler->backend_threads);
@@ -466,7 +480,7 @@ aio_init(void * ca)
       continue;
     }
     if ( lcore <= 1 ) {
-      td = create_new_thread(t_options);
+      td = create_new_thread(&ssd_options);
       spdk_env_thread_launch_pinned(lcore, cache_thread_fn, (void *)td);
       td->lcore = lcore;
       handler->nr_cache++;

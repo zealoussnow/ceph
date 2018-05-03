@@ -1343,7 +1343,11 @@ aio_write_completion(void *cb)
     // 写成功，先插入btree数，再回调上层io完成成功
     // 确定一次IO完成之后，需要释放item的空间
     /*printf(" ******* write completion ************ \n");*/
-    item->io_completion_cb(item->io_arg); 
+    if ( item->io_completion_cb ) {
+      item->io_completion_cb(item->io_arg); 
+    } else {
+      printf(" No io_completion_cb \n");
+    }
     free(item->insert_keys);
     free(item);
   } else {

@@ -182,41 +182,41 @@ BTREE_FLAG(write_idx);
 
 static inline struct btree_write *btree_current_write(struct btree *b)
 {
-	/*
-	 * b->flags中的第BTREE_NODE_write_idx（第2位）位
-	 * 所以，这里取的只是writes[0]或writes[1]
-	 */
-	return b->writes + btree_node_write_idx(b);
+  /*
+  * b->flags中的第BTREE_NODE_write_idx（第2位）位
+  * 所以，这里取的只是writes[0]或writes[1]
+  */
+  return b->writes + btree_node_write_idx(b);
 }
 
 static inline struct btree_write *btree_prev_write(struct btree *b)
 {
-	/* 比如这次是writes[1]，上次一定是writes[0] */
-	return b->writes + (btree_node_write_idx(b) ^ 1);
+  /* 比如这次是writes[1]，上次一定是writes[0] */
+  return b->writes + (btree_node_write_idx(b) ^ 1);
 }
 
 static inline struct bset *btree_bset_first(struct btree *b)
 {
-	/*
-         * XXX 取的是keys中第0个set的data成员，
-         * 也可以这么写：b->keys.set[0].data
-         */
-	return b->keys.set->data; // 只有当set是结构体时才能这么用
+  /*
+  * XXX 取的是keys中第0个set的data成员，
+  * 也可以这么写：b->keys.set[0].data
+  */
+  return b->keys.set->data; // 只有当set是结构体时才能这么用
 }
 
 static inline struct bset *btree_bset_last(struct btree *b)
 {
-	return bset_tree_last(&b->keys)->data;
+  return bset_tree_last(&b->keys)->data;
 }
 
 static inline unsigned bset_block_offset(struct btree *b, struct bset *i)
 {
-	return bset_sector_offset(&b->keys, i) >> b->c->block_bits;
+  return bset_sector_offset(&b->keys, i) >> b->c->block_bits;
 }
 
 static inline void set_gc_sectors(struct cache_set *c)
 {
-        atomic_set(&c->sectors_to_gc, c->sb.bucket_size * c->nbuckets / 16);
+  atomic_set(&c->sectors_to_gc, c->sb.bucket_size * c->nbuckets / 16);
 }
 
 void bkey_put(struct cache_set *c, struct bkey *k);

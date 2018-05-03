@@ -312,44 +312,43 @@ void bch_time_stats_update(struct time_stats *stats, uint64_t start_time)
 
 ssize_t _safe_read(int fd, void *buf, size_t count)
 {
-        size_t cnt = 0;
-
-        while (cnt < count) {
-                ssize_t r = read(fd, buf, count - cnt);
-                if (r <= 0) {
-                        if (r == 0) {
-                                // EOF
-                                return cnt;
-                        }
-                        if (errno == EINTR)
-                                continue;
-                        return -errno;
-                }
-                cnt += r;
-                buf = (char *)buf + r;
-        }
-        return cnt;
+  size_t cnt = 0;
+  while (cnt < count) {
+    ssize_t r = read(fd, buf, count - cnt);
+    if (r <= 0) {
+      if (r == 0) {
+        // EOF
+         return cnt;
+      }
+      if (errno == EINTR)
+        continue;
+      return -errno;
+    }
+    cnt += r;
+    buf = (char *)buf + r;
+  }
+  return cnt;
 }
 
 ssize_t _safe_read_exact(int fd, void *buf, size_t count)
 {
-        ssize_t ret = _safe_read(fd, buf, count);
-        if (ret < 0)
-                return ret;
-        if ((size_t)ret != count)
-                return -EDOM;
-        return 0;
+  ssize_t ret = _safe_read(fd, buf, count);
+  if (ret < 0)
+    return ret;
+  if ((size_t)ret != count)
+    return -EDOM;
+  return 0;
 }
 
 int get_random_bytes(void *buf, int len)
 {
-      ssize_t i;
-      int fd = open("/dev/urandom", O_RDONLY);
-      if (fd < 0)
-               return -1;
-      int ret = _safe_read_exact(fd, buf, len);
-      close(fd);
-      return ret;
+  ssize_t i;
+  int fd = open("/dev/urandom", O_RDONLY);
+  if (fd < 0)
+    return -1;
+  int ret = _safe_read_exact(fd, buf, len);
+  close(fd);
+  return ret;
 }
 
 

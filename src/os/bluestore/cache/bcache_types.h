@@ -391,32 +391,32 @@ PTR_FIELD(PTR_GEN,			0,  8)
 
 static inline unsigned long bkey_u64s(const struct bkey *k)
 {
-	return (sizeof(struct bkey) / sizeof(__u64)) + KEY_PTRS(k);
+  return (sizeof(struct bkey) / sizeof(__u64)) + KEY_PTRS(k);
 }
 
 static inline unsigned long bkey_bytes(const struct bkey *k)
 {
-	return bkey_u64s(k) * sizeof(__u64);
+  return bkey_u64s(k) * sizeof(__u64);
 }
 
 #define bkey_copy(_dest, _src)	memcpy(_dest, _src, bkey_bytes(_src))
 
 static inline void bkey_copy_key(struct bkey *dest, const struct bkey *src)
 {
-	SET_KEY_INODE(dest, KEY_INODE(src));
-	SET_KEY_OFFSET(dest, KEY_OFFSET(src));
+  SET_KEY_INODE(dest, KEY_INODE(src));
+  SET_KEY_OFFSET(dest, KEY_OFFSET(src));
 }
 
 static inline struct bkey *bkey_next(const struct bkey *k)
 {
-	__u64 *d = (void *) k;
-	return (struct bkey *) (d + bkey_u64s(k));
+  __u64 *d = (void *) k;
+  return (struct bkey *) (d + bkey_u64s(k));
 }
 
 static inline struct bkey *bkey_idx(const struct bkey *k, unsigned nr_keys)
 {
-	__u64 *d = (void *) k;
-	return (struct bkey *) (d + nr_keys);
+  __u64 *d = (void *) k;
+  return (struct bkey *) (d + nr_keys);
 }
 /* Enough for a key with 6 pointers */
 #define BKEY_PAD		8
