@@ -14,48 +14,9 @@ set (libcache_srcs
     sync_io.c
     writeback.c
     movinggc.c
+        kfifo.c
     )
-set (spdk_libs_whole 
-    spdk_bdev_malloc 
-    spdk_bdev_null 
-    spdk_bdev_nvme 
-    spdk_nvme
-    spdk_vbdev_error 
-    spdk_vbdev_gpt 
-    spdk_vbdev_lvol 
-    spdk_vbdev_split
-    spdk_blob 
-    spdk_blob_bdev 
-    spdk_lvol 
-    spdk_bdev_aio 
-    spdk_bdev_virtio
-    spdk_virtio 
-    )
-    #aio 
-set(spdk_libs
-    spdk_util 
-    spdk_bdev 
-    spdk_conf 
-    spdk_copy 
-    spdk_rpc
-    spdk_jsonrpc 
-    spdk_json 
-    spdk_log 
-    spdk_env_dpdk 
-   )
-set(dpdk_libs_whole
-    rte_eal 
-    rte_mempool
-    rte_ring 
-    rte_mempool_ring 
-    rte_pci 
-    rte_bus_pci 
-   )
-    #numa 
-    #dl 
-    #rt 
-    #uuid
-    #)
+
 #add_executable(go main.c alloc.c bset.c btree.c closure.c debug.c extents.c
     #io.c journal.c movinggc.c request.c super.c util.c writeback.c)
 #add_executable(go ${libcache_srcs})

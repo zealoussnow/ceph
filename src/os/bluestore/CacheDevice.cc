@@ -696,14 +696,16 @@ void CacheDevice::_aio_thread()
     } else {
       // task queue is empty
       if (!inflight) {
-        Mutex::Locker l(queue_lock);
+
         if (queue_empty.load()) {
           if (aio_stop) {
             break;
           }
-        queue_cond.Wait(queue_lock);
+
         }
       }
+        Mutex::Locker l(queue_lock);
+        queue_cond.Wait(queue_lock);
     }
   }
 

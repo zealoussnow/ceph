@@ -1307,9 +1307,9 @@ aio_write_completion(void *cb)
   struct cache *ca = item->ca_handler;
   int ret = 0;
 
-  if ( ! item->io.success ) {
-    assert(" Aio completion, io not Sucessfull " == 0);
-  }
+//  if ( ! item->io.success ) {
+//    assert(" Aio completion, io not Sucessfull " == 0);
+//  }
 
   if (( item->data + item->o_len ) == ( item->io.pos + item->io.len )) {
     /*printf(" *************** Yes write all IO Sucessfull call application cb \n");*/

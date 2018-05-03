@@ -115,8 +115,8 @@ set(dpdk_libs_whole
 
 
 target_link_libraries(os m pthread uuid blkid -Wl,--whole-archive
-        ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
-        -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
+        -Wl,--no-whole-archive aio
+        -Wl,--start-group -Wl,--whole-archive
         -Wl,--end-group -Wl,--no-whole-archive numa dl rt)
 
 
