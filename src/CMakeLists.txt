@@ -40,7 +40,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -rdynamic")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wstrict-null-sentinel -Woverloaded-virtual")
   if(NOT WITH_OSD_INSTRUMENT_FUNCTIONS)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pie")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
   endif()
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL Clang)
   set(CMAKE_EXE_LINKER_FLAGS "-Wl,-export-dynamic")
@@ -874,6 +874,49 @@ add_executable(ceph-osd ${ceph_osd_srcs})
 add_dependencies(ceph-osd erasure_code_plugins)
 target_link_libraries(ceph-osd osd os global-static common
   ${BLKID_LIBRARIES} ${RDMA_LIBRARIES})
+set (spdk_libs_whole 
+    spdk_bdev_malloc 
+    spdk_bdev_null 
+    spdk_bdev_nvme 
+    spdk_nvme
+    spdk_vbdev_error 
+    spdk_vbdev_gpt 
+    spdk_vbdev_lvol 
+    spdk_vbdev_split
+    spdk_blob 
+    spdk_blob_bdev 
+    spdk_lvol 
+    spdk_bdev_aio 
+    spdk_bdev_virtio
+    spdk_virtio 
+    )
+set(spdk_libs
+    spdk_util 
+    spdk_bdev 
+    spdk_conf 
+    spdk_copy 
+    spdk_rpc
+    spdk_jsonrpc 
+    spdk_json 
+    spdk_log 
+    spdk_env_dpdk 
+   )
+set(dpdk_libs_whole
+    rte_eal 
+    rte_mempool
+    rte_ring 
+    rte_mempool_ring 
+    rte_pci 
+    rte_bus_pci 
+   )
+target_link_libraries(ceph-osd m pthread uuid blkid -Wl,--whole-archive
+        ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
+        -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
+        -Wl,--end-group -Wl,--no-whole-archive numa dl rt)
+
+
+
+
 if(WITH_FUSE)
   target_link_libraries(ceph-osd ${FUSE_LIBRARIES})
 endif()

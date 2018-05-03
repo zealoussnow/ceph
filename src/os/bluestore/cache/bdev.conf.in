@@ -1,0 +1,3 @@
+[AIO]
+  AIO /dev/sdc AIO0
+  AIO /dev/sdd AIO1

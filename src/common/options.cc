@@ -3198,6 +3198,22 @@ std::vector<Option> get_global_options() {
     .set_enum_allowed({"cache", "kernel", "pmem", "ust-nvme"})
     .set_default("")
     .set_description("backend store block type"),
+    
+    Option("t2store_cache_path", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("")
+    .add_tag("mkfs")
+    .set_description("Path to cache device/file"),
+
+    Option("t2store_cache_size", Option::TYPE_UINT, Option::LEVEL_DEV)
+    .set_default(10ull * 1024*1024*1024)
+    .add_tag("mkfs")
+    .set_description("Size of file to create for cache bluestore"),
+
+    Option("t2store_cache_create", Option::TYPE_BOOL, Option::LEVEL_DEV)
+    .set_default(true)
+    .add_tag("mkfs")
+    .set_description("Create t2store_cache_path if it doesn't exist")
+    .add_see_also("t2store_cache_path").add_see_also("t2store_cache_size"),
 
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")

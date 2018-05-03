@@ -134,8 +134,8 @@ int BlueFS::add_block_device(unsigned id, const string& path)
   dout(10) << __func__ << " bdev " << id << " path " << path << dendl;
   assert(id < bdev.size());
   assert(bdev[id] == NULL);
-  BlockDevice *b = BlockDevice::create(cct, path, NULL, NULL, 
-                        cct->_conf->block_type);
+  // take bluefs slow block with kernel block type
+  BlockDevice *b = BlockDevice::create(cct, path, NULL, NULL, "kernel");
   int r = b->open(path);
   if (r < 0) {
     delete b;

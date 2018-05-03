@@ -419,7 +419,10 @@ prepare_conf() {
         num rgw = $CEPH_NUM_RGW
 
 [global]
-        block_type=$BLOCK_TYPE
+        bluestore_bluefs=false
+        t2store_cache_path="/dev/sdc"
+        t2store_block_create=false
+        block_type="cache"
         fsid = $(uuidgen)
         osd pg bits = 3
         osd pgp bits = 5  ; (invalid, but ceph should cope!)
@@ -513,7 +516,7 @@ $DAEMONOPTS
         filestore wbthrottle btrfs ios hard limit = 20
         filestore wbthrottle btrfs inodes hard limit = 30
         osd copyfrom max chunk = 524288
-        bluestore fsck on mount = true
+        bluestore fsck on mount = false
         bluestore block create = true
 	bluestore block db path = $CEPH_DEV_DIR/osd\$id/block.db.file
         bluestore block db size = 67108864

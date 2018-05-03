@@ -36,6 +36,8 @@ private:
 public:
   CephContext* cct;
   void *priv;
+  void *cache_task_first = nullptr;
+  void *cache_task_last  = nullptr;
 #ifdef HAVE_SPDK
   void *nvme_task_first = nullptr;
   void *nvme_task_last = nullptr;
@@ -98,6 +100,7 @@ public:
   static BlockDevice *create(CephContext* cct, const std::string& path, aio_callback_t cb, 
       void *cbpriv, const std::string &block_type);
   virtual bool supported_bdev_label() { return true; }
+  virtual bool supported_cache() { return false; }
   virtual bool is_rotational() { return rotational; }
 
   virtual void aio_submit(IOContext *ioc) = 0;
@@ -141,6 +144,9 @@ public:
   // for managing buffered readers/writers
   virtual int invalidate_cache(uint64_t off, uint64_t len) = 0;
   virtual int open(const std::string& path) = 0;
+  virtual int open(const std::string& path, const std::string& c_path) = 0;
+  virtual int write_cache_super(const std::string& path){ return 0; };
+  virtual int cache_init(){ return 0; };
   virtual void close() = 0;
 };
 

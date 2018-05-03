@@ -32,6 +32,8 @@
 #include "common/errno.h"
 #include "include/compat.h"
 
+#include "CacheDevice.h"
+
 #define dout_context cct
 #define dout_subsys ceph_subsys_bdev
 #undef dout_prefix
@@ -57,7 +59,7 @@ BlockDevice *BlockDevice::create(CephContext* cct, const string& path,
   assert(!block_type.empty());
 
   if (block_type == "cache" ) {
-    //return new CacheDevice(cct, db, cbpriv);
+    return new CacheDevice(cct, cb, cbpriv);
   } else if (block_type == "kernel") {
     return new KernelDevice(cct, cb, cbpriv);
   } else if (block_type == "pmem") {

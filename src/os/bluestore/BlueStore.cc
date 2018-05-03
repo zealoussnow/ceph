@@ -4168,7 +4168,14 @@ int BlueStore::_open_bdev(bool create)
   assert(bdev == NULL);
   string p = path + "/block";
   bdev = BlockDevice::create(cct, p, aio_cb, static_cast<void*>(this), cct->_conf->block_type);
-  int r = bdev->open(p);
+  int r = 0;
+  if (bdev->supported_cache()) {
+    string cache_path = path + "/ssd_cache";
+    r = bdev->open(p, cache_path);
+  } else {
+    r = bdev->open(p);
+  }
+  
   if (r < 0)
     goto fail;
 
@@ -5219,6 +5226,13 @@ int BlueStore::mkfs()
 				   cct->_conf->bluestore_block_create);
   if (r < 0)
     goto out_close_fsid;
+  
+  r = _setup_block_symlink_or_file("ssd_cache", cct->_conf->t2store_cache_path,
+                                   cct->_conf->t2store_cache_size,
+                                   cct->_conf->t2store_cache_create);
+  if (r < 0)
+    goto out_close_fsid;
+
   if (cct->_conf->bluestore_bluefs) {
     r = _setup_block_symlink_or_file("block.wal", cct->_conf->bluestore_block_wal_path,
 	cct->_conf->bluestore_block_wal_size,
@@ -5235,6 +5249,13 @@ int BlueStore::mkfs()
   r = _open_bdev(true);
   if (r < 0)
     goto out_close_fsid;
+
+  {
+    string cache_path = path + "/ssd_cache";
+    r = bdev->write_cache_super(cache_path);
+    if ( r< 0)
+      goto out_close_bdev;
+  }
 
   {
     string wal_path = cct->_conf->get_val<string>("bluestore_block_wal_path");
@@ -5410,6 +5431,10 @@ int BlueStore::_mount(bool kv_only)
   r = _open_bdev(false);
   if (r < 0)
     goto out_fsid;
+
+  r = bdev->cache_init();
+  if (r < 0)
+    goto out_bdev;
 
   r = _open_db(false);
   if (r < 0)
