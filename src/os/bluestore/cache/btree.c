@@ -1692,7 +1692,6 @@ static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
 	bool should_rewrite;
 
 	should_rewrite = btree_gc_mark_node(b, gc);
-        should_rewrite = true;
 	if (should_rewrite) {
 		n = btree_node_alloc_replacement(b, NULL);
 
@@ -1887,7 +1886,6 @@ static bool gc_should_run(struct cache_set *c)
         if (atomic_read(&c->sectors_to_gc) < 0)
                 return true;
 
-        /*return true;*/
         return false;
 }
 
