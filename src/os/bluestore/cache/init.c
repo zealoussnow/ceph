@@ -45,6 +45,7 @@ enum prio_io_op {
   REQ_OP_INVALID,
 };
 
+#define CUTOFF_CACHE_ADD 95
 uint64_t 
 getblocks(int fd)
 {
@@ -810,6 +811,8 @@ err:
 static int cached_dev_init(struct cached_dev *dc)
 {
   size_t n;
+  struct io *io;
+
   dc->stripe_size = 1 << 31;
   dc->nr_stripes = DIV_ROUND_UP_ULL(getblocks(dc->c->hdd_fd) - BDEV_DATA_START_DEFAULT, dc->stripe_size);
 
@@ -824,6 +827,16 @@ static int cached_dev_init(struct cached_dev *dc)
   if (!dc->full_dirty_stripes) {
     return -ENOMEM;
   }
+
+  SET_BDEV_CACHE_MODE(&dc->sb, CACHE_MODE_WRITEBACK);
+  INIT_LIST_HEAD(&dc->io_thread);
+  INIT_LIST_HEAD(&dc->io_lru);
+
+  for (io = dc->io; io < dc->io + RECENT_IO; io++) {
+    list_add(&io->lru, &dc->io_lru);
+    hlist_add_head(&io->hash, dc->io_hash + RECENT_IO);
+  }
+  dc->sequential_cutoff = 4 << 20;
 
   /*if (BDEV_STATE(&dc->c->sb) == BDEV_STATE_DIRTY) {*/
         /*bch_sectors_dirty_init(dc);*/
@@ -896,7 +909,8 @@ found:
   ca->set->fd = ca->fd;
   ca->set->hdd_fd = ca->hdd_fd;
 
-  c->dc = malloc(sizeof(struct cached_dev));
+  c->dc = calloc(1, sizeof(struct cached_dev));
+  memcpy(&c->dc->sb, &c->sb, sizeof(struct cache_sb));
   c->dc->c = c;
   cached_dev_init(c->dc);
   printf(" ---------- c->set = %p \n", ca->set);
@@ -1275,6 +1289,7 @@ int item_write_next(struct ring_item *item, bool dirty)
   struct bkey *k = NULL;
   k = get_init_bkey(item->insert_keys, (item->o_offset + item->io.len));
   if ( !k ) {
+    goto free_keylist;
     assert ( " keylist is not enough, need realloc " == 0);
   }
 
@@ -1294,6 +1309,9 @@ int item_write_next(struct ring_item *item, bool dirty)
   bch_keylist_push(item->insert_keys);
 
   return ret;
+free_keylist:
+  free(insert_keys);
+  return -1;
 }
 
 // 对于写来说，不管ssd还是hdd，都是要把所有的io写完才能
@@ -1315,9 +1333,10 @@ aio_write_completion(void *cb)
     /*printf(" *************** Yes write all IO Sucessfull call application cb \n");*/
     // 如果是写hdd完成
     switch (item->strategy) {
-      case CACHE_WRITE_STRATEGY_WRITE_AROUND:
-          break;
-      case CACHE_WRITE_STRATEGY_WRITE_THROUGH:
+      case CACHE_MODE_WRITEAROUND:
+        bch_data_insert_keys(ca->set, item->insert_keys);
+        break;
+      case CACHE_MODE_WRITETHROUGH:
         // write through 写完hhd之后，开始写ssd
         // 如果是write through写ssd完成，则插入btree
         if ( !item->write_through_done) {
@@ -1325,17 +1344,23 @@ aio_write_completion(void *cb)
           item->write_through_done = true;
           item->io.pos = item->data;
           item->io.offset = item->o_offset;
-          item->io.len = item->o_len;
+          item->io.len = 0;
           // write through的bkey不需要设置dirty=true
-          item_write_next(item, false);
+          if (!item_write_next(item, false)) {
+            assert(" item init failed " == 0);
+          }
           ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
           if ( ret < 0) {
               assert(" test aio enqueue faild " == 0);
           }
           return ;
+        } else {
+          bch_data_insert_keys(ca->set, item->insert_keys);
+          break;
         }
-      case CACHE_WRITE_STRATEGY_WRITE_BACK:
+      case CACHE_MODE_WRITEBACK:
         bch_data_insert_keys(ca->set, item->insert_keys);
+        bch_writeback_add(ca->set->dc);
         break;
       default:
         assert(" Unsupported io strategy " == 0);
@@ -1361,6 +1386,53 @@ aio_write_completion(void *cb)
   }
 }
 
+int
+do_write_writearound(struct ring_item * item)
+{
+  int ret = 0;
+  struct cache *ca = (struct cache *) item->ca_handler;
+  struct keylist *insert_keys = NULL;
+  struct bkey *k = NULL;
+
+  insert_keys = calloc(1, sizeof(*insert_keys));
+  if ( !insert_keys ) {
+    goto err;
+  }
+  bch_keylist_init(insert_keys);
+  /*k = insert_keys->top;*/
+  /*bkey_init(k);*/
+  /*SET_KEY_INODE(k, 1);*/
+  /*SET_KEY_OFFSET(k, (item->o_offset>>9));*/
+  k = get_init_bkey(insert_keys, item->o_offset);
+  if ( !k ) {
+    goto free_keylist;
+  }
+
+  SET_KEY_OFFSET(k, KEY_OFFSET(k) + (item->o_len >> 9));
+  SET_KEY_SIZE(k, (item->o_len >> 9));
+
+  item->io.pos = item->data;
+  item->io.offset = item->o_offset;
+  item->io.len = (KEY_SIZE(k)<<9);
+  item->iou_arg = item;
+  item->iou_completion_cb = aio_write_completion;
+
+  bch_keylist_push(insert_keys);
+  item->insert_keys = insert_keys;
+
+  ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
+
+  if (ret < 0) {
+    assert( "test aio_enqueue error  " == 0);
+  }
+
+  return ret;
+free_keylist:
+  free(insert_keys);
+err:
+  return -1;
+}
+
 int 
 do_write_writeback(struct ring_item * item)
 {
@@ -1369,7 +1441,6 @@ do_write_writeback(struct ring_item * item)
   struct keylist *insert_keys = NULL;
   struct bkey *k = NULL;
 
-  bch_writeback_add(ca->set->dc);
   insert_keys = calloc(1, sizeof(*insert_keys));
   if ( !insert_keys ) {
     goto err;
@@ -1377,7 +1448,8 @@ do_write_writeback(struct ring_item * item)
   bch_keylist_init(insert_keys);
   k = get_init_bkey(insert_keys, item->o_offset);
   if ( !k ) {
-    assert(" keylist is not enough, need realloc " == 0);
+    goto free_keylist;
+    /*assert(" keylist is not enough, need realloc " == 0);*/
   }
   SET_KEY_DIRTY(k, true);
   ret = bch_alloc_sectors(ca->set, k, (item->o_len >> 9), 0, 0, 1);
@@ -1404,6 +1476,145 @@ err:
   return -1;
 }
 
+int 
+do_write_writethrough(struct ring_item * item)
+{
+  int ret = 0;
+  struct cache *ca = (struct cache *) item->ca_handler;
+  struct keylist *insert_keys = NULL;
+  struct bkey *k = NULL;
+
+  insert_keys = calloc(1, sizeof(*insert_keys));
+  if ( !insert_keys ) {
+    goto err;
+  }
+  bch_keylist_init(insert_keys);
+
+  item->io.pos = item->data;
+  item->io.offset = item->o_offset;
+  item->io.len = item->o_len;
+  item->iou_arg = item;
+  item->iou_completion_cb = aio_write_completion;
+  item->insert_keys = insert_keys;
+
+  ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
+
+  if (ret < 0) {
+    assert( "test aio_enqueue error  " == 0);
+  }
+
+  return ret;
+err:
+  return -1;
+}
+
+static void add_sequential(struct current_thread *t)
+{
+  ewma_add(t->sequential_io_avg,
+           t->sequential_io, 8, 0);
+  
+  t->sequential_io = 0;
+}
+
+#define GOLDEN_RATIO_64 0x61C8864680B583EBull
+static inline hash_64(uint64_t val, unsigned int bits)
+{
+  return val * GOLDEN_RATIO_64 >> (64 - bits);
+}
+
+static struct hlist_head *iohash(struct cached_dev *dc, uint64_t k)
+{
+  return &dc->io_hash[hash_64(k, RECENT_IO_BITS)];
+}
+
+static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
+{
+  struct cache_set *c = dc->c;
+  unsigned mode = BDEV_CACHE_MODE(&dc->sb);
+  unsigned sectors;
+  struct io *i;
+
+  struct current_thread *task = NULL;
+
+  if (c->gc_stats.in_use > CUTOFF_CACHE_ADD)
+    goto skip;
+
+  if (mode == CACHE_MODE_NONE || mode == CACHE_MODE_WRITEAROUND)
+    goto skip;
+
+  if ((item->o_offset >> 9) & (c->sb.block_size -1) ||
+      (item->o_len >> 9) & (c->sb.block_size -1)) {
+    printf("skipping unaligned io\n");
+    goto skip;
+  }
+
+  if (bypass_torture_test(dc))
+    if ((get_random_int() & 3) == 3)
+      goto skip;
+
+  list_for_each_entry(task, &dc->io_thread, list) {
+    printf("task->thread_id = %ld\n", task->thread_id);
+    if (task->thread_id == pthread_self())
+      goto out;
+  }
+
+  task = malloc(sizeof(struct current_thread));
+  task->thread_id = pthread_self();
+  list_add_tail(&task->list, &dc->io_thread);
+
+out:
+  hlist_for_each_entry(i, iohash(dc, (item->o_offset >> 9)), hash) {
+    if (i->last == (item->o_offset >> 9) &&
+        time_before64((uint64_t)time(NULL), i->jiffies))
+      goto found;
+  }
+
+  i = list_first_entry(&dc->io_lru, struct io, lru);
+  add_sequential(task);
+  i->sequential = 0;
+
+found:
+  if (i->sequential + item->o_len > i->sequential)
+    i->sequential   += item->o_len;
+
+  i->last                 = (item->o_offset >> 9) + (item->o_len >> 9);
+  i->jiffies              = time(NULL) + 5;
+  task->sequential_io     = i->sequential;
+
+  hlist_del(&i->hash);
+  hlist_add_head(&i->hash, iohash(dc, i->last));
+  list_move_tail(&i->lru, &dc->io_lru);
+
+
+  sectors = max(task->sequential_io,
+      task->sequential_io_avg) >> 9;
+
+  if (dc->sequential_cutoff &&
+      sectors >= dc->sequential_cutoff >> 9) {
+    goto skip;
+  }
+  return false;
+skip:
+  return true;
+}
+
+int get_cache_strategy(struct cached_dev *dc, struct ring_item *item)
+{
+  unsigned int mode = BDEV_CACHE_MODE(&dc->sb);
+  struct bkey start = KEY(1, item->o_offset >> 9, 0);
+  struct bkey end = KEY(1, (item->o_offset >> 9) + (item->o_len >> 9), 0);
+
+  bch_keybuf_check_overlapping(&dc->c->moving_gc_keys, &start, &end);
+
+  if (bch_keybuf_check_overlapping(&dc->writeback_keys, &start, &end))
+    return CACHE_MODE_WRITEBACK;
+
+  if (check_should_bypass(dc, item))
+    return CACHE_MODE_WRITEAROUND;
+
+  return mode;
+}
+
 /*int cache_sync_write(struct cache *ca, void * data, uint64_t off, uint64_t len)*/
 /*int cache_sync_write_test(struct cache *ca, void *data, uint64_t off, uint64_t len)*/
 /*{*/
@@ -1416,6 +1627,7 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   int ret=0;
   struct bkey start = KEY(1, (offset>>9),0);
   struct bkey end = KEY(1, ((offset+len)>>9),0);
+  struct cached_dev *dc = ca->set->dc;
 
   item = get_ring_item(data, offset, len);
   if ( !item ) {
@@ -1424,26 +1636,35 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   item->io_completion_cb = cb;
   item->io_arg = cb_arg;
 
+  item->strategy = get_cache_strategy(dc, item);
   /**********   策略相关的代码 ******************/
   // 进行一些列判断，最终得到本次io的写入策略
   // 1. should bypass
   // 2. should writeback
   /***********************************************/
 
-  item->strategy = CACHE_WRITE_STRATEGY_WRITE_BACK;
+  item->strategy = CACHE_MODE_WRITEBACK;
   /*insert_keys = calloc(1, sizeof(*insert_keys));*/
   item->io.type=CACHE_IO_TYPE_WRITE;
   item->ca_handler = ca;
   switch (item->strategy) {
-    case CACHE_WRITE_STRATEGY_WRITE_BACK:
+    case CACHE_MODE_WRITEBACK:
       ret = do_write_writeback(item);
       if (ret < 0) {
         goto free_item;
       }
       break;
-    case CACHE_WRITE_STRATEGY_WRITE_THROUGH:
+    case CACHE_MODE_WRITETHROUGH:
+      ret = do_write_writethrough(item);
+      if (ret < 0) {
+        goto free_item;
+      }
       break;
-    case CACHE_WRITE_STRATEGY_WRITE_AROUND:
+    case CACHE_MODE_WRITEAROUND:
+      ret = do_write_writearound(item);
+      if (ret < 0) {
+        goto free_item;
+      }
       break;
     default:
       assert(" Unsupported io stragegy " == 0);

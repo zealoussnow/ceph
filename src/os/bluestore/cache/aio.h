@@ -24,13 +24,6 @@ enum cache_thread_type {
     CACHE_THREAD_BACKEND,
 };
 
-enum cache_write_strategy {
-    CACHE_WRITE_STRATEGY_INVALID = 0,
-    CACHE_WRITE_STRATEGY_WRITE_BACK,
-    CACHE_WRITE_STRATEGY_WRITE_THROUGH,
-    CACHE_WRITE_STRATEGY_WRITE_AROUND,
-};
-
 void *aio_init(void * ca);
 
 int aio_enqueue(uint16_t type, struct aio_handler *h, struct ring_item *item);

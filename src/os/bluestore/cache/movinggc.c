@@ -11,29 +11,27 @@
 #include "request.h"
 #include "list.h"
 
-//#include <trace/events/bcache.h>
-
 #if 0
 struct moving_io {
-	//struct closure		cl;
-	struct keybuf_key	*w;
-	struct data_insert_op	op;
-	struct bbio		bio;
+  //struct closure		cl;
+  struct keybuf_key	*w;
+  struct data_insert_op	op;
+  struct bbio		bio;
 };
 #endif
 
 static bool moving_pred(struct keybuf *buf, struct bkey *k)
 {
-	struct cache_set *c = container_of(buf, struct cache_set,
-					   moving_gc_keys);
-	unsigned i;
+  struct cache_set *c = container_of(buf, struct cache_set,
+      moving_gc_keys);
+  unsigned i;
 
-	for (i = 0; i < KEY_PTRS(k); i++)
-		if (ptr_available(c, k, i) &&
-		    GC_MOVE(PTR_BUCKET(c, k, i)))
-			return true;
+  for (i = 0; i < KEY_PTRS(k); i++)
+    if (ptr_available(c, k, i) &&
+        GC_MOVE(PTR_BUCKET(c, k, i)))
+      return true;
 
-	return false;
+  return false;
 }
 
 /* Moving GC - IO loop */
@@ -41,280 +39,276 @@ static bool moving_pred(struct keybuf *buf, struct bkey *k)
 #if 0
 static void moving_io_destructor()
 {
-	//struct moving_io *io = container_of(cl, struct moving_io, cl);
-	//free(io);
+  //struct moving_io *io = container_of(cl, struct moving_io, cl);
+  //free(io);
 }
 
 static void write_moving_finish(struct closure *cl)
 {
-	struct moving_io *io = container_of(cl, struct moving_io, cl);
-	struct bio *bio = &io->bio.bio;
+  struct moving_io *io = container_of(cl, struct moving_io, cl);
+  struct bio *bio = &io->bio.bio;
 
-	bio_free_pages(bio);
+  bio_free_pages(bio);
 
-	if (io->op.replace_collision)
-		trace_bcache_gc_copy_collision(&io->w->key);
+  if (io->op.replace_collision)
+    trace_bcache_gc_copy_collision(&io->w->key);
 
-	bch_keybuf_del(&io->op.c->moving_gc_keys, io->w);
+  bch_keybuf_del(&io->op.c->moving_gc_keys, io->w);
 
-	up(&io->op.c->moving_in_flight);
+  up(&io->op.c->moving_in_flight);
 
-	closure_return_with_destructor(cl, moving_io_destructor);
+  closure_return_with_destructor(cl, moving_io_destructor);
 }
 
 static void read_moving_endio(struct bio *bio)
 {
-	struct bbio *b = container_of(bio, struct bbio, bio);
-	struct moving_io *io = container_of(bio->bi_private,
-					    struct moving_io, cl);
+  struct bbio *b = container_of(bio, struct bbio, bio);
+  struct moving_io *io = container_of(bio->bi_private,
+      struct moving_io, cl);
 
-	if (bio->bi_status)
-		io->op.status = bio->bi_status;
-	else if (!KEY_DIRTY(&b->key) &&
-		 ptr_stale(io->op.c, &b->key, 0)) {
-		io->op.status = BLK_STS_IOERR;
-	}
+  if (bio->bi_status)
+    io->op.status = bio->bi_status;
+  else if (!KEY_DIRTY(&b->key) &&
+      ptr_stale(io->op.c, &b->key, 0)) {
+    io->op.status = BLK_STS_IOERR;
+  }
 
-	bch_bbio_endio(io->op.c, bio, bio->bi_status, "reading data to move");
+  bch_bbio_endio(io->op.c, bio, bio->bi_status, "reading data to move");
 }
 
 static void moving_init(struct moving_io *io)
 {
-	struct bio *bio = &io->bio.bio;
+  struct bio *bio = &io->bio.bio;
 
-	bio_init(bio, bio->bi_inline_vecs,
-		 DIV_ROUND_UP(KEY_SIZE(&io->w->key), PAGE_SECTORS));
-	bio_get(bio);
-	bio_set_prio(bio, IOPRIO_PRIO_VALUE(IOPRIO_CLASS_IDLE, 0));
+  bio_init(bio, bio->bi_inline_vecs,
+      DIV_ROUND_UP(KEY_SIZE(&io->w->key), PAGE_SECTORS));
+  bio_get(bio);
+  bio_set_prio(bio, IOPRIO_PRIO_VALUE(IOPRIO_CLASS_IDLE, 0));
 
-	bio->bi_iter.bi_size	= KEY_SIZE(&io->w->key) << 9;
-	bio->bi_private		= &io->cl;
-	bch_bio_map(bio, NULL);
+  bio->bi_iter.bi_size	= KEY_SIZE(&io->w->key) << 9;
+  bio->bi_private		= &io->cl;
+  bch_bio_map(bio, NULL);
 }
 
 static void write_moving(struct closure *cl)
 {
-	struct moving_io *io = container_of(cl, struct moving_io, cl);
-	struct data_insert_op *op = &io->op;
+  struct moving_io *io = container_of(cl, struct moving_io, cl);
+  struct data_insert_op *op = &io->op;
 
-	if (!op->status) {
-		moving_init(io);
+  if (!op->status) {
+    moving_init(io);
 
-		io->bio.bio.bi_iter.bi_sector = KEY_START(&io->w->key);
-		op->write_prio		= 1;
-		op->bio			= &io->bio.bio;
+    io->bio.bio.bi_iter.bi_sector = KEY_START(&io->w->key);
+    op->write_prio		= 1;
+    op->bio			= &io->bio.bio;
 
-		op->writeback		= KEY_DIRTY(&io->w->key);
-		op->csum		= KEY_CSUM(&io->w->key);
+    op->writeback		= KEY_DIRTY(&io->w->key);
+    op->csum		= KEY_CSUM(&io->w->key);
 
-		bkey_copy(&op->replace_key, &io->w->key);
-		op->replace		= true;
+    bkey_copy(&op->replace_key, &io->w->key);
+    op->replace		= true;
 
-		closure_call(&op->cl, bch_data_insert, NULL, cl);
-	}
+    closure_call(&op->cl, bch_data_insert, NULL, cl);
+  }
 
-	continue_at(cl, write_moving_finish, op->wq);
+  continue_at(cl, write_moving_finish, op->wq);
 }
 
 static void read_moving_submit(struct closure *cl)
 {
-	struct moving_io *io = container_of(cl, struct moving_io, cl);
-	struct bio *bio = &io->bio.bio;
+  struct moving_io *io = container_of(cl, struct moving_io, cl);
+  struct bio *bio = &io->bio.bio;
 
-	bch_submit_bbio(bio, io->op.c, &io->w->key, 0);
+  bch_submit_bbio(bio, io->op.c, &io->w->key, 0);
 
-	continue_at(cl, write_moving, io->op.wq);
+  continue_at(cl, write_moving, io->op.wq);
 }
 #endif
 
 static void read_moving(struct cache_set *c)
 {
-        struct keybuf_key       *w;
-        char * data=NULL;
-        off_t offset = 0;
-        uint64_t len = 0;
-        int j;
-        struct keylist          insert_keys;
+  struct keybuf_key       *w;
+  char * data=NULL;
+  off_t offset = 0;
+  uint64_t len = 0;
+  int j;
+  struct keylist          insert_keys;
 
-        bch_keylist_init(&insert_keys);
-	/*struct moving_io *io;*/
-	/*struct bio *bio;*/
-	/*struct closure cl;*/
+  bch_keylist_init(&insert_keys);
+  /*struct moving_io *io;*/
+  /*struct bio *bio;*/
+  /*struct closure cl;*/
 
-	/*closure_init_stack(&cl);*/
+  /*closure_init_stack(&cl);*/
 
-	/* XXX: if we error, background writeback could stall indefinitely */
+  /* XXX: if we error, background writeback could stall indefinitely */
 
-        bch_refill_keybuf(c, &c->moving_gc_keys, &MAX_KEY, moving_pred);
+  bch_refill_keybuf(c, &c->moving_gc_keys, &MAX_KEY, moving_pred);
 
-	while (!test_bit(CACHE_SET_STOPPING, &c->flags)) {
-		/*
-		 * 填充moving_gc_keys
-		 * 循环调用bch_keybuf_next_rescan，每次从红黑树返回一个keybuf_key
-		 */
-		/*w = bch_keybuf_next_rescan(c, &c->moving_gc_keys,*/
-					   /*&MAX_KEY, moving_pred);*/
-                if (!list_empty(&c->moving_gc_keys.list))
-                        w = list_first_entry(&c->moving_gc_keys.list,
-                                           struct keybuf_key, list);
-                else
-                        break;
+  while (!test_bit(CACHE_SET_STOPPING, &c->flags)) {
+    /*
+     * 填充moving_gc_keys
+     * 循环调用bch_keybuf_next_rescan，每次从红黑树返回一个keybuf_key
+     */
+    /*w = bch_keybuf_next_rescan(c, &c->moving_gc_keys,*/
+    /*&MAX_KEY, moving_pred);*/
+    if (!list_empty(&c->moving_gc_keys.list))
+      w = list_first_entry(&c->moving_gc_keys.list,
+          struct keybuf_key, list);
+    else
+      break;
 
 
-		if (ptr_stale(c, &w->key, 0)) {
-			/*bch_keybuf_del(&c->moving_gc_keys, w);*/
-                        list_del(&w->list);
-                        free(w);
-			continue;
-		}
+    if (ptr_stale(c, &w->key, 0)) {
+      /*bch_keybuf_del(&c->moving_gc_keys, w);*/
+      list_del(&w->list);
+      free(w);
+      continue;
+    }
 
-		/*io = kzalloc(sizeof(struct moving_io) + sizeof(struct bio_vec)*/
-			     /** DIV_ROUND_UP(KEY_SIZE(&w->key), PAGE_SECTORS),*/
-			     /*GFP_KERNEL);*/
-		/*if (!io)*/
-			/*goto err;*/
+    /*io = kzalloc(sizeof(struct moving_io) + sizeof(struct bio_vec)*/
+    /** DIV_ROUND_UP(KEY_SIZE(&w->key), PAGE_SECTORS),*/
+    /*GFP_KERNEL);*/
+    /*if (!io)*/
+    /*goto err;*/
 
-		/*w->private	= io;*/
-		/*io->w		= w;*/
-		/*io->op.inode	= KEY_INODE(&w->key);*/
-		/*io->op.c	= c;*/
-		/*io->op.wq	= c->moving_gc_wq;*/
+    /*w->private	= io;*/
+    /*io->w		= w;*/
+    /*io->op.inode	= KEY_INODE(&w->key);*/
+    /*io->op.c	= c;*/
+    /*io->op.wq	= c->moving_gc_wq;*/
 
-		/* 根据io生成&io->bio.bio */
-		/*moving_init(io);*/
-		/*bio = &io->bio.bio;*/
+    /* 根据io生成&io->bio.bio */
+    /*moving_init(io);*/
+    /*bio = &io->bio.bio;*/
 
-		/*bio_set_op_attrs(bio, REQ_OP_READ, 0);*/
-		/*bio->bi_end_io	= read_moving_endio;*/
+    /*bio_set_op_attrs(bio, REQ_OP_READ, 0);*/
+    /*bio->bi_end_io	= read_moving_endio;*/
 
-		/*if (bio_alloc_pages(bio, GFP_KERNEL))*/
-			/*goto err;*/
+    /*if (bio_alloc_pages(bio, GFP_KERNEL))*/
+    /*goto err;*/
 
-		/*trace_bcache_gc_copy(&w->key);*/
+    /*trace_bcache_gc_copy(&w->key);*/
 
-		/*down(&c->moving_in_flight);*/
-		/*closure_call(&io->cl, read_moving_submit, NULL, &cl);*/
+    /*down(&c->moving_in_flight);*/
+    /*closure_call(&io->cl, read_moving_submit, NULL, &cl);*/
 
-                len = KEY_SIZE(&w->key) << 9;
-                offset = PTR_OFFSET(&w->key, 0) << 9;
-                data = malloc(sizeof(char)*len);
-                memset(data,'0',sizeof(char)*len);
-                sync_read(c->fd, data, len, offset);
+    len = KEY_SIZE(&w->key) << 9;
+    offset = PTR_OFFSET(&w->key, 0) << 9;
+    data = malloc(sizeof(char)*len);
+    memset(data,'0',sizeof(char)*len);
+    sync_read(c->fd, data, len, offset);
 
-                struct bkey *new_key = NULL;
+    struct bkey *new_key = NULL;
 
-                new_key = insert_keys.top;
-                bkey_init(new_key);
+    new_key = insert_keys.top;
+    bkey_init(new_key);
 
-                bkey_copy_key(new_key, &w->key);
-                SET_KEY_OFFSET(new_key, KEY_START(&w->key));
-                if (KEY_DIRTY(&w->key))
-                        SET_KEY_DIRTY(new_key, true);
-                printf("----------------<%s>: bkey ptr_offset = %lu, offset=%lu,size=%lu \n", __func__, PTR_OFFSET(&w->key, 0), KEY_OFFSET(&w->key), KEY_SIZE(&w->key));
-                int ret = bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 0, 1);
-                printf( " FUN %s: after alloc sectors ptr_offset=%lu, key_offset = %lu, KEY_SIZE=%lu\n", __func__,PTR_OFFSET(new_key, 0), KEY_OFFSET(new_key), KEY_SIZE(new_key));
-                for (j = 0; j < KEY_PTRS(new_key); j++) {
-                        off_t ssd_off = PTR_OFFSET(new_key, j) << 9;
-                        len = KEY_SIZE(new_key) << 9;
-                        /*memset(data,'0',sizeof(char)*len);*/
-                        sync_write(c->fd, data, len, ssd_off);
-                }
-                bch_keylist_push(&insert_keys);
+    bkey_copy_key(new_key, &w->key);
+    SET_KEY_OFFSET(new_key, KEY_START(&w->key));
+    if (KEY_DIRTY(&w->key))
+      SET_KEY_DIRTY(new_key, true);
+    int ret = bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 0, 1);
+    for (j = 0; j < KEY_PTRS(new_key); j++) {
+      off_t ssd_off = PTR_OFFSET(new_key, j) << 9;
+      len = KEY_SIZE(new_key) << 9;
+      /*memset(data,'0',sizeof(char)*len);*/
+      sync_write(c->fd, data, len, ssd_off);
+    }
+    bch_keylist_push(&insert_keys);
 
-                free(data);
+    free(data);
 
-                list_del(&w->list);
-                free(w);
-	}
+    list_del(&w->list);
+    free(w);
+  }
 
-        printf( " main.c FUN %s: >>>>>>>>>>>  Start Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
-        bch_data_insert_keys(c, &insert_keys);
-        printf( " main.c FUN %s: >>>>>>>>>>>  End Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
-        /*if (0) {*/
-/*err:		if (!IS_ERR_OR_NULL(w->private))*/
-			/*kfree(w->private);*/
+  bch_data_insert_keys(c, &insert_keys);
+  /*if (0) {*/
+  /*err:		if (!IS_ERR_OR_NULL(w->private))*/
+  /*kfree(w->private);*/
 
-		/*bch_keybuf_del(&c->moving_gc_keys, w);*/
-	/*}*/
+  /*bch_keybuf_del(&c->moving_gc_keys, w);*/
+  /*}*/
 
-	/*closure_sync(&cl);*/
+  /*closure_sync(&cl);*/
 }
 
 static bool bucket_cmp(struct bucket *l, struct bucket *r)
 {
-	return GC_SECTORS_USED(l) < GC_SECTORS_USED(r);
+  return GC_SECTORS_USED(l) < GC_SECTORS_USED(r);
 }
 
 static unsigned bucket_heap_top(struct cache *ca)
 {
-	struct bucket *b;
-	return (b = heap_peek(&ca->heap)) ? GC_SECTORS_USED(b) : 0;
+  struct bucket *b;
+  return (b = heap_peek(&ca->heap)) ? GC_SECTORS_USED(b) : 0;
 }
 
 /* 根据bucket的标志位做实际回收  */
 void bch_moving_gc(struct cache_set *c)
 {
-	struct cache *ca;
-	struct bucket *b;
-	unsigned i;
+  struct cache *ca;
+  struct bucket *b;
+  unsigned i;
 
-	/*if (!c->copy_gc_enabled)*/
-		/*return;*/
+  /*if (!c->copy_gc_enabled)*/
+  /*return;*/
 
-	pthread_mutex_lock(&c->bucket_lock);
+  pthread_mutex_lock(&c->bucket_lock);
 
-	for_each_cache(ca, c, i) {
-		unsigned sectors_to_move = 0;
-		unsigned reserve_sectors = ca->sb.bucket_size *
-			fifo_used(&ca->free[RESERVE_MOVINGGC]);
+  for_each_cache(ca, c, i) {
+    unsigned sectors_to_move = 0;
+    unsigned reserve_sectors = ca->sb.bucket_size *
+      fifo_used(&ca->free[RESERVE_MOVINGGC]);
 
-		ca->heap.used = 0;
+    ca->heap.used = 0;
 
-		/* 遍历cached disk的bucket */
-		for_each_bucket(b, ca) {
-			/* 如果为元数据或数据占用量为bucket_size，则continue */
-                        if (GC_MARK(b) == GC_MARK_METADATA ||
-                            !GC_SECTORS_USED(b) ||
-                            GC_SECTORS_USED(b) == ca->sb.bucket_size)
-                            /*GC_SECTORS_USED(b) == ca->sb.bucket_size ||*/
-                            /*atomic_read(&b->pin))*/
-                                continue;
+    /* 遍历cached disk的bucket */
+    for_each_bucket(b, ca) {
+      /* 如果为元数据或数据占用量为bucket_size，则continue */
+      if (GC_MARK(b) == GC_MARK_METADATA ||
+          !GC_SECTORS_USED(b) ||
+          GC_SECTORS_USED(b) == ca->sb.bucket_size)
+        /*GC_SECTORS_USED(b) == ca->sb.bucket_size ||*/
+        /*atomic_read(&b->pin))*/
+        continue;
 
-			if (!heap_full(&ca->heap)) {
-				sectors_to_move += GC_SECTORS_USED(b);
-				heap_add(&ca->heap, b, bucket_cmp);
-			} else if (bucket_cmp(b, heap_peek(&ca->heap))) {
-				sectors_to_move -= bucket_heap_top(ca);
-				sectors_to_move += GC_SECTORS_USED(b);
+      if (!heap_full(&ca->heap)) {
+        sectors_to_move += GC_SECTORS_USED(b);
+        heap_add(&ca->heap, b, bucket_cmp);
+      } else if (bucket_cmp(b, heap_peek(&ca->heap))) {
+        sectors_to_move -= bucket_heap_top(ca);
+        sectors_to_move += GC_SECTORS_USED(b);
 
-				ca->heap.data[0] = b;
-				heap_sift(&ca->heap, 0, bucket_cmp);
-			}
-		}
+        ca->heap.data[0] = b;
+        heap_sift(&ca->heap, 0, bucket_cmp);
+      }
+    }
 
-		while (sectors_to_move > reserve_sectors) {
-			heap_pop(&ca->heap, b, bucket_cmp);
-			sectors_to_move -= GC_SECTORS_USED(b);
-		}
+    while (sectors_to_move > reserve_sectors) {
+      heap_pop(&ca->heap, b, bucket_cmp);
+      sectors_to_move -= GC_SECTORS_USED(b);
+    }
 
-		/*
-		 * 统计哪些bucket可以通过移动来合并bucket的使用
-		 * 标记这些bucket为SET_GC_MOVE(b, 1);
-		 */
-		while (heap_pop(&ca->heap, b, bucket_cmp))
-			SET_GC_MOVE(b, 1);
-	}
+    /*
+     * 统计哪些bucket可以通过移动来合并bucket的使用
+     * 标记这些bucket为SET_GC_MOVE(b, 1);
+     */
+    while (heap_pop(&ca->heap, b, bucket_cmp))
+      SET_GC_MOVE(b, 1);
+  }
 
-	pthread_mutex_unlock(&c->bucket_lock);
+  pthread_mutex_unlock(&c->bucket_lock);
 
-	c->moving_gc_keys.last_scanned = ZERO_KEY;
+  c->moving_gc_keys.last_scanned = ZERO_KEY;
 
-	read_moving(c);
+  read_moving(c);
 }
 
 void bch_moving_init_cache_set(struct cache_set *c)
 {
-        INIT_LIST_HEAD(&c->moving_gc_keys.list);
-	/*bch_keybuf_init(&c->moving_gc_keys);*/
-	/*sema_init(&c->moving_in_flight, 64);*/
+  INIT_LIST_HEAD(&c->moving_gc_keys.list);
+  /*bch_keybuf_init(&c->moving_gc_keys);*/
+  /*sema_init(&c->moving_in_flight, 64);*/
 }

@@ -513,10 +513,13 @@ BITMASK(CACHE_REPLACEMENT,		struct cache_sb, flags, 2, 3);
 #define CACHE_REPLACEMENT_RANDOM	2U
 
 BITMASK(BDEV_CACHE_MODE,		struct cache_sb, flags, 0, 4);
-#define CACHE_MODE_WRITETHROUGH		0U
-#define CACHE_MODE_WRITEBACK		1U
-#define CACHE_MODE_WRITEAROUND		2U
-#define CACHE_MODE_NONE			3U
+enum cache_write_strategy {
+    CACHE_MODE_WRITETHROUGH = 0,
+    CACHE_MODE_WRITEBACK,
+    CACHE_MODE_WRITEAROUND,
+    CACHE_MODE_NONE,
+};
+
 BITMASK(BDEV_STATE,			struct cache_sb, flags, 61, 2);
 #define BDEV_STATE_NONE			0U
 #define BDEV_STATE_CLEAN		1U
