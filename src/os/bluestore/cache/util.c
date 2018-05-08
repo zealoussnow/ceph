@@ -20,60 +20,56 @@
  * find_next_zero_bit.  The difference is the "invert" argument, which
  * is XORed with each fetched word before searching it for one bits.
  */
-static unsigned long _find_next_bit(const unsigned long *addr,
-                unsigned long nbits, unsigned long start, unsigned long invert)
+static unsigned long 
+_find_next_bit(const unsigned long *addr,unsigned long nbits, 
+                unsigned long start, unsigned long invert)
 {
-        unsigned long tmp;
+  unsigned long tmp;
+  if (unlikely(start >= nbits))
+    return nbits;
 
-        if (unlikely(start >= nbits))
-                return nbits;
-
-        tmp = addr[start / BITS_PER_LONG] ^ invert;
-
-        /* Handle 1st word. */
-        tmp &= BITMAP_FIRST_WORD_MASK(start);
-        start = round_down(start, BITS_PER_LONG);
-
-        while (!tmp) {
-                start += BITS_PER_LONG;
-                if (start >= nbits)
-                        return nbits;
-
-                tmp = addr[start / BITS_PER_LONG] ^ invert;
-        }
-
-        return min(start + __ffs(tmp), nbits);
+  tmp = addr[start / BITS_PER_LONG] ^ invert;
+  /* Handle 1st word. */
+  tmp &= BITMAP_FIRST_WORD_MASK(start);
+  start = round_down(start, BITS_PER_LONG);
+  while (!tmp) {
+    start += BITS_PER_LONG;
+    if (start >= nbits)
+      return nbits;
+    tmp = addr[start / BITS_PER_LONG] ^ invert;
+  }
+  return min(start + __ffs(tmp), nbits);
 }
 
-unsigned long find_next_zero_bit(const unsigned long *addr, unsigned long size,
-                                 unsigned long offset)
+unsigned long 
+find_next_zero_bit(const unsigned long *addr, unsigned long size,
+                unsigned long offset)
 {
-        return _find_next_bit(addr, size, offset, ~0UL);
+  return _find_next_bit(addr, size, offset, ~0UL);
 }
 
 /*
  * Find the next set bit in a memory region.
  */
-unsigned long find_next_bit(const unsigned long *addr, unsigned long size,
-                            unsigned long offset)
+unsigned long 
+find_next_bit(const unsigned long *addr, unsigned long size, unsigned long offset)
 {
-        return _find_next_bit(addr, size, offset, 0UL);
+  return _find_next_bit(addr, size, offset, 0UL);
 }
 
 
 /*
  * Find the first cleared bit in a memory region.
  */
-unsigned long find_first_zero_bit(const unsigned long *addr, unsigned long size)
+unsigned long 
+find_first_zero_bit(const unsigned long *addr, unsigned long size)
 {
-	unsigned long idx;
-
-	for (idx = 0; idx * BITS_PER_LONG < size; idx++) {
-		if (addr[idx] != ~0UL)
-			return min(idx * BITS_PER_LONG + ffz(addr[idx]), size);
-	}
-
-	return size;
+  unsigned long idx;
+  for (idx = 0; idx * BITS_PER_LONG < size; idx++) {
+    if (addr[idx] != ~0UL)
+      return min(idx * BITS_PER_LONG + ffz(addr[idx]), size);
+  }
+  return size;
 }
 
 #define simple_strtoint(c, end, base)	simple_strtol(c, end, base)
@@ -144,55 +140,53 @@ int bch_ ## name ## _h(const char *cp, type *res)		\
  */
 ssize_t bch_hprint(char *buf, int64_t v)
 {
-	static const char units[] = "?kMGTPEZY";
-	int u = 0, t;
+  static const char units[] = "?kMGTPEZY";
+  int u = 0, t;
+  uint64_t q;
+  if (v < 0)
+    q = -v;
+  else
+    q = v;
 
-	uint64_t q;
+  /* For as long as the number is more than 3 digits, but at least
+   * once, shift right / divide by 1024.  Keep the remainder for
+   * a digit after the decimal point.
+   */
+  do {
+    u++;
 
-	if (v < 0)
-		q = -v;
-	else
-		q = v;
+    t = q & ~(~0 << 10);
+    q >>= 10;
+  } while (q >= 1000);
 
-	/* For as long as the number is more than 3 digits, but at least
-	 * once, shift right / divide by 1024.  Keep the remainder for
-	 * a digit after the decimal point.
-	 */
-	do {
-		u++;
-
-		t = q & ~(~0 << 10);
-		q >>= 10;
-	} while (q >= 1000);
-
-	if (v < 0)
-		/* '-', up to 3 digits, '.', 1 digit, 1 character, null;
-		 * yields 8 bytes.
-		 */
-		return sprintf(buf, "-%llu.%i%c", q, t * 10 / 1024, units[u]);
-	else
-		return sprintf(buf, "%llu.%i%c", q, t * 10 / 1024, units[u]);
+  if (v < 0)
+    /* '-', up to 3 digits, '.', 1 digit, 1 character, null;
+     * yields 8 bytes.
+     */
+    return sprintf(buf, "-%llu.%i%c", q, t * 10 / 1024, units[u]);
+  else
+    return sprintf(buf, "%llu.%i%c", q, t * 10 / 1024, units[u]);
 }
 
 ssize_t bch_snprint_string_list(char *buf, size_t size, const char * const list[],
-			    size_t selected)
+                                size_t selected)
 {
-	char *out = buf;
-	size_t i;
+  char *out = buf;
+  size_t i;
 
-	for (i = 0; list[i]; i++)
-		out += snprintf(out, buf + size - out,
-				i == selected ? "[%s] " : "%s ", list[i]);
+  for (i = 0; list[i]; i++)
+    out += snprintf(out, buf + size - out,
+        i == selected ? "[%s] " : "%s ", list[i]);
 
-	out[-1] = '\n';
-	return out - buf;
+  out[-1] = '\n';
+  return out - buf;
 }
 
 char *skip_spaces(const char *str)
 {
-        while (isspace(*str))
-                ++str;
-        return (char *)str;
+  while (isspace(*str))
+    ++str;
+  return (char *)str;
 }
 
 /**
@@ -205,109 +199,105 @@ char *skip_spaces(const char *str)
  */
 char *strim(char *s)
 {
-        size_t size;
-        char *end;
+  size_t size;
+  char *end;
 
-        size = strlen(s);
-        if (!size)
-                return s;
+  size = strlen(s);
+  if (!size)
+    return s;
 
-        end = s + size - 1;
-        while (end >= s && isspace(*end))
-                end--;
-        *(end + 1) = '\0';
+  end = s + size - 1;
+  while (end >= s && isspace(*end))
+    end--;
 
-        return skip_spaces(s);
+  *(end + 1) = '\0';
+
+  return skip_spaces(s);
 }
 
 ssize_t bch_read_string_list(const char *buf, const char * const list[])
 {
-	size_t i;
-	char *s, *d = strndup(buf, PAGE_SIZE - 1);
-	if (!d)
-		return -ENOMEM;
+  size_t i;
+  char *s, *d = strndup(buf, PAGE_SIZE - 1);
+  if (!d)
+    return -ENOMEM;
+  s = strim(d);
 
-	s = strim(d);
+  for (i = 0; list[i]; i++)
+    if (!strcmp(list[i], s))
+      break;
+  free(d);
 
-	for (i = 0; list[i]; i++)
-		if (!strcmp(list[i], s))
-			break;
+  if (!list[i])
+    return -EINVAL;
 
-	free(d);
-
-	if (!list[i])
-		return -EINVAL;
-
-	return i;
+  return i;
 }
 
 bool bch_is_zero(const char *p, size_t n)
 {
-	size_t i;
+  size_t i;
+  for (i = 0; i < n; i++)
+    if (p[i])
+      return false;
 
-	for (i = 0; i < n; i++)
-		if (p[i])
-			return false;
-	return true;
+  return true;
 }
 
 int bch_parse_uuid(const char *s, char *uuid)
 {
-	size_t i, j, x;
-	memset(uuid, 0, 16);
+  size_t i, j, x;
+  memset(uuid, 0, 16);
 
-	for (i = 0, j = 0;
-	     i < strspn(s, "-0123456789:ABCDEFabcdef") && j < 32;
-	     i++) {
-		x = s[i] | 32;
+  for (i = 0, j = 0;
+      i < strspn(s, "-0123456789:ABCDEFabcdef") && j < 32;
+      i++) {
+    x = s[i] | 32;
 
-		switch (x) {
-		case '0'...'9':
-			x -= '0';
-			break;
-		case 'a'...'f':
-			x -= 'a' - 10;
-			break;
-		default:
-			continue;
-		}
+    switch (x) {
+    case '0'...'9':
+      x -= '0';
+      break;
+    case 'a'...'f':
+      x -= 'a' - 10;
+      break;
+    default:
+      continue;
+    }
 
-		if (!(j & 1))
-			x <<= 4;
-		uuid[j++ >> 1] |= x;
-	}
-	return i;
+    if (!(j & 1))
+      x <<= 4;
+    uuid[j++ >> 1] |= x;
+  }
+
+  return i;
 }
 
 
 void bch_time_stats_update(struct time_stats *stats, uint64_t start_time)
 {
-	uint64_t now, duration, last;
+  uint64_t now, duration, last;
 
-	//spin_lock(&stats->lock);
+  //spin_lock(&stats->lock);
 
-	now		= time(NULL);//local_clock();
-	duration	= time_after64(now, start_time)
-		? now - start_time : 0;
-	last		= time_after64(now, stats->last)
-		? now - stats->last : 0;
+  now           = time(NULL);//local_clock();
+  duration      = time_after64(now, start_time)
+    ? now - start_time : 0;
+  last          = time_after64(now, stats->last)
+    ? now - stats->last : 0;
 
-	stats->max_duration = max(stats->max_duration, duration);
-
-	if (stats->last) {
-		ewma_add(stats->average_duration, duration, 8, 8);
-
-		if (stats->average_frequency)
-			ewma_add(stats->average_frequency, last, 8, 8);
-		else
-			stats->average_frequency  = last << 8;
-	} else {
-		stats->average_duration  = duration << 8;
-	}
-
-	stats->last = now ?: 1;
-
-	//spin_unlock(&stats->lock);
+  stats->max_duration = max(stats->max_duration, duration);
+  if (stats->last) {
+    ewma_add(stats->average_duration, duration, 8, 8);
+    if (stats->average_frequency)
+      ewma_add(stats->average_frequency, last, 8, 8);
+    else
+      stats->average_frequency  = last << 8;
+  } else {
+    stats->average_duration  = duration << 8;
+  }
+  stats->last = now ?: 1;
+  //spin_unlock(&stats->lock);
 }
 
 ssize_t _safe_read(int fd, void *buf, size_t count)
@@ -363,32 +353,29 @@ int get_random_bytes(void *buf, int len)
  */
 uint64_t bch_next_delay(struct bch_ratelimit *d, uint64_t done)
 {
-        /*uint64_t now = time(NULL);//local_clock();*/
+  /*uint64_t now = time(NULL);//local_clock();*/
 
-        struct timespec now = {0, 0};
+ 
+  struct timespec now = {0, 0};
+  clock_gettime(CLOCK_REALTIME, &now);
+  /*d->next += div_u64(done * NSEC_PER_SEC, d->rate);*/
+  d->next += div_u64(done * USEC_PER_SEC, d->rate);
 
-        clock_gettime(CLOCK_REALTIME, &now);
+  /*if (time_before64(now.tv_nsec + NSEC_PER_SEC, d->next))*/
+    /*d->next = now.tv_nsec + NSEC_PER_SEC;*/
 
-        /*d->next += div_u64(done * NSEC_PER_SEC, d->rate);*/
-        d->next += div_u64(done * USEC_PER_SEC, d->rate);
+  if (time_before64(now.tv_nsec + USEC_PER_SEC, d->next))
+    d->next = now.tv_nsec + USEC_PER_SEC;
+  /*if (time_after64(now.tv_nsec - NSEC_PER_SEC * 2, d->next))*/
+    /*d->next = now.tv_nsec - NSEC_PER_SEC * 2;*/
+  if (time_after64(now.tv_nsec - USEC_PER_SEC * 2, d->next))
+    d->next = now.tv_nsec - USEC_PER_SEC * 2;
 
-        /*if (time_before64(now.tv_nsec + NSEC_PER_SEC, d->next))*/
-                /*d->next = now.tv_nsec + NSEC_PER_SEC;*/
-
-        if (time_before64(now.tv_nsec + USEC_PER_SEC, d->next))
-                d->next = now.tv_nsec + USEC_PER_SEC;
-
-        /*if (time_after64(now.tv_nsec - NSEC_PER_SEC * 2, d->next))*/
-                /*d->next = now.tv_nsec - NSEC_PER_SEC * 2;*/
-        if (time_after64(now.tv_nsec - USEC_PER_SEC * 2, d->next))
-                d->next = now.tv_nsec - USEC_PER_SEC * 2;
-
-        printf("d->next ========= %ld\n", d->next);
-        printf("d->rate ========= %ld\n", d->rate);
-
-        return time_after64(d->next, now.tv_nsec)
-                ? div_u64(d->next - now.tv_nsec, USEC_PER_SEC / HZ)
-                : 0;
+  printf("d->next ========= %ld\n", d->next);
+  printf("d->rate ========= %ld\n", d->rate);
+  return time_after64(d->next, now.tv_nsec)
+    ? div_u64(d->next - now.tv_nsec, USEC_PER_SEC / HZ)
+    : 0;
 }
 
 #if 0
@@ -532,23 +519,22 @@ static const uint64_t crc_table[256] = {
 
 uint64_t bch_crc64_update(uint64_t crc, const void *_data, size_t len)
 {
-	const unsigned char *data = _data;
+  const unsigned char *data = _data;
 
-	while (len--) {
-		int i = ((int) (crc >> 56) ^ *data++) & 0xFF;
-		crc = crc_table[i] ^ (crc << 8);
-	}
-
-	return crc;
+  while (len--) {
+    int i = ((int) (crc >> 56) ^ *data++) & 0xFF;
+    crc = crc_table[i] ^ (crc << 8);
+  }
+  
+  return crc;
 }
 
 uint64_t bch_crc64(const void *data, size_t len)
 {
-	uint64_t crc = 0xffffffffffffffffULL;
+  uint64_t crc = 0xffffffffffffffffULL;
+  crc = bch_crc64_update(crc, data, len);
 
-	crc = bch_crc64_update(crc, data, len);
-
-	return crc ^ 0xffffffffffffffffULL;
+  return crc ^ 0xffffffffffffffffULL;
 }
 
 void * T2Molloc(size_t size)
