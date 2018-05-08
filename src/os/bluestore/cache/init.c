@@ -33,11 +33,13 @@
 
 
 #include "aio.h"
+#include "log.h"
 
 /*struct cache_set bch_cache_sets;*/
 LIST_HEAD(bch_cache_sets);
 /*struct mutex bch_register_lock;*/
 pthread_mutex_t bch_register_lock;
+pthread_mutex_t g_insert_lock;
 
 enum prio_io_op {
   REQ_OP_READ,
@@ -1001,7 +1003,9 @@ bch_data_insert_keys(struct cache_set *c_set,
   if (!journal_ref) {
     return ;
   }
+  pthread_mutex_lock(&g_insert_lock);
   ret = bch_btree_insert(c_set, insert_keys, NULL, replace_key);
+  pthread_mutex_unlock(&g_insert_lock);
   if (ret == -ESRCH) {
     printf("What should I do?\n");
   }
@@ -1229,6 +1233,8 @@ traverse_btree(struct cache * c)
 int 
 init(struct cache * ca)
 {
+  cache_log_open();
+  cache_log_set_level(CACHE_LOG_DEBUG);
   int fd = ca->fd;
   const char *err = "cannot allocate memory";
   struct cache_sb sb;
@@ -1310,7 +1316,7 @@ int item_write_next(struct ring_item *item, bool dirty)
 
   return ret;
 free_keylist:
-  free(insert_keys);
+  free(item->insert_keys);
   return -1;
 }
 
@@ -1623,6 +1629,7 @@ int get_cache_strategy(struct cached_dev *dc, struct ring_item *item)
 
 int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, void *cb, void *cb_arg)
 {
+  CACHE_DEBUGLOG(" cache_aio_write offset=%lx, len=%lx \n", offset, len);
   struct ring_item *item = NULL;
   int ret=0;
   struct bkey start = KEY(1, (offset>>9),0);

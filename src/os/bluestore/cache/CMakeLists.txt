@@ -14,6 +14,7 @@ set (libcache_srcs
     sync_io.c
     writeback.c
     movinggc.c
+    log.c
     )
 set (spdk_libs_whole 
     spdk_bdev_malloc 
