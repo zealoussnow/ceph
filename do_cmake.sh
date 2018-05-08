@@ -13,7 +13,11 @@ fi
 
 mkdir build
 cd build
-cmake -DBOOST_J=$(nproc) $ARGS "$@" ..
+
+# Use devel packages installed in system
+cmake -DWITH_TESTS=OFF -DWITH_SYSTEM_BOOST=ON \
+      -DWITH_SYSTEM_ROCKSDB=ON \
+      $ARGS "$@" ..
 
 # minimal config to find plugins
 cat <<EOF > ceph.conf
