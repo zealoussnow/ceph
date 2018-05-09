@@ -638,7 +638,11 @@ set(ceph_common_deps
 if(HAVE_RDMA)
   list(APPEND ceph_common_deps ${RDMA_LIBRARY})
 endif()
+
+# FIXME
+#if(NOT WITH_SYSTEM_BOOST)
 list(APPEND ceph_common_deps ${ZLIB_LIBRARIES})
+#endif()
 
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ceph_ver.c
   ${CMAKE_SOURCE_DIR}/src/common/version.cc

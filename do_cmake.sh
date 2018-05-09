@@ -14,11 +14,20 @@ fi
 mkdir build
 cd build
 
+#cmake -DBOOST_J=$(nproc) $ARGS "$@" ..
+
 # Use devel packages installed in system
-cmake -DWITH_TESTS=OFF -DWITH_SYSTEM_BOOST=ON \
+cmake -DCMAKE_C_FLAGS="-O0 -g3 -gdwarf-4" \
+      -DCMAKE_CXX_FLAGS="-O0 -g3 -gdwarf-4" \
+      -DWITH_TESTS=OFF -DWITH_SYSTEM_BOOST=ON \
       -DWITH_SYSTEM_ROCKSDB=ON \
       -DALLOCATOR=tcmalloc_minimal \
       $ARGS "$@" ..
+
+# Only build the specified target
+#make ceph-osd ceph-mon ceph-mgr librados librbd rbd rados \
+#     ceph-conf ceph-authtool monmaptool \
+#     cython_rados cython_rbd
 
 # minimal config to find plugins
 cat <<EOF > ceph.conf
