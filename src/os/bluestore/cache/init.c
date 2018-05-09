@@ -1632,7 +1632,7 @@ int get_cache_strategy(struct cached_dev *dc, struct ring_item *item)
 
 int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, void *cb, void *cb_arg)
 {
-  CACHE_DEBUGLOG(" cache_aio_write offset=%lx, len=%lx \n", offset, len);
+  CACHE_DEBUGLOG(" cache_aio_write offset=%lu, len=%lu \n", offset/512, len/512);
   struct ring_item *item = NULL;
   int ret=0;
   struct bkey start = KEY(1, (offset>>9),0);
@@ -1905,6 +1905,8 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   traverse_btree(ca);
   printf("********** End traverse btree *************\n");
   CACHE_DEBUGLOG("********** End traverse btree *************\n");
+
+  CACHE_DEBUGLOG(" cache_aio_read offset=%lu, len=%lu \n", offset/512, len/512);
   struct ring_item *item;
   struct search s;
   int ret = 0;

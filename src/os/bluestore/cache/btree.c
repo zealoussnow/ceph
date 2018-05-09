@@ -2056,14 +2056,17 @@ static bool btree_insert_key(struct btree *b, struct bkey *k,
 
 	status = bch_btree_insert_key(&b->keys, k, replace_key);
 	if (status != BTREE_INSERT_STATUS_NO_INSERT) {
+          CACHE_DEBUGLOG(" insert sucessfult \n");
 		bch_check_keys(&b->keys, "%u for %s", status,
 			       replace_key ? "replace" : "insert");
 
 		//trace_bcache_btree_insert_key(b, k, replace_key != NULL,
 		//			      status);
 		return true;
-	} else
+	} else {
+          CACHE_DEBUGLOG(" insert not sucessfult \n");
 		return false;
+        }
 }
 
 static size_t insert_u64s_remaining(struct btree *b)
@@ -2083,6 +2086,7 @@ static bool bch_btree_insert_keys(struct btree *b, struct btree_op *op,
 				  struct keylist *insert_keys,
 				  struct bkey *replace_key)
 {
+  CACHE_DEBUGLOG("   ***** start insert ***** \n");
   bool ret = false;
   int oldsize = bch_count_data(&b->keys);
   while (!bch_keylist_empty(insert_keys)) {
@@ -2092,12 +2096,14 @@ static bool bch_btree_insert_keys(struct btree *b, struct btree_op *op,
                         /*remaining=%lu\n",__func__,b->level,KEY_OFFSET(&b->key), \*/
                         /*KEY_OFFSET(k),KEY_SIZE(k),bkey_u64s(k),insert_u64s_remaining(b));*/
     if (bkey_u64s(k) > insert_u64s_remaining(b)) {
+      CACHE_ERRORLOG("Not insert bkey_u64s=%d,remaining=%d\n",bkey_u64s(k), insert_u64s_remaining(b));
       break;
     }
     if (bkey_cmp(k, &b->key) <= 0) {
       if (!b->level) {
         bkey_put(b->c, k);
       }
+      CACHE_DEBUGLOG(" insert key(of=%lu,len=%lu) <= btree key(of=%lu,len=%lu)\n", KEY_OFFSET(k), KEY_SIZE(k),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
       ret |= btree_insert_key(b, k, replace_key);
       bch_keylist_pop_front(insert_keys);
     } else if (bkey_cmp(&START_KEY(k), &b->key) < 0) {
@@ -2105,9 +2111,11 @@ static bool bch_btree_insert_keys(struct btree *b, struct btree_op *op,
       bkey_copy(&temp.key, insert_keys->keys);
       bch_cut_back(&b->key, &temp.key);
       bch_cut_front(&b->key, insert_keys->keys);
+      CACHE_DEBUGLOG(" insert start tmp key(of=%lu,len=%lu) <= btree key(of=%lu,len=%lu)\n", KEY_OFFSET(&temp.key), KEY_SIZE(&temp.key),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
       ret |= btree_insert_key(b, &temp.key, replace_key);
       break;
     } else {
+      CACHE_ERRORLOG(" not match bkey(of=%lu,len=%lu),btree key(of=%lu,len=%lu)\n", KEY_OFFSET(k), KEY_SIZE(k),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
       break;
     }
   }
@@ -2150,17 +2158,17 @@ btree_split(struct btree *b, struct btree_op *op,
   split = set_blocks(btree_bset_first(n1), block_bytes(n1->c)) > (btree_blocks(b) * 4) / 5;
   /*printf( "\033[1m\033[45;33m btree.c FUN %s: split=%d,set_blocks=%d,(btree_blocks(b)*4)/5=%d \033[0m\n", __func__,split,set_blocks(btree_bset_first(n1),block_bytes(n1->c)),(btree_blocks(b)*4)/5);*/
   /*printf( " btree.c FUN %s: split=%d,set_blocks=%d,(btree_blocks(b)*4)/5=%d\n", __func__,split,set_blocks(btree_bset_first(n1),block_bytes(n1->c)),(btree_blocks(b)*4)/5);*/
+  CACHE_DEBUGLOG(" split=%d \n", split);
   if (split) {
     unsigned keys = 0;
     //trace_bcache_btree_node_split(b, btree_bset_first(n1)->keys);
-    /*printf( " btree.c FUN %s: Split alloc new btree node\n", __func__);*/
     n2 = bch_btree_node_alloc(b->c, op, b->level, b->parent);
-    /*printf( " btree.c FUN %s: Split end alloc new btree node\n", __func__);*/
     if (IS_ERR(n2)) {
       goto err_free1;
     }
     
     if (!b->parent) {
+      CACHE_DEBUGLOG(" split from root node \n");
       n3 = bch_btree_node_alloc(b->c, op, b->level + 1, NULL);
       if (IS_ERR(n3)) {
         goto err_free2;
@@ -2168,7 +2176,6 @@ btree_split(struct btree *b, struct btree_op *op,
     }
     pthread_mutex_lock(&n1->write_lock);
     pthread_mutex_lock(&n2->write_lock);
-    /*printf( " btree.c FUN %s: Split Insert keylist to new replacement btree node,level=%d\n", __func__,n1->level);*/
     bch_btree_insert_keys(n1, op, insert_keys, replace_key);
 
     /*
@@ -2190,14 +2197,14 @@ btree_split(struct btree *b, struct btree_op *op,
     /*printf( " \033[1m\033[45;33 btree.c FUN %s: Split Write new split(new alloc) btree node,level=%d,offset=%lu \033[0m\n", __func__,n2->level,KEY_OFFSET(&n2->key));*/
     bch_btree_node_write(n2);
     pthread_mutex_unlock(&n2->write_lock);
-    //rw_unlock(true, n2);
-    } else {
-      //trace_bcache_btree_node_compact(b, btree_bset_first(n1)->keys);
-      /*printf( " btree.c FUN %s: No Split Insert keylist to new replacement btree node\n", __func__);*/
-      pthread_mutex_lock(&n1->write_lock);
-      bch_btree_insert_keys(n1, op, insert_keys, replace_key);
-      /*printf( " btree.c FUN %s: No Split End Insert keylist to new replacement btree node\n", __func__);*/
-    }
+    rw_unlock(true, n2);
+  } else {
+    //trace_bcache_btree_node_compact(b, btree_bset_first(n1)->keys);
+    CACHE_DEBUGLOG(" No split, direct insert to new replacement node n1\n");
+    pthread_mutex_lock(&n1->write_lock);
+    bch_btree_insert_keys(n1, op, insert_keys, replace_key);
+  }
+
   bch_keylist_add(&parent_keys, &n1->key);
   /*printf( " \033[1m\033[45;33 mbtree.c FUN %s: Write new replacement btree node,level=%d,offset=%lu \033[0m\n", __func__,n1->level,KEY_OFFSET(&n1->key));*/
   bch_btree_node_write(n1); 
@@ -2206,32 +2213,30 @@ btree_split(struct btree *b, struct btree_op *op,
     /* Depth increases, make a new root */
     pthread_mutex_lock(&n3->write_lock);
     bkey_copy_key(&n3->key, &MAX_KEY);
-    /*printf( " btree.c FUN %s: Insert old btree node keylist to new alloc btree node\n", __func__);*/
     bch_btree_insert_keys(n3, op, &parent_keys, NULL);
-    /*printf( " \033[1m\033[45;33 btree.c FUN %s: Write new alloc btree node b->level=%d,offset=%lu \033[0m\n", __func__,n3->level,KEY_OFFSET(&n3->key));*/
     bch_btree_node_write(n3);
     pthread_mutex_unlock(&n3->write_lock);
-    /*printf( " btree.c FUN %s: Set new alloc btree node as root level=%d\n", __func__,n3->level);*/
+
     bch_btree_set_root(n3);
-    //rw_unlock(true, n3);
-    } else if (!b->parent) {
-      /* Root filled up but didn't need to be split */
-      /*printf( " btree.c FUN %s: Set new replacement btree node as root level=%d\n", __func__,n1->level);*/
-      bch_btree_set_root(n1);
-    } else {
-      /* Split a non root node */
-      make_btree_freeing_key(b, parent_keys.top);
-      bch_keylist_push(&parent_keys);
-      /*printf( " btree.c FUN %s: Insert new replacement node keylist to his parent btree root\n", __func__);*/
-      bch_btree_insert_node(b->parent, op, &parent_keys, NULL, NULL);
-      //BUG_ON(!bch_keylist_empty(&parent_keys));
-    }
-  /*printf( " btree.c FUN %s: Free old btree node\n", __func__);*/
+    rw_unlock(true, n3);
+  } else if (!b->parent) {
+    /* Root filled up but didn't need to be split */
+    /*printf( " btree.c FUN %s: Set new replacement btree node as root level=%d\n", __func__,n1->level);*/
+    bch_btree_set_root(n1);
+  } else {
+    /* Split a non root node */
+    // why copy freeing node b->key to parent_keys,evenif take zero key copy?
+    make_btree_freeing_key(b, parent_keys.top);
+    bch_keylist_push(&parent_keys);
+    bch_btree_insert_node(b->parent, op, &parent_keys, NULL, NULL);
+    BUG_ON(!bch_keylist_empty(&parent_keys));
+  }
+
   btree_node_free(b);
   rw_unlock(true, n1);
   //bch_time_stats_update(&b->c->btree_split_time, start_time);
-
   return 0;
+
 err_free2:
   bkey_put(b->c, &n2->key);
   btree_node_free(n2);
@@ -2242,7 +2247,7 @@ err_free1:
   rw_unlock(true, n1);
 err:
   //WARN(1, "bcache: btree split failed (level %u)", b->level);
-  /*printf("bcache: btree split failed (level %u) \n", b->level);*/
+  CACHE_ERRORLOG("bcache: btree split failed (level %u)", b->level);
   if (n3 == ERR_PTR(-EAGAIN) || n2 == ERR_PTR(-EAGAIN) ||
                 n1 == ERR_PTR(-EAGAIN)) {
     return -EAGAIN;
@@ -2276,6 +2281,7 @@ bch_btree_insert_node(struct btree *b, struct btree_op *op,
   }
   BUG_ON(write_block(b) != btree_bset_last(b));
   /*printf(" btree.c FUN %s: Btree Insert Start Insert keys \n",__func__);*/
+  CACHE_DEBUGLOG(" direct insert keys \n");
   if (bch_btree_insert_keys(b, op, insert_keys, replace_key)) {
     /*printf(" btree.c FUN %s: Btree Insert Start Insert keys Sucessfull,b->level=%d\n",__func__,b->level);*/
     // 暂时按同步写的方式更行btree node
@@ -2304,6 +2310,7 @@ split:
   // 上面逻辑需要在后期思考清除
    if ( 1 ) {
      /*printf("\033[1m\033[45;33m btree.c FUN %s: Start Btree Split \033[0m\n",__func__);*/
+     CACHE_DEBUGLOG(" goto split insert \n");
      int ret = btree_split(b, op, insert_keys, replace_key);
      /*printf("\033[1m\033[45;33m btree.c FUN %s: End Btree Split \033[0m\n",__func__);*/
      if (bch_keylist_empty(insert_keys))
@@ -2355,7 +2362,7 @@ out:
 
 static int btree_insert_fn(struct btree_op *b_op, struct btree *b)
 {
-  /*printf(" btree.c FUN %s: Btree Insert fn(callback)\n",__func__);*/
+  CACHE_DEBUGLOG(" insert fn \n");
   struct btree_insert_op *op = container_of(b_op, struct btree_insert_op, op);
 
   int ret = bch_btree_insert_node(b, &op->op, op->keys, op->journal_ref, 
@@ -2375,6 +2382,7 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   struct btree_insert_op op;
   int ret = 0;
   BUG_ON(bch_keylist_empty(keys));
+  CACHE_DEBUGLOG("btree insert nkey=%d", bch_keylist_nkeys(keys));
   /*printf(" btree.c FUN %s: Btree Insert journal_ref=%d\n",__func__,journal_ref);*/
   bch_btree_op_init(&op.op, SHRT_MAX); /* XXX 第三个参数write_lock_level指什么？*/
   op.keys		= keys;
@@ -2386,8 +2394,10 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   // 点的key是继承自根节点，即它的key是U64_MAX
   while (!ret && !bch_keylist_empty(keys)) {
     op.op.lock = 0;
+    CACHE_DEBUGLOG("    < map leaf nodes >   \n");
     ret = bch_btree_map_leaf_nodes(&op.op, c, &START_KEY(keys->keys),
                                 btree_insert_fn);
+    CACHE_DEBUGLOG("    < end map leaf nodes >   \n");
   }
 
   // 如果插入
