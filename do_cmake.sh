@@ -17,6 +17,7 @@ cd build
 # Use devel packages installed in system
 cmake -DWITH_TESTS=OFF -DWITH_SYSTEM_BOOST=ON \
       -DWITH_SYSTEM_ROCKSDB=ON \
+      -DALLOCATOR=tcmalloc_minimal \
       $ARGS "$@" ..
 
 # minimal config to find plugins
