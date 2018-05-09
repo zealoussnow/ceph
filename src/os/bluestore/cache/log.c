@@ -69,7 +69,8 @@ void cache_log(enum cache_log_level level, const char *file,
   vsnprintf(buf, sizeof(buf), format, ap);
   
   if (level <= g_cache_log_level) {
-    syslog(severity, "%s:%4d:%s: *%s*: %s", file, line, func, cache_level_names[level], buf);
+    /*syslog(severity, "%s:%4d:%s: *%s*: %s", file, line, func, cache_level_names[level], buf);*/
+    syslog(severity, "%s: *%s*: %s", func, cache_level_names[level], buf);
   }
 
   va_end(ap);

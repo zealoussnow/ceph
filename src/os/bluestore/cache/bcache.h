@@ -198,6 +198,8 @@
 #include "atomic.h"
 #include "closure.h"
 #include "aio.h"
+#include "log.h"
+
 struct bucket {
 	atomic_t	pin;
 

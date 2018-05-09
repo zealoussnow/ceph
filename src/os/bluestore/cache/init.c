@@ -693,7 +693,7 @@ run_cache_set(struct cache_set *c)
     /* 将节点从链表中移除，并重新初始化该节点的next和prev指针 */
     list_del_init(&c->root->list);
     rw_unlock(true, c->root);
-    pthread_rwlock_unlock(&c->root->lock);
+    /*pthread_rwlock_unlock(&c->root->lock);*/
     err = uuid_read(c, j);//, &cl);
     if (err) {
       goto err;
@@ -773,8 +773,8 @@ run_cache_set(struct cache_set *c)
     bch_btree_node_write(c->root);
     pthread_mutex_unlock(&c->root->write_lock);
     bch_btree_set_root(c->root);
-    pthread_rwlock_unlock(&c->root->lock);
-    /*rw_unlock(true, c->root);*/
+    /*pthread_rwlock_unlock(&c->root->lock);*/
+    rw_unlock(true, c->root);
     /*
      * We don't want to write the first journal entry until
      * everything is set up - fortunately journal entries won't be
@@ -1213,13 +1213,16 @@ int
 traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
 {
   printf("<%s>: >>>>>> Entry Btree Node(level=%d,offset=%lu) <<<<<<\n",__func__,b->level,KEY_OFFSET(&b->key));
+  CACHE_DEBUGLOG(">>>>>> Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n", 
+      b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
   struct bkey *k, *p = NULL;
   struct btree_iter iter;
   for_each_key(&b->keys, k, &iter) {
+    CACHE_DEBUGLOG("  bkey offset=%lu,size=%lu\n", KEY_OFFSET(k),KEY_SIZE(k));
     printf("<%s>: btree node(level=%d,offset=%lu) bkey offset=%lu,size=%lu \n",__func__,b->level,KEY_OFFSET(&b->key),KEY_OFFSET(k),KEY_SIZE(k));
   }
+  CACHE_DEBUGLOG(">>>>>> END <<<<<<<\n");
   return MAP_CONTINUE;
-
 }
 
 void 
@@ -1897,6 +1900,11 @@ int
 cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
                    io_completion_fn io_completion, void *io_arg)
 {
+  CACHE_DEBUGLOG("********** Start traverse btree *************\n");
+  printf("********** Start traverse btree *************\n");
+  traverse_btree(ca);
+  printf("********** End traverse btree *************\n");
+  CACHE_DEBUGLOG("********** End traverse btree *************\n");
   struct ring_item *item;
   struct search s;
   int ret = 0;

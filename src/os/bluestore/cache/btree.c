@@ -125,13 +125,15 @@
 ({									\
 	int _r, l = (b)->level - 1;					\
 	bool _w = l <= (op)->lock;					\
+        CACHE_DEBUGLOG(" node(of:%lu) get id=0x%lx",KEY_OFFSET(key),pthread_self());       \
 	struct btree *_child = bch_btree_node_get((b)->c, op, key, l,	\
 						  _w, b);		\
 	if (!IS_ERR(_child)) {						\
 		_r = bch_btree_ ## fn(_child, op, ##__VA_ARGS__);	\
-		rw_unlock(_w, _child);					\
 	} else								\
 		_r = PTR_ERR(_child);					\
+	rw_unlock(_w, _child);	        				\
+        CACHE_DEBUGLOG(" node(of:%lu) get id=0x%lx get done",KEY_OFFSET(key),pthread_self());       \
 	_r;								\
 })
 
@@ -143,8 +145,8 @@
  *
  * 在根节点上调用fn
  */
-#define rw_unlock
-#define finish_wait
+/*#define rw_unlock*/
+/*#define finish_wait*/
 // TODO
 #if 0
 #define btree_root(fn, c, op, ...)					\
@@ -169,27 +171,30 @@
 })
 #endif
 
-#define btree_root(fn, c, op, ...)					                                \
-({									                                \
-	int _r = -EINTR;						                                \
-	do {								                                \
-		struct btree *_b = (c)->root;				                                \
-		bool _w = insert_lock(op, _b);				                                \
-		rw_lock(_w, _b, _b->level);				                                \
-		if (_b == (c)->root &&					                                \
-		    _w == insert_lock(op, _b)) {			                                \
-			_r = bch_btree_ ## fn(_b, op, ##__VA_ARGS__);	                                \
-		}							                                \
-		rw_unlock(_w, _b);					                                \
-		bch_cannibalize_unlock(c);				                                \
-		if (_r == -EINTR) {					                                \
-                        pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                 \
-                        pthread_cond_wait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut);     \
-                        pthread_mutex_unlock(&(c)->btree_cache_wait_mut);                               \
-                }                                                                                       \
-	} while (_r == -EINTR);						                                \
-									                                \
-	_r;								                                \
+/*struct timespec out;                                                                      \*/
+/*gettimeofday(&out, NULL);                                                                 \*/
+/*out.tv_sec+=1;                                                                            \*/
+/*pthread_cond_timedwait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut,&out);     \*/
+
+#define btree_root(fn, c, op, ...)                                                              \
+({                                                                                              \
+  int _r = -EINTR;                                                                              \
+  do {                                                                                          \
+    struct btree *_b = (c)->root;                                                               \
+    bool _w = insert_lock(op, _b);                                                              \
+    rw_lock(_w, _b, _b->level);                                                                 \
+    if (_b == (c)->root && _w == insert_lock(op, _b)) {                                         \
+      _r = bch_btree_ ## fn(_b, op, ##__VA_ARGS__);                                             \
+    }                                                                                           \
+    rw_unlock(_w, _b);                                                                          \
+    bch_cannibalize_unlock(c);                                                                  \
+    if (_r == -EINTR) {                                                                         \
+      pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
+      pthread_cond_wait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut);               \
+      pthread_mutex_unlock(&(c)->btree_cache_wait_mut);                                         \
+    }                                                                                           \
+  } while (_r == -EINTR);                                                                       \
+  _r;                                                                                           \
 })
 
 static inline struct bset *write_block(struct btree *b)
@@ -201,11 +206,12 @@ static inline struct bset *write_block(struct btree *b)
 static void bch_btree_init_next(struct btree *b)
 {
   /* If not a leaf node, always sort */
-  if (b->level && b->keys.nsets) {
-    bch_btree_sort(&b->keys, &b->c->sort);
-  } else {
-    bch_btree_sort_lazy(&b->keys, &b->c->sort);
-  }
+  bch_btree_sort(&b->keys, &b->c->sort);
+  /*if (b->level && b->keys.nsets) {*/
+    /*bch_btree_sort(&b->keys, &b->c->sort);*/
+  /*} else {*/
+    /*bch_btree_sort_lazy(&b->keys, &b->c->sort);*/
+  /*}*/
   // block是按扇区来算的，根据block_bits来算，如果block_bits=0
   // 说明block大小和扇区的大小是相等的，因此btree_blocks
   // 实际上就是btree的扇区数，即KEY_SIZE(&b->key)=512扇区
@@ -731,8 +737,8 @@ static int mca_reap(struct btree *b, unsigned min_order, bool flush)
   
   return 0;
 out_unlock:
-  //rw_unlock(true, b); /* 释放写锁 */
-  pthread_rwlock_unlock(&b->lock);
+  rw_unlock(true, b); /* 释放写锁 */
+  /*pthread_rwlock_unlock(&b->lock);*/
   return -ENOMEM;
 }
 
@@ -1022,6 +1028,8 @@ static struct btree *mca_alloc(struct cache_set *c, struct btree_op *op,
      goto err;
    }
   //BUG_ON(!down_write_trylock(&b->lock));
+  BUG_ON(pthread_rwlock_trywrlock(&b->lock));
+
   if (!b->keys.set->data) {
     goto err;
   }
@@ -1093,12 +1101,13 @@ retry:
     printf(" btree.c FUN %s: Start read btree node \n",__func__);
     bch_btree_node_read(b);
     printf(" btree.c FUN %s: End read btree node \n",__func__);
-    //if (!write)
+    if (!write)
+      pthread_rwlock_unlock(&b->lock);
     //	downgrade_write(&b->lock);
     } else {
-      //rw_lock(write, b, level);
+      rw_lock(write, b, level);
       if (PTR_HASH(c, &b->key) != PTR_HASH(c, k)) {
-        //rw_unlock(write, b);
+        rw_unlock(write, b);
         goto retry;
       }
       BUG_ON(b->level != level);
@@ -1133,7 +1142,7 @@ static void btree_node_prefetch(struct btree *parent, struct bkey *k)
   if (!IS_ERR_OR_NULL(b)) {
     b->parent = parent;
     bch_btree_node_read(b);
-    //rw_unlock(true, b);
+    rw_unlock(true, b);
   }
 }
 
@@ -2115,6 +2124,7 @@ btree_split(struct btree *b, struct btree_op *op,
 		       struct keylist *insert_keys,
 		       struct bkey *replace_key)
 {
+  CACHE_DEBUGLOG(" btree split \n");
   bool split;
   struct btree *n1, *n2 = NULL, *n3 = NULL;
   uint64_t start_time = time(NULL); //local_clock();
@@ -2218,18 +2228,18 @@ btree_split(struct btree *b, struct btree_op *op,
     }
   /*printf( " btree.c FUN %s: Free old btree node\n", __func__);*/
   btree_node_free(b);
-  //rw_unlock(true, n1);
+  rw_unlock(true, n1);
   //bch_time_stats_update(&b->c->btree_split_time, start_time);
 
   return 0;
 err_free2:
   bkey_put(b->c, &n2->key);
   btree_node_free(n2);
-  //rw_unlock(true, n2);
+  rw_unlock(true, n2);
 err_free1:
   bkey_put(b->c, &n1->key);
   btree_node_free(n1);
-  //rw_unlock(true, n1);
+  rw_unlock(true, n1);
 err:
   //WARN(1, "bcache: btree split failed (level %u)", b->level);
   /*printf("bcache: btree split failed (level %u) \n", b->level);*/
@@ -2366,7 +2376,7 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   int ret = 0;
   BUG_ON(bch_keylist_empty(keys));
   /*printf(" btree.c FUN %s: Btree Insert journal_ref=%d\n",__func__,journal_ref);*/
-  bch_btree_op_init(&op.op, 0); /* XXX 第三个参数write_lock_level指什么？*/
+  bch_btree_op_init(&op.op, SHRT_MAX); /* XXX 第三个参数write_lock_level指什么？*/
   op.keys		= keys;
   op.journal_ref	= journal_ref;
   op.replace_key	= replace_key;
