@@ -292,11 +292,11 @@ cache_thread_fn(void * cb)
             break;
           default:
             assert(" Unsupporte IO type " == 0);
-          }
         }
       }
-    ring_counts--;
+      ring_counts--;
     }
+  }
 }
 
 static int 
