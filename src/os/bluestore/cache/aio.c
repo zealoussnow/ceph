@@ -276,8 +276,12 @@ cache_thread_fn(void * cb)
       if ( count == 1) {
         switch ( item->io.type ) {
           case CACHE_IO_TYPE_WRITE:
-            spdk_bdev_write(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
+            printf(" start bdev write io.offset=%lu, io.len=%lu\n", item->io.offset, item->io.len);
+            ret = spdk_bdev_write(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
                             io_completion, item);
+            if ( ret < 0 ) {
+              assert(" write error ---------- " == 0);
+            }
             break;
           case CACHE_IO_TYPE_READ:
             ret = spdk_bdev_read(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
@@ -455,20 +459,23 @@ aio_init(void * ca)
   /*uint32_t max;*/
   /*max = spdk_env_get_core_count();*/
 
-  struct thread_options hdd_options;
-  struct thread_options ssd_options;
+  struct thread_options *hdd_options;
+  struct thread_options *ssd_options;
 
-  hdd_options.name = "AIO1";
-  hdd_options.thread_name = "aio_hdd_thread";
-  hdd_options.conf = path;
-  hdd_options.period_microseconds = 1000000;
-  hdd_options.type = CACHE_THREAD_BACKEND;
+  hdd_options = calloc(1, sizeof(*hdd_options));
+  ssd_options = calloc(1, sizeof(*ssd_options));
 
-  ssd_options.name = "AIO0";
-  ssd_options.thread_name = "aio_cache_thread";
-  ssd_options.conf = path;
-  t_options->type = CACHE_THREAD_CACHE;
-  t_options->period_microseconds = 100000;
+  hdd_options->name = "AIO1";
+  hdd_options->thread_name = "aio_hdd_thread";
+  hdd_options->conf = path;
+  hdd_options->period_microseconds = 1000000;
+  hdd_options->type = CACHE_THREAD_BACKEND;
+
+  ssd_options->name = "AIO0";
+  ssd_options->thread_name = "aio_cache_thread";
+  ssd_options->conf = path;
+  ssd_options->type = CACHE_THREAD_CACHE;
+  ssd_options->period_microseconds = 1000000;
 
 
   TAILQ_INIT(&handler->cache_threads);
@@ -480,13 +487,13 @@ aio_init(void * ca)
       continue;
     }
     if ( lcore <= 1 ) {
-      td = create_new_thread(&ssd_options);
+      td = create_new_thread(ssd_options);
       spdk_env_thread_launch_pinned(lcore, cache_thread_fn, (void *)td);
       td->lcore = lcore;
       handler->nr_cache++;
       TAILQ_INSERT_TAIL(&handler->cache_threads, td , node);
     } else {
-      td = create_new_thread(&hdd_options);
+      td = create_new_thread(hdd_options);
       td->lcore = lcore;
       spdk_env_thread_launch_pinned(lcore, cache_thread_fn, (void *)td);
       handler->nr_backend++;

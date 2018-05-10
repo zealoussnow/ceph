@@ -2313,10 +2313,11 @@ split:
      CACHE_DEBUGLOG(" goto split insert \n");
      int ret = btree_split(b, op, insert_keys, replace_key);
      /*printf("\033[1m\033[45;33m btree.c FUN %s: End Btree Split \033[0m\n",__func__);*/
-     if (bch_keylist_empty(insert_keys))
+     if (bch_keylist_empty(insert_keys)) {
        return 0;
-     /*else if (!ret)*/
-     /*return -EINTR;*/
+     } else if (!ret) {
+       return -EINTR;
+     }
      return ret;
    }
 }
