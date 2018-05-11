@@ -225,6 +225,8 @@ if(WITH_ZFS)
   set(HAVE_LIBZFS ${ZFS_FOUND})
 endif()
 
+option (USE_SPDK_AIO "Use SPDK BDEV AIO for device" ON)
+
 option(WITH_SPDK "Enable SPDK" OFF)
 if(WITH_SPDK)
   find_package(dpdk REQUIRED)
