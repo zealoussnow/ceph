@@ -276,7 +276,6 @@ cache_thread_fn(void * cb)
       if ( count == 1) {
         switch ( item->io.type ) {
           case CACHE_IO_TYPE_WRITE:
-            printf(" start bdev write io.offset=%lu, io.len=%lu\n", item->io.offset, item->io.len);
             ret = spdk_bdev_write(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
                             io_completion, item);
             if ( ret < 0 ) {
@@ -468,14 +467,14 @@ aio_init(void * ca)
   hdd_options->name = "AIO1";
   hdd_options->thread_name = "aio_hdd_thread";
   hdd_options->conf = path;
-  hdd_options->period_microseconds = 1000000;
+  hdd_options->period_microseconds = 100000;
   hdd_options->type = CACHE_THREAD_BACKEND;
 
   ssd_options->name = "AIO0";
   ssd_options->thread_name = "aio_cache_thread";
   ssd_options->conf = path;
   ssd_options->type = CACHE_THREAD_CACHE;
-  ssd_options->period_microseconds = 1000000;
+  ssd_options->period_microseconds = 100000;
 
 
   TAILQ_INIT(&handler->cache_threads);

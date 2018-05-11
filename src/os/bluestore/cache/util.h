@@ -24,7 +24,7 @@
 
 static unsigned int jiffies_to_msecs(const unsigned long j)
 {
-        return (MSEC_PER_SEC / HZ) * j;
+  return (MSEC_PER_SEC / HZ) * j;
 }
 
 
@@ -45,26 +45,26 @@ static unsigned int jiffies_to_msecs(const unsigned long j)
 
 #endif
 
-#define DECLARE_HEAP(type, name)					\
-	struct {							\
-		size_t size, used;					\
-		type *data;						\
-	} name
+#define DECLARE_HEAP(type, name)                                \
+  struct {                                              	\
+    size_t size, used;                                          \
+    type *data;                                                 \
+  } name
 
-#define init_heap(heap, _size)					\
-({									\
-	size_t _bytes;							\
-	(heap)->used = 0;						\
-	(heap)->size = (_size);						\
-	_bytes = (heap)->size * sizeof(*(heap)->data);			\
-	(heap)->data = malloc(_bytes);		\
-	(heap)->data;							\
+#define init_heap(heap, _size)                                  \
+({                                                              \
+  size_t _bytes;                                                \
+  (heap)->used = 0;                                             \
+  (heap)->size = (_size);                                       \
+  _bytes = (heap)->size * sizeof(*(heap)->data);                \
+  (heap)->data = malloc(_bytes);                                \
+  (heap)->data;                                                 \
 })
 
-#define free_heap(heap)							\
-do {									\
-	free((heap)->data);						\
-	(heap)->data = NULL;						\
+#define free_heap(heap)                                         \
+do {                                                            \
+  free((heap)->data);                                           \
+  (heap)->data = NULL;                                          \
 } while (0)
 
 #define heap_swap(h, i, j)	swap((h)->data[i], (h)->data[j])
@@ -390,21 +390,20 @@ ssize_t bch_snprint_string_list(char *buf, size_t size, const char * const list[
 ssize_t bch_read_string_list(const char *buf, const char * const list[]);
 
 struct time_stats {
-        //spinlock_t      lock; 
-        pthread_spinlock_t lock;
-
-	uint64_t	max_duration;
-	uint64_t	average_duration;
-	uint64_t	average_frequency;
-	uint64_t	last;
+  //spinlock_t      lock; 
+  pthread_spinlock_t lock;
+  uint64_t	max_duration;
+  uint64_t	average_duration;
+  uint64_t	average_frequency;
+  uint64_t	last;
 };
 
 void bch_time_stats_update(struct time_stats *stats, uint64_t time);
 
 static inline unsigned local_clock_us(void)
 {
-        return 0;
-	//return local_clock() >> 10;
+  return 0;
+  //return local_clock() >> 10;
 }
 
 #define NSEC_PER_ns			1L
@@ -458,23 +457,21 @@ read_attribute(name ## _last_ ## frequency_units)
 })
 
 struct bch_ratelimit {
-	/* Next time we want to do some work, in nanoseconds */
-	uint64_t		next;
-
-	/*
-	 * Rate at which we want to do work, in units per nanosecond
-	 * The units here correspond to the units passed to bch_next_delay()
-	 */
-	unsigned		rate;
+  /* Next time we want to do some work, in nanoseconds */
+  uint64_t		next;
+  /*
+   * Rate at which we want to do work, in units per nanosecond
+   * The units here correspond to the units passed to bch_next_delay()
+   */
+  unsigned		rate;
 };
 
 static inline void bch_ratelimit_reset(struct bch_ratelimit *d)
 {
-	//d->next = local_clock();
-        struct timespec now = {0, 0};
-
-        clock_gettime(CLOCK_REALTIME, &now);
-        d->next = now.tv_nsec;
+  //d->next = local_clock();
+  struct timespec now = {0, 0};
+  clock_gettime(CLOCK_REALTIME, &now);
+  d->next = now.tv_nsec;
 }
 
 uint64_t bch_next_delay(struct bch_ratelimit *d, uint64_t done);
@@ -575,13 +572,12 @@ dup:									\
 /* Does linear interpolation between powers of two */
 static inline unsigned fract_exp_two(unsigned x, unsigned fract_bits)
 {
-	unsigned fract = x & ~(~0 << fract_bits);
+  unsigned fract = x & ~(~0 << fract_bits);
+  x >>= fract_bits;
+  x   = 1 << x;
+  x  += (x * fract) >> fract_bits;
 
-	x >>= fract_bits;
-	x   = 1 << x;
-	x  += (x * fract) >> fract_bits;
-
-	return x;
+  return x;
 }
 
 //void bch_bio_map(struct bio *bio, void *base);

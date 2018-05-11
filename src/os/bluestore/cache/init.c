@@ -1562,7 +1562,7 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
       goto skip;
 
   list_for_each_entry(task, &dc->io_thread, list) {
-    printf("task->thread_id = %ld\n", task->thread_id);
+    /*printf("task->thread_id = %ld\n", task->thread_id);*/
     if (task->thread_id == pthread_self())
       goto out;
   }
