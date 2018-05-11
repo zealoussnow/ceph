@@ -802,10 +802,10 @@ void bch_bset_insert(struct btree_keys *b, struct bkey *where,
 		     struct bkey *insert)
 {
   struct bset_tree *t = bset_tree_last(b);
-  //BUG_ON(!b->last_set_unwritten);
-  //BUG_ON(bset_byte_offset(b, t->data) +
-  //       __set_bytes(t->data, t->data->keys + bkey_u64s(insert)) >
-  //       PAGE_SIZE << b->page_order);
+  BUG_ON(!b->last_set_unwritten);
+  BUG_ON(bset_byte_offset(b, t->data) +
+         __set_bytes(t->data, t->data->keys + bkey_u64s(insert)) >
+         PAGE_SIZE << b->page_order);
   memmove((uint64_t *) where + bkey_u64s(insert), where,
       (void *) bset_bkey_last(t->data) - (void *) where);
 
@@ -821,7 +821,9 @@ unsigned bch_btree_insert_key(struct btree_keys *b, struct bkey *k,
   struct bset *i = bset_tree_last(b)->data;
   struct bkey *m, *prev = NULL;
   struct btree_iter iter;
-  //BUG_ON(b->ops->is_extents && !KEY_SIZE(k));
+
+  BUG_ON(b->ops->is_extents && !KEY_SIZE(k));
+
   m = bch_btree_iter_init(b, &iter, b->ops->is_extents
       ? PRECEDING_KEY(&START_KEY(k))    
       : PRECEDING_KEY(k));
@@ -833,6 +835,7 @@ unsigned bch_btree_insert_key(struct btree_keys *b, struct bkey *k,
       bkey_cmp(k, b->ops->is_extents ? &START_KEY(m) : m) > 0) {
     prev = m, m = bkey_next(m);
   }
+
   /* prev is in the tree, if we merge we're done */
   status = BTREE_INSERT_STATUS_BACK_MERGE;
   if (prev && bch_bkey_try_merge(b, prev, k)) {

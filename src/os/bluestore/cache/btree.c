@@ -2028,23 +2028,20 @@ void bch_initial_gc_finish(struct cache_set *c)
 static bool btree_insert_key(struct btree *b, struct bkey *k,
 			     struct bkey *replace_key)
 {
-	unsigned status;
+  unsigned status;
+  BUG_ON(bkey_cmp(k, &b->key) > 0);
 
-	//BUG_ON(bkey_cmp(k, &b->key) > 0);
-
-	status = bch_btree_insert_key(&b->keys, k, replace_key);
-	if (status != BTREE_INSERT_STATUS_NO_INSERT) {
-          CACHE_DEBUGLOG(" insert sucessfult \n");
-		bch_check_keys(&b->keys, "%u for %s", status,
-			       replace_key ? "replace" : "insert");
-
-		//trace_bcache_btree_insert_key(b, k, replace_key != NULL,
-		//			      status);
-		return true;
-	} else {
-          CACHE_DEBUGLOG(" insert not sucessfult \n");
-		return false;
-        }
+  status = bch_btree_insert_key(&b->keys, k, replace_key);
+  if (status != BTREE_INSERT_STATUS_NO_INSERT) {
+    CACHE_DEBUGLOG(" Insert keylist sucessfull \n");
+    bch_check_keys(&b->keys, "%u for %s", status,
+        replace_key ? "replace" : "insert");
+    //trace_bcache_btree_insert_key(b, k, replace_key != NULL,status);
+    return true;
+  } else {
+    CACHE_DEBUGLOG(" Insert keylist faild \n");
+    return false;
+  }
 }
 
 static size_t insert_u64s_remaining(struct btree *b)
@@ -2058,9 +2055,9 @@ static size_t insert_u64s_remaining(struct btree *b)
   return max(ret, 0L);
 }
 
-static bool bch_btree_insert_keys(struct btree *b, struct btree_op *op,
-				  struct keylist *insert_keys,
-				  struct bkey *replace_key)
+static bool 
+bch_btree_insert_keys(struct btree *b, struct btree_op *op,
+            struct keylist *insert_keys, struct bkey *replace_key)
 {
   CACHE_DEBUGLOG("   ***** start insert ***** \n");
   bool ret = false;

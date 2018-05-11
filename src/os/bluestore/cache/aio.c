@@ -212,7 +212,7 @@ err:
 static void 
 spdk_cache_io_completion_cb(struct spdk_bdev_io * bdev_io, bool success, void *cb_arg)
 {
-  printf("<%s> AIO IO Completion success=%d \n", __func__, success);
+  /*printf("<%s> AIO IO Completion success=%d \n", __func__, success);*/
   struct ring_item *item = cb_arg;
   item->io.success=success;
   item->iou_completion_cb(item->iou_arg);
