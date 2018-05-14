@@ -371,8 +371,6 @@ uint64_t bch_next_delay(struct bch_ratelimit *d, uint64_t done)
   if (time_after64(now.tv_nsec - USEC_PER_SEC * 2, d->next))
     d->next = now.tv_nsec - USEC_PER_SEC * 2;
 
-  printf("d->next ========= %ld\n", d->next);
-  printf("d->rate ========= %ld\n", d->rate);
   return time_after64(d->next, now.tv_nsec)
     ? div_u64(d->next - now.tv_nsec, USEC_PER_SEC / HZ)
     : 0;

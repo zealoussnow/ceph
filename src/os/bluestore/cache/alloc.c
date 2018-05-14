@@ -81,46 +81,46 @@
 
 uint8_t bch_inc_gen(struct cache *ca, struct bucket *b)
 {
-	uint8_t ret = ++b->gen;
+  uint8_t ret = ++b->gen;
 
-	ca->set->need_gc = max(ca->set->need_gc, bucket_gc_gen(b));
-        /*WARN_ON_ONCE(ca->set->need_gc > BUCKET_GC_GEN_MAX);*/
+  ca->set->need_gc = max(ca->set->need_gc, bucket_gc_gen(b));
+  /*WARN_ON_ONCE(ca->set->need_gc > BUCKET_GC_GEN_MAX);*/
 
-	return ret;
+  return ret;
 }
 
 //TODO
 void bch_rescale_priorities(struct cache_set *c, int sectors)
 {
-	struct cache *ca;
-	struct bucket *b;
-	unsigned next = c->nbuckets * c->sb.bucket_size / 1024;
-	unsigned i;
-	int r;
+  struct cache *ca;
+  struct bucket *b;
+  unsigned next = c->nbuckets * c->sb.bucket_size / 1024;
+  unsigned i;
+  int r;
 
-	atomic_sub(sectors, &c->rescale);
+  atomic_sub(sectors, &c->rescale);
 
-	do {
-		r = atomic_read(&c->rescale);
+  do {
+    r = atomic_read(&c->rescale);
 
-		if (r >= 0)
-			return;
-	} while (atomic_cmpxchg(&c->rescale, r, r + next) != r);
+    if (r >= 0)
+      return;
+  } while (atomic_cmpxchg(&c->rescale, r, r + next) != r);
 
-	pthread_mutex_lock(&c->bucket_lock);
+  pthread_mutex_lock(&c->bucket_lock);
 
-	c->min_prio = USHRT_MAX;
+  c->min_prio = USHRT_MAX;
 
-	for_each_cache(ca, c, i)
-		for_each_bucket(b, ca)
-			if (b->prio &&
-			    b->prio != BTREE_PRIO &&
-			    !atomic_read(&b->pin)) {
-				b->prio--;
-				c->min_prio = min(c->min_prio, b->prio);
-			}
+  for_each_cache(ca, c, i)
+    for_each_bucket(b, ca)
+    if (b->prio &&
+        b->prio != BTREE_PRIO &&
+        !atomic_read(&b->pin)) {
+      b->prio--;
+      c->min_prio = min(c->min_prio, b->prio);
+    }
 
-	pthread_mutex_unlock(&c->bucket_lock);
+  pthread_mutex_unlock(&c->bucket_lock);
 }
 
 /*
@@ -132,37 +132,37 @@ void bch_rescale_priorities(struct cache_set *c, int sectors)
 
 static inline bool can_inc_bucket_gen(struct bucket *b)
 {
-	return bucket_gc_gen(b) < BUCKET_GC_GEN_MAX;
+  return bucket_gc_gen(b) < BUCKET_GC_GEN_MAX;
 }
 
 bool bch_can_invalidate_bucket(struct cache *ca, struct bucket *b)
 {
-        BUG_ON(!ca->set->gc_mark_valid);
+  BUG_ON(!ca->set->gc_mark_valid);
 
-        return (!GC_MARK(b) ||
-                GC_MARK(b) == GC_MARK_RECLAIMABLE) &&
-                !atomic_read(&b->pin) &&
-                can_inc_bucket_gen(b);
+  return (!GC_MARK(b) ||
+      GC_MARK(b) == GC_MARK_RECLAIMABLE) &&
+    !atomic_read(&b->pin) &&
+    can_inc_bucket_gen(b);
 }
 
 //TODO
 void __bch_invalidate_one_bucket(struct cache *ca, struct bucket *b)
 {
-	//lockdep_assert_held(&ca->set->bucket_lock);
-        BUG_ON(GC_MARK(b) && GC_MARK(b) != GC_MARK_RECLAIMABLE);
+  //lockdep_assert_held(&ca->set->bucket_lock);
+  BUG_ON(GC_MARK(b) && GC_MARK(b) != GC_MARK_RECLAIMABLE);
 
-	//if (GC_SECTORS_USED(b))
-	//	trace_bcache_invalidate(ca, b - ca->buckets);
+  //if (GC_SECTORS_USED(b))
+  //	trace_bcache_invalidate(ca, b - ca->buckets);
 
-	bch_inc_gen(ca, b);
-	b->prio = INITIAL_PRIO;
-        atomic_inc(&b->pin); //TODO
+  bch_inc_gen(ca, b);
+  b->prio = INITIAL_PRIO;
+  atomic_inc(&b->pin); //TODO
 }
 
 static void bch_invalidate_one_bucket(struct cache *ca, struct bucket *b)
 {
-	__bch_invalidate_one_bucket(ca, b);
-	fifo_push(&ca->free_inc, b - ca->buckets);
+  __bch_invalidate_one_bucket(ca, b);
+  fifo_push(&ca->free_inc, b - ca->buckets);
 }
 
 /*
@@ -175,337 +175,337 @@ static void bch_invalidate_one_bucket(struct cache *ca, struct bucket *b)
  */
 
 #define bucket_prio(b)							\
-({									\
-	unsigned min_prio = (INITIAL_PRIO - ca->set->min_prio) / 8;	\
-									\
-	(b->prio - ca->set->min_prio + min_prio) * GC_SECTORS_USED(b);	\
-})
+  ({									\
+   unsigned min_prio = (INITIAL_PRIO - ca->set->min_prio) / 8;	\
+   \
+   (b->prio - ca->set->min_prio + min_prio) * GC_SECTORS_USED(b);	\
+   })
 
 #define bucket_max_cmp(l, r)	(bucket_prio(l) < bucket_prio(r))
 #define bucket_min_cmp(l, r)	(bucket_prio(l) > bucket_prio(r))
 
 static void invalidate_buckets_lru(struct cache *ca)
 {
-	struct bucket *b;
-	ssize_t i;
+  struct bucket *b;
+  ssize_t i;
 
-	ca->heap.used = 0;
+  ca->heap.used = 0;
 
-	for_each_bucket(b, ca) {
-		if (!bch_can_invalidate_bucket(ca, b))
-			continue;
+  for_each_bucket(b, ca) {
+    if (!bch_can_invalidate_bucket(ca, b))
+      continue;
 
-		if (!heap_full(&ca->heap))
-			heap_add(&ca->heap, b, bucket_max_cmp);
-		else if (bucket_max_cmp(b, heap_peek(&ca->heap))) {
-			ca->heap.data[0] = b;
-			heap_sift(&ca->heap, 0, bucket_max_cmp);
-		}
-	}
+    if (!heap_full(&ca->heap))
+      heap_add(&ca->heap, b, bucket_max_cmp);
+    else if (bucket_max_cmp(b, heap_peek(&ca->heap))) {
+      ca->heap.data[0] = b;
+      heap_sift(&ca->heap, 0, bucket_max_cmp);
+    }
+  }
 
-	for (i = ca->heap.used / 2 - 1; i >= 0; --i)
-		heap_sift(&ca->heap, i, bucket_min_cmp);
+  for (i = ca->heap.used / 2 - 1; i >= 0; --i)
+    heap_sift(&ca->heap, i, bucket_min_cmp);
 
-	while (!fifo_full(&ca->free_inc)) {
-		if (!heap_pop(&ca->heap, b, bucket_min_cmp)) {
-			/*
-			 * We don't want to be calling invalidate_buckets()
-			 * multiple times when it can't do anything
-			 */
-                        //TODO
-			ca->invalidate_needs_gc = 1;
-                        wake_up_gc(ca->set); /* 若ca->free_inc未满，则wake_up_gc */
-			return;
-		}
+  while (!fifo_full(&ca->free_inc)) {
+    if (!heap_pop(&ca->heap, b, bucket_min_cmp)) {
+      /*
+       * We don't want to be calling invalidate_buckets()
+       * multiple times when it can't do anything
+       */
+      //TODO
+      ca->invalidate_needs_gc = 1;
+      wake_up_gc(ca->set); /* 若ca->free_inc未满，则wake_up_gc */
+      return;
+    }
 
-		bch_invalidate_one_bucket(ca, b);
-	}
+    bch_invalidate_one_bucket(ca, b);
+  }
 }
 
 static void invalidate_buckets_fifo(struct cache *ca)
 {
-	struct bucket *b;
-	size_t checked = 0;
+  struct bucket *b;
+  size_t checked = 0;
 
-	while (!fifo_full(&ca->free_inc)) {
-		if (ca->fifo_last_bucket <  ca->sb.first_bucket ||
-		    ca->fifo_last_bucket >= ca->sb.nbuckets)
-			ca->fifo_last_bucket = ca->sb.first_bucket;
+  while (!fifo_full(&ca->free_inc)) {
+    if (ca->fifo_last_bucket <  ca->sb.first_bucket ||
+        ca->fifo_last_bucket >= ca->sb.nbuckets)
+      ca->fifo_last_bucket = ca->sb.first_bucket;
 
-		b = ca->buckets + ca->fifo_last_bucket++;
+    b = ca->buckets + ca->fifo_last_bucket++;
 
-		if (bch_can_invalidate_bucket(ca, b))
-			bch_invalidate_one_bucket(ca, b);
+    if (bch_can_invalidate_bucket(ca, b))
+      bch_invalidate_one_bucket(ca, b);
 
-		if (++checked >= ca->sb.nbuckets) {
-			ca->invalidate_needs_gc = 1;
-                        wake_up_gc(ca->set); //TODO
-			return;
-		}
-	}
+    if (++checked >= ca->sb.nbuckets) {
+      ca->invalidate_needs_gc = 1;
+      wake_up_gc(ca->set); //TODO
+      return;
+    }
+  }
 }
 
 static void invalidate_buckets_random(struct cache *ca)
 {
-	struct bucket *b;
-	size_t checked = 0;
-        /*int ret=0;*/
+  struct bucket *b;
+  size_t checked = 0;
+  /*int ret=0;*/
 
-	while (!fifo_full(&ca->free_inc)) {
-		size_t n;
-		/*n = 0xdeadbeaf;*/
-                /*ret=get_random_bytes(&n, sizeof(n)); // TODO*/
-                get_random_bytes(&n, sizeof(n)); // TODO
+  while (!fifo_full(&ca->free_inc)) {
+    size_t n;
+    /*n = 0xdeadbeaf;*/
+    /*ret=get_random_bytes(&n, sizeof(n)); // TODO*/
+    get_random_bytes(&n, sizeof(n)); // TODO
 
-		n %= (size_t) (ca->sb.nbuckets - ca->sb.first_bucket);
-		n += ca->sb.first_bucket;
+    n %= (size_t) (ca->sb.nbuckets - ca->sb.first_bucket);
+    n += ca->sb.first_bucket;
 
-		b = ca->buckets + n;
+    b = ca->buckets + n;
 
-		if (bch_can_invalidate_bucket(ca, b))
-			bch_invalidate_one_bucket(ca, b);
+    if (bch_can_invalidate_bucket(ca, b))
+      bch_invalidate_one_bucket(ca, b);
 
-		if (++checked >= ca->sb.nbuckets / 2) {
-			ca->invalidate_needs_gc = 1;
-                        wake_up_gc(ca->set); //TODO
-			return;
-		}
-	}
+    if (++checked >= ca->sb.nbuckets / 2) {
+      ca->invalidate_needs_gc = 1;
+      wake_up_gc(ca->set); //TODO
+      return;
+    }
+  }
 }
 
 static void invalidate_buckets(struct cache *ca)
 {
-        BUG_ON(ca->invalidate_needs_gc);
+  BUG_ON(ca->invalidate_needs_gc);
 
-	switch (CACHE_REPLACEMENT(&ca->sb)) {
-	case CACHE_REPLACEMENT_LRU:
-		invalidate_buckets_lru(ca);
-		break;
-	case CACHE_REPLACEMENT_FIFO:
-		invalidate_buckets_fifo(ca);
-		break;
-	case CACHE_REPLACEMENT_RANDOM:
-		invalidate_buckets_random(ca);
-		break;
-	}
+  switch (CACHE_REPLACEMENT(&ca->sb)) {
+  case CACHE_REPLACEMENT_LRU:
+    invalidate_buckets_lru(ca);
+    break;
+  case CACHE_REPLACEMENT_FIFO:
+    invalidate_buckets_fifo(ca);
+    break;
+  case CACHE_REPLACEMENT_RANDOM:
+    invalidate_buckets_random(ca);
+    break;
+  }
 }
 
 #if 0
 #define allocator_wait(ca, cond)					\
-do {									\
-	while (1) {							\
-		set_current_state(TASK_INTERRUPTIBLE);			\
-		if (cond)						\
-			break;						\
-									\
-		pthread_mutex_unlock(&(ca)->set->bucket_lock);			\
-		if (kthread_should_stop())				\
-			return 0;					\
-									\
-		schedule();						\
-		pthread_mutex_lock(&(ca)->set->bucket_lock);			\
-	}								\
-	__set_current_state(TASK_RUNNING);				\
-} while (0)
+  do {									\
+    while (1) {							\
+      set_current_state(TASK_INTERRUPTIBLE);			\
+      if (cond)						\
+      break;						\
+      \
+      pthread_mutex_unlock(&(ca)->set->bucket_lock);			\
+      if (kthread_should_stop())				\
+      return 0;					\
+      \
+      schedule();						\
+      pthread_mutex_lock(&(ca)->set->bucket_lock);			\
+    }								\
+    __set_current_state(TASK_RUNNING);				\
+  } while (0)
 #endif
 #define allocator_wait(ca, cond)					\
-do {									\
-	while (1) {							\
-		if (cond)						\
-			break;						\
-									\
-                pthread_mutex_unlock(&ca->set->bucket_lock);            \
-                pthread_mutex_lock(&ca->alloc_mut);                     \
-                pthread_cond_wait(&ca->alloc_cond, &ca->alloc_mut);     \
-                pthread_mutex_unlock(&ca->alloc_mut);                   \
-                pthread_mutex_lock(&ca->set->bucket_lock);              \
-	}								\
-} while (0)
+  do {									\
+    while (1) {							\
+      if (cond)						\
+      break;						\
+      \
+      pthread_mutex_unlock(&ca->set->bucket_lock);            \
+      pthread_mutex_lock(&ca->alloc_mut);                     \
+      pthread_cond_wait(&ca->alloc_cond, &ca->alloc_mut);     \
+      pthread_mutex_unlock(&ca->alloc_mut);                   \
+      pthread_mutex_lock(&ca->set->bucket_lock);              \
+    }								\
+  } while (0)
 
 void wake_up_reserve_cond(struct cache *ca)
 {
-        pthread_cond_signal(&ca->set->btree_cache_wait_cond);
-        pthread_cond_signal(&ca->set->bucket_wait_cond);
+  pthread_cond_signal(&ca->set->btree_cache_wait_cond);
+  pthread_cond_signal(&ca->set->bucket_wait_cond);
 }
 
 static int bch_allocator_push(struct cache *ca, long bucket)
 {
-	unsigned i;
-        bool ret = false;
+  unsigned i;
+  bool ret = false;
 
-	/* Prios/gens are actually the most important reserve */
-	if (fifo_push(&ca->free[RESERVE_PRIO], bucket)) {
-                ret = true;
-                goto wake_up;
-        }
+  /* Prios/gens are actually the most important reserve */
+  if (fifo_push(&ca->free[RESERVE_PRIO], bucket)) {
+    ret = true;
+    goto wake_up;
+  }
 
-	for (i = 0; i < RESERVE_NR; i++)
-		if (fifo_push(&ca->free[i], bucket)) {
-                        ret = true;
-                        goto wake_up;
-                }
+  for (i = 0; i < RESERVE_NR; i++)
+    if (fifo_push(&ca->free[i], bucket)) {
+      ret = true;
+      goto wake_up;
+    }
 
 wake_up:
-        wake_up_reserve_cond(ca);
-	return ret;
+  wake_up_reserve_cond(ca);
+  return ret;
 }
 
 #if 0
 static int bch_allocator_thread(void *arg)
 {
-	struct cache *ca = arg;
+  struct cache *ca = arg;
 
-	pthread_mutex_lock(&ca->set->bucket_lock);
+  pthread_mutex_lock(&ca->set->bucket_lock);
 
-	while (1) {
-		/*
-		 * First, we pull buckets off of the unused and free_inc lists,
-		 * possibly issue discards to them, then we add the bucket to
-		 * the free list:
-		 * 如果后备free_inc不为空，fifo_pop(&ca->free_inc, bucket)一个
-		 * 后备bucket，调用allocator_wait(ca, bch_allocator_push(ca, bucket));
-		 * 加入ca->free中，这样保证分配函数有可用的bucket。然后唤醒由于
-		 *  wait alloc而等待的线程。若ca->free已满，则alloc_thread阻塞
-		 */
-		while (!fifo_empty(&ca->free_inc)) {
-			long bucket;
+  while (1) {
+    /*
+     * First, we pull buckets off of the unused and free_inc lists,
+     * possibly issue discards to them, then we add the bucket to
+     * the free list:
+     * 如果后备free_inc不为空，fifo_pop(&ca->free_inc, bucket)一个
+     * 后备bucket，调用allocator_wait(ca, bch_allocator_push(ca, bucket));
+     * 加入ca->free中，这样保证分配函数有可用的bucket。然后唤醒由于
+     *  wait alloc而等待的线程。若ca->free已满，则alloc_thread阻塞
+     */
+    while (!fifo_empty(&ca->free_inc)) {
+      long bucket;
 
-			fifo_pop(&ca->free_inc, bucket);
+      fifo_pop(&ca->free_inc, bucket);
 
-			if (ca->discard) {
-				pthread_mutex_unlock(&ca->set->bucket_lock);
+      if (ca->discard) {
+        pthread_mutex_unlock(&ca->set->bucket_lock);
 
-				/* 对磁盘进行trim操作，比如使用blkdiscard命令时 */
-				blkdev_issue_discard(ca->bdev,
-					bucket_to_sector(ca->set, bucket),
-					ca->sb.bucket_size, GFP_KERNEL, 0);
+        /* 对磁盘进行trim操作，比如使用blkdiscard命令时 */
+        blkdev_issue_discard(ca->bdev,
+            bucket_to_sector(ca->set, bucket),
+            ca->sb.bucket_size, GFP_KERNEL, 0);
 
-				pthread_mutex_lock(&ca->set->bucket_lock);
-			}
+        pthread_mutex_lock(&ca->set->bucket_lock);
+      }
 
-			//allocator_wait(ca, bch_allocator_push(ca, bucket));
-			wake_up(&ca->set->btree_cache_wait);
-			wake_up(&ca->set->bucket_wait);
-		}
+      //allocator_wait(ca, bch_allocator_push(ca, bucket));
+      wake_up(&ca->set->btree_cache_wait);
+      wake_up(&ca->set->bucket_wait);
+    }
 
-		/*
-		 * We've run out of free buckets, we need to find some buckets
-		 * we can invalidate. First, invalidate them in memory and add
-		 * them to the free_inc list:
-		 */
+    /*
+     * We've run out of free buckets, we need to find some buckets
+     * we can invalidate. First, invalidate them in memory and add
+     * them to the free_inc list:
+     */
 
 retry_invalidate:
-		/* 如果free_inc已经空了，则需要invalidate当前正在使用的bucket
-		 */
-		//allocator_wait(ca, ca->set->gc_mark_valid &&
-		//	       !ca->invalidate_needs_gc); /* 等待gc执行或未完成 */
-		invalidate_buckets(ca);
+    /* 如果free_inc已经空了，则需要invalidate当前正在使用的bucket
+    */
+    //allocator_wait(ca, ca->set->gc_mark_valid &&
+    //	       !ca->invalidate_needs_gc); /* 等待gc执行或未完成 */
+    invalidate_buckets(ca);
 
-		/*
-		 * Now, we write their new gens to disk so we can start writing
-		 * new stuff to them:
-		 */
-		//allocator_wait(ca, !atomic_read(&ca->set->prio_blocked));
-		if (CACHE_SYNC(&ca->set->sb)) {
-			/*
-			 * This could deadlock if an allocation with a btree
-			 * node locked ever blocked - having the btree node
-			 * locked would block garbage collection, but here we're
-			 * waiting on garbage collection before we invalidate
-			 * and free anything.
-			 *
-			 * But this should be safe since the btree code always
-			 * uses btree_check_reserve() before allocating now, and
-			 * if it fails it blocks without btree nodes locked.
-			 */
-			if (!fifo_full(&ca->free_inc))
-				goto retry_invalidate;
+    /*
+     * Now, we write their new gens to disk so we can start writing
+     * new stuff to them:
+     */
+    //allocator_wait(ca, !atomic_read(&ca->set->prio_blocked));
+    if (CACHE_SYNC(&ca->set->sb)) {
+      /*
+       * This could deadlock if an allocation with a btree
+       * node locked ever blocked - having the btree node
+       * locked would block garbage collection, but here we're
+       * waiting on garbage collection before we invalidate
+       * and free anything.
+       *
+       * But this should be safe since the btree code always
+       * uses btree_check_reserve() before allocating now, and
+       * if it fails it blocks without btree nodes locked.
+       */
+      if (!fifo_full(&ca->free_inc))
+        goto retry_invalidate;
 
-			bch_prio_write(ca);
-		}
-	}
+      bch_prio_write(ca);
+    }
+  }
 }
 #endif
 
 static int bch_allocator_thread(void *arg)
 {
-	struct cache *ca = arg;
+  struct cache *ca = arg;
 
-	pthread_mutex_lock(&ca->set->bucket_lock);
-        /*printf(" alloc.c FUN %s: ** start bch_allocator thread **\n",__func__);*/
+  pthread_mutex_lock(&ca->set->bucket_lock);
+  /*printf(" alloc.c FUN %s: ** start bch_allocator thread **\n",__func__);*/
 
-	while (1) {
-		/*
-		 * First, we pull buckets off of the unused and free_inc lists,
-		 * possibly issue discards to them, then we add the bucket to
-		 * the free list:
-		 * 如果后备free_inc不为空，fifo_pop(&ca->free_inc, bucket)一个
-		 * 后备bucket，调用allocator_wait(ca, bch_allocator_push(ca, bucket));
-		 * 加入ca->free中，这样保证分配函数有可用的bucket。然后唤醒由于
-		 *  wait alloc而等待的线程。若ca->free已满，则alloc_thread阻塞
-		 */
-		while (!fifo_empty(&ca->free_inc)) {
-			long bucket;
+  while (1) {
+    /*
+     * First, we pull buckets off of the unused and free_inc lists,
+     * possibly issue discards to them, then we add the bucket to
+     * the free list:
+     * 如果后备free_inc不为空，fifo_pop(&ca->free_inc, bucket)一个
+     * 后备bucket，调用allocator_wait(ca, bch_allocator_push(ca, bucket));
+     * 加入ca->free中，这样保证分配函数有可用的bucket。然后唤醒由于
+     *  wait alloc而等待的线程。若ca->free已满，则alloc_thread阻塞
+     */
+    while (!fifo_empty(&ca->free_inc)) {
+      long bucket;
 
-			fifo_pop(&ca->free_inc, bucket);
+      fifo_pop(&ca->free_inc, bucket);
 
-			/*if (ca->discard) {*/
-				/*pthread_mutex_unlock(&ca->set->bucket_lock);*/
+      /*if (ca->discard) {*/
+      /*pthread_mutex_unlock(&ca->set->bucket_lock);*/
 
-                                // TODO
-				/* 对磁盘进行trim操作，比如使用blkdiscard命令时 */
-				/*blkdev_issue_discard(ca->bdev,*/
-					/*bucket_to_sector(ca->set, bucket),*/
-					/*ca->sb.bucket_size, GFP_KERNEL, 0);*/
+      // TODO
+      /* 对磁盘进行trim操作，比如使用blkdiscard命令时 */
+      /*blkdev_issue_discard(ca->bdev,*/
+      /*bucket_to_sector(ca->set, bucket),*/
+      /*ca->sb.bucket_size, GFP_KERNEL, 0);*/
 
-				/*pthread_mutex_lock(&ca->set->bucket_lock);*/
-			/*}*/
+      /*pthread_mutex_lock(&ca->set->bucket_lock);*/
+      /*}*/
 
-			//allocator_wait(ca, bch_allocator_push(ca, bucket));
-                        /*wake_up(&ca->set->btree_cache_wait);*/
-			/*wake_up(&ca->set->bucket_wait);*/
-                        // 1. 如果push失败,说明队列都满了，可用bucet太多了，这时候，会进入睡眠
-                        allocator_wait(ca, bch_allocator_push(ca, bucket));
-		}
+      //allocator_wait(ca, bch_allocator_push(ca, bucket));
+      /*wake_up(&ca->set->btree_cache_wait);*/
+      /*wake_up(&ca->set->bucket_wait);*/
+      // 1. 如果push失败,说明队列都满了，可用bucet太多了，这时候，会进入睡眠
+      allocator_wait(ca, bch_allocator_push(ca, bucket));
+    }
 
-		/*
-		 * We've run out of free buckets, we need to find some buckets
-		 * we can invalidate. First, invalidate them in memory and add
-		 * them to the free_inc list:
-		 */
+    /*
+     * We've run out of free buckets, we need to find some buckets
+     * we can invalidate. First, invalidate them in memory and add
+     * them to the free_inc list:
+     */
 
 retry_invalidate:
-		/* 如果free_inc已经空了，则需要invalidate当前正在使用的bucket
-		 */
-                allocator_wait(ca, ca->set->gc_mark_valid &&
-                               !ca->invalidate_needs_gc); /* 等待gc执行或未完成 */
-		invalidate_buckets(ca);
+    /* 如果free_inc已经空了，则需要invalidate当前正在使用的bucket
+    */
+    allocator_wait(ca, ca->set->gc_mark_valid &&
+        !ca->invalidate_needs_gc); /* 等待gc执行或未完成 */
+    invalidate_buckets(ca);
 
-		/*
-		 * Now, we write their new gens to disk so we can start writing
-		 * new stuff to them:
-		 */
-                allocator_wait(ca, !atomic_read(&ca->set->prio_blocked));
-                /*printf(" alloc.c FUN %s: CACHE_SYNC(&ca->set->sb)=%lu\n",__func__, CACHE_SYNC(&ca->set->sb));*/
-		if (CACHE_SYNC(&ca->set->sb)) {
-			/*
-			 * This could deadlock if an allocation with a btree
-			 * node locked ever blocked - having the btree node
-			 * locked would block garbage collection, but here we're
-			 * waiting on garbage collection before we invalidate
-			 * and free anything.
-			 *
-			 * But this should be safe since the btree code always
-			 * uses btree_check_reserve() before allocating now, and
-			 * if it fails it blocks without btree nodes locked.
-			 */
-			if (!fifo_full(&ca->free_inc))
-				goto retry_invalidate;
-                        /*printf(" alloc.c FUN %s: >>>> start bch_prio_write <<<< \n",__func__);*/
-                        bch_prio_write(ca);
-                        /*printf(" alloc.c FUN %s: >>>> end bch_prio_write <<<< \n",__func__);*/
-		}
-	}
+    /*
+     * Now, we write their new gens to disk so we can start writing
+     * new stuff to them:
+     */
+    allocator_wait(ca, !atomic_read(&ca->set->prio_blocked));
+    /*printf(" alloc.c FUN %s: CACHE_SYNC(&ca->set->sb)=%lu\n",__func__, CACHE_SYNC(&ca->set->sb));*/
+    if (CACHE_SYNC(&ca->set->sb)) {
+      /*
+       * This could deadlock if an allocation with a btree
+       * node locked ever blocked - having the btree node
+       * locked would block garbage collection, but here we're
+       * waiting on garbage collection before we invalidate
+       * and free anything.
+       *
+       * But this should be safe since the btree code always
+       * uses btree_check_reserve() before allocating now, and
+       * if it fails it blocks without btree nodes locked.
+       */
+      if (!fifo_full(&ca->free_inc))
+        goto retry_invalidate;
+      /*printf(" alloc.c FUN %s: >>>> start bch_prio_write <<<< \n",__func__);*/
+      bch_prio_write(ca);
+      /*printf(" alloc.c FUN %s: >>>> end bch_prio_write <<<< \n",__func__);*/
+    }
+  }
 }
 
 /*
@@ -516,85 +516,85 @@ retry_invalidate:
 
 long bch_bucket_alloc(struct cache *ca, unsigned reserve, bool wait)
 {
-	//DEFINE_WAIT(w);
-        
-	struct bucket *b;
-	long r;
-	
-        /*printf(" alloc.c FUN %s: pop from reserve=%d, wait=%d\n",__func__, reserve, wait);*/
-	if (fifo_pop(&ca->free[RESERVE_NONE], r) ||
-	    fifo_pop(&ca->free[reserve], r))
-        {
-             /*printf(" fifo_pop from RESERVE_NONE or reserve , goto out \n");*/
-             goto out;
-        }
+  //DEFINE_WAIT(w);
 
-	if (!wait) {
-		/* 如果不需要等待，直接返回了 */
-		//trace_bcache_alloc_fail(ca, reserve);
-		return -1;
-	}
+  struct bucket *b;
+  long r;
 
-	do {
-		/* 如果没有空闲可用，则当前线程进入等待，直到有可用的bucket */
-		//prepare_to_wait(&ca->set->bucket_wait, &w,
-		//		TASK_UNINTERRUPTIBLE);
+  /*printf(" alloc.c FUN %s: pop from reserve=%d, wait=%d\n",__func__, reserve, wait);*/
+  if (fifo_pop(&ca->free[RESERVE_NONE], r) ||
+      fifo_pop(&ca->free[reserve], r))
+  {
+    /*printf(" fifo_pop from RESERVE_NONE or reserve , goto out \n");*/
+    goto out;
+  }
 
-		//pthread_mutex_unlock(&ca->set->bucket_lock);
-		//schedule();
-		//pthread_mutex_lock(&ca->set->bucket_lock);
-                pthread_mutex_unlock(&ca->set->bucket_lock);
+  if (!wait) {
+    /* 如果不需要等待，直接返回了 */
+    //trace_bcache_alloc_fail(ca, reserve);
+    return -1;
+  }
 
-                pthread_mutex_lock(&ca->set->bucket_wait_mut);
-                pthread_cond_wait(&ca->set->bucket_wait_cond, &ca->set->bucket_wait_mut);
-                pthread_mutex_unlock(&ca->set->bucket_wait_mut);
+  do {
+    /* 如果没有空闲可用，则当前线程进入等待，直到有可用的bucket */
+    //prepare_to_wait(&ca->set->bucket_wait, &w,
+    //		TASK_UNINTERRUPTIBLE);
 
-                pthread_mutex_lock(&ca->set->bucket_lock);
-	} while (!fifo_pop(&ca->free[RESERVE_NONE], r) &&
-		 !fifo_pop(&ca->free[reserve], r));
+    //pthread_mutex_unlock(&ca->set->bucket_lock);
+    //schedule();
+    //pthread_mutex_lock(&ca->set->bucket_lock);
+    pthread_mutex_unlock(&ca->set->bucket_lock);
 
-	//finish_wait(&ca->set->bucket_wait, &w);
+    pthread_mutex_lock(&ca->set->bucket_wait_mut);
+    pthread_cond_wait(&ca->set->bucket_wait_cond, &ca->set->bucket_wait_mut);
+    pthread_mutex_unlock(&ca->set->bucket_wait_mut);
+
+    pthread_mutex_lock(&ca->set->bucket_lock);
+  } while (!fifo_pop(&ca->free[RESERVE_NONE], r) &&
+      !fifo_pop(&ca->free[reserve], r));
+
+  //finish_wait(&ca->set->bucket_wait, &w);
 out:
-	//wake_up_process(ca->alloc_thread); /* kernel/sched/core.c, 唤醒指定的进程 */
-        /*printf(" start wake_up_alloc_thread \n");*/
-        if ( ca->alloc_thread )
-            wake_up_alloc_thread(ca); /* kernel/sched/core.c, 唤醒指定的进程 */
+  //wake_up_process(ca->alloc_thread); /* kernel/sched/core.c, 唤醒指定的进程 */
+  /*printf(" start wake_up_alloc_thread \n");*/
+  if ( ca->alloc_thread )
+    wake_up_alloc_thread(ca); /* kernel/sched/core.c, 唤醒指定的进程 */
 
-	//trace_bcache_alloc(ca, reserve);
+  //trace_bcache_alloc(ca, reserve);
 
-	//if (expensive_debug_checks(ca->set)) {
-	//	size_t iter;
-	//	long i;
-	//	unsigned j;
+  //if (expensive_debug_checks(ca->set)) {
+  //	size_t iter;
+  //	long i;
+  //	unsigned j;
 
-	//	for (iter = 0; iter < prio_buckets(ca) * 2; iter++)
-	//		;
-	//		//BUG_ON(ca->prio_buckets[iter] == (uint64_t) r);
+  //	for (iter = 0; iter < prio_buckets(ca) * 2; iter++)
+  //		;
+  //		//BUG_ON(ca->prio_buckets[iter] == (uint64_t) r);
 
-	//	for (j = 0; j < RESERVE_NR; j++)
-	//		fifo_for_each(i, &ca->free[j], iter)
-	//			;//BUG_ON(i == r);
-	//	fifo_for_each(i, &ca->free_inc, iter)
-	//		//BUG_ON(i == r);
-	//}
+  //	for (j = 0; j < RESERVE_NR; j++)
+  //		fifo_for_each(i, &ca->free[j], iter)
+  //			;//BUG_ON(i == r);
+  //	fifo_for_each(i, &ca->free_inc, iter)
+  //		//BUG_ON(i == r);
+  //}
 
-	b = ca->buckets + r;
+  b = ca->buckets + r;
 
-        BUG_ON(atomic_read(&b->pin) != 1);
+  BUG_ON(atomic_read(&b->pin) != 1);
 
-	SET_GC_SECTORS_USED(b, ca->sb.bucket_size);
+  SET_GC_SECTORS_USED(b, ca->sb.bucket_size);
 
-	if (reserve <= RESERVE_PRIO) {
-		SET_GC_MARK(b, GC_MARK_METADATA);
-		SET_GC_MOVE(b, 0);
-		b->prio = BTREE_PRIO; /* 65536 */
-	} else {
-		SET_GC_MARK(b, GC_MARK_RECLAIMABLE);
-		SET_GC_MOVE(b, 0);
-		b->prio = INITIAL_PRIO;
-	}
+  if (reserve <= RESERVE_PRIO) {
+    SET_GC_MARK(b, GC_MARK_METADATA);
+    SET_GC_MOVE(b, 0);
+    b->prio = BTREE_PRIO; /* 65536 */
+  } else {
+    SET_GC_MARK(b, GC_MARK_RECLAIMABLE);
+    SET_GC_MOVE(b, 0);
+    b->prio = INITIAL_PRIO;
+  }
 
-	return r;
+  return r;
 }
 
 void __bch_bucket_free(struct cache *ca, struct bucket *b)
@@ -613,7 +613,7 @@ void bch_bucket_free(struct cache_set *c, struct bkey *k)
 }
 
 int __bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
-			   struct bkey *k, int n, bool wait)
+    struct bkey *k, int n, bool wait)
 {
   int i;
   //lockdep_assert_held(&c->bucket_lock);
@@ -628,14 +628,14 @@ int __bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
       goto err;
     }
     /*
-    * #define PTR(gen, offset, dev)                             \
-    *       ((((__u64) dev) << 51) | ((__u64) offset) << 8 | gen)
-    *
-    * (((__u64)ca->sb.nr_this_dev)<<51) |
-    *   (((__u64)bucket_to_sector(c, b)) << 8 | ca->buckets[b].gen)
-    */
+     * #define PTR(gen, offset, dev)                             \
+     *       ((((__u64) dev) << 51) | ((__u64) offset) << 8 | gen)
+     *
+     * (((__u64)ca->sb.nr_this_dev)<<51) |
+     *   (((__u64)bucket_to_sector(c, b)) << 8 | ca->buckets[b].gen)
+     */
     k->ptr[i] = PTR(ca->buckets[b].gen, bucket_to_sector(c, b),
-                        ca->sb.nr_this_dev);
+        ca->sb.nr_this_dev);
     SET_KEY_PTRS(k, i + 1);
   }
 
@@ -647,22 +647,22 @@ err:
 }
 
 int bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
-			 struct bkey *k, int n, bool wait)
+    struct bkey *k, int n, bool wait)
 {
-	int ret;
-        pthread_mutex_lock(&c->bucket_lock);
-	ret = __bch_bucket_alloc_set(c, reserve, k, n, wait);
-        pthread_mutex_unlock(&c->bucket_lock);
-	return ret;
+  int ret;
+  pthread_mutex_lock(&c->bucket_lock);
+  ret = __bch_bucket_alloc_set(c, reserve, k, n, wait);
+  pthread_mutex_unlock(&c->bucket_lock);
+  return ret;
 }
 
 /* Sector allocator */
 
 struct open_bucket {
-	struct list_head	list;
-	unsigned		last_write_point;
-	unsigned		sectors_free;
-	BKEY_PADDED(key); /* union { struct bkey key; __u64 key_pad[8]; }; */
+  struct list_head	list;
+  unsigned		last_write_point;
+  unsigned		sectors_free;
+  BKEY_PADDED(key); /* union { struct bkey key; __u64 key_pad[8]; }; */
 };
 
 /*
@@ -694,37 +694,37 @@ struct open_bucket {
  * 这两个任务都会做相当多的随机IO，因此不能依赖检测顺序IO来将它们的数据分开。
  */
 static struct open_bucket *pick_data_bucket(struct cache_set *c,
-					    const struct bkey *search,
-					    unsigned write_point,
-					    struct bkey *alloc)
+    const struct bkey *search,
+    unsigned write_point,
+    struct bkey *alloc)
 {
-	struct open_bucket *ret, *ret_task = NULL;
+  struct open_bucket *ret, *ret_task = NULL;
 
-	list_for_each_entry_reverse(ret, &c->data_buckets, list)
-		if (!bkey_cmp(&ret->key, search))
-                {
-			goto found;
-                }
-		else if (ret->last_write_point == write_point)
-			ret_task = ret;
+  list_for_each_entry_reverse(ret, &c->data_buckets, list)
+    if (!bkey_cmp(&ret->key, search))
+    {
+      goto found;
+    }
+    else if (ret->last_write_point == write_point)
+      ret_task = ret;
 
-	/* ret = ret_task ? ret_task : list_first_entry(...); */
-	ret = ret_task ?: list_first_entry(&c->data_buckets,
-					   struct open_bucket, list);
+  /* ret = ret_task ? ret_task : list_first_entry(...); */
+  ret = ret_task ?: list_first_entry(&c->data_buckets,
+      struct open_bucket, list);
 found:
-	/* 找到的bucket中没有可用的扇区？*/
-	if (!ret->sectors_free && KEY_PTRS(alloc)) {
-		ret->sectors_free = c->sb.bucket_size;
-		bkey_copy(&ret->key, alloc);
-		bkey_init(alloc);
-	}
+  /* 找到的bucket中没有可用的扇区？*/
+  if (!ret->sectors_free && KEY_PTRS(alloc)) {
+    ret->sectors_free = c->sb.bucket_size;
+    bkey_copy(&ret->key, alloc);
+    bkey_init(alloc);
+  }
 
-	if (!ret->sectors_free)
-        {
-		ret = NULL;
-        }
+  if (!ret->sectors_free)
+  {
+    ret = NULL;
+  }
 
-	return ret;
+  return ret;
 }
 
 /*
@@ -741,160 +741,160 @@ found:
  * If s->writeback is true, will not fail.
  */
 bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
-		       unsigned write_point, unsigned write_prio, bool wait)
+    unsigned write_point, unsigned write_prio, bool wait)
 {
-	struct open_bucket *b;
-	BKEY_PADDED(key) alloc; /* union { struct bkey key; __u64 key_pad[8]; } alloc */
-	unsigned i;
+  struct open_bucket *b;
+  BKEY_PADDED(key) alloc; /* union { struct bkey key; __u64 key_pad[8]; } alloc */
+  unsigned i;
 
-	/*
-	 * We might have to allocate a new bucket, which we can't do with a
-	 * spinlock held. So if we have to allocate, we drop the lock, allocate
-	 * and then retry. KEY_PTRS() indicates whether alloc points to
-	 * allocated bucket(s).
-	 *
-	 * 有可能不得不得分配一个新的bucket，我们不能持有一个自旋锁来这么做。
-	 * 因此，如果必须得分配，要丢弃这个锁，分配然后再次重试。KEY_PTRS()指示
-	 * 了alloc指向已分配buckets的位置。
-	 */
+  /*
+   * We might have to allocate a new bucket, which we can't do with a
+   * spinlock held. So if we have to allocate, we drop the lock, allocate
+   * and then retry. KEY_PTRS() indicates whether alloc points to
+   * allocated bucket(s).
+   *
+   * 有可能不得不得分配一个新的bucket，我们不能持有一个自旋锁来这么做。
+   * 因此，如果必须得分配，要丢弃这个锁，分配然后再次重试。KEY_PTRS()指示
+   * 了alloc指向已分配buckets的位置。
+   */
 
-	bkey_init(&alloc.key); /* __bch_bucket_alloc_set中已经初始化过了，这就不需要了吧？*/
-	//spin_lock(&c->data_bucket_lock);
-        pthread_spin_lock(&c->data_bucket_lock);
+  bkey_init(&alloc.key); /* __bch_bucket_alloc_set中已经初始化过了，这就不需要了吧？*/
+  //spin_lock(&c->data_bucket_lock);
+  pthread_spin_lock(&c->data_bucket_lock);
 
-	while (!(b = pick_data_bucket(c, k, write_point, &alloc.key))) {
-		unsigned watermark = write_prio
-			? RESERVE_MOVINGGC
-			: RESERVE_NONE;
-                /*spin_unlock(&c->data_bucket_lock);*/
-                pthread_spin_unlock(&c->data_bucket_lock);
-		if (bch_bucket_alloc_set(c, watermark, &alloc.key, 1, wait))
-			return false;
-                pthread_spin_lock(&c->data_bucket_lock);
-		//spin_lock(&c->data_bucket_lock);
-	}
+  while (!(b = pick_data_bucket(c, k, write_point, &alloc.key))) {
+    unsigned watermark = write_prio
+      ? RESERVE_MOVINGGC
+      : RESERVE_NONE;
+    /*spin_unlock(&c->data_bucket_lock);*/
+    pthread_spin_unlock(&c->data_bucket_lock);
+    if (bch_bucket_alloc_set(c, watermark, &alloc.key, 1, wait))
+      return false;
+    pthread_spin_lock(&c->data_bucket_lock);
+    //spin_lock(&c->data_bucket_lock);
+  }
 
-	/*
-	 * If we had to allocate, we might race and not need to allocate the
-	 * second time we call find_data_bucket(). If we allocated a bucket but
-	 * didn't use it, drop the refcount bch_bucket_alloc_set() took:
-	 *
-	 * 如果分配了一个bucket但是没有使用它，则丢弃bch_bucket_alloc_set得到的
-	 * 引用计数
-	 */
-	if (KEY_PTRS(&alloc.key))
-		bkey_put(c, &alloc.key);
+  /*
+   * If we had to allocate, we might race and not need to allocate the
+   * second time we call find_data_bucket(). If we allocated a bucket but
+   * didn't use it, drop the refcount bch_bucket_alloc_set() took:
+   *
+   * 如果分配了一个bucket但是没有使用它，则丢弃bch_bucket_alloc_set得到的
+   * 引用计数
+   */
+  if (KEY_PTRS(&alloc.key))
+    bkey_put(c, &alloc.key);
 
-	for (i = 0; i < KEY_PTRS(&b->key); i++)
-		EBUG_ON(ptr_stale(c, &b->key, i));
+  for (i = 0; i < KEY_PTRS(&b->key); i++)
+    EBUG_ON(ptr_stale(c, &b->key, i));
 
-	/* Set up the pointer to the space we're allocating: */
+  /* Set up the pointer to the space we're allocating: */
 
-	for (i = 0; i < KEY_PTRS(&b->key); i++)
-		k->ptr[i] = b->key.ptr[i];
+  for (i = 0; i < KEY_PTRS(&b->key); i++)
+    k->ptr[i] = b->key.ptr[i];
 
-	sectors = min(sectors, b->sectors_free);
+  sectors = min(sectors, b->sectors_free);
 
-	SET_KEY_OFFSET(k, KEY_OFFSET(k) + sectors);
-	SET_KEY_SIZE(k, sectors);
-	SET_KEY_PTRS(k, KEY_PTRS(&b->key));
+  SET_KEY_OFFSET(k, KEY_OFFSET(k) + sectors);
+  SET_KEY_SIZE(k, sectors);
+  SET_KEY_PTRS(k, KEY_PTRS(&b->key));
 
-	/*
-	 * Move b to the end of the lru, and keep track of what this bucket was
-	 * last used for:
-	 * 将b这个结点移动到data_buckets链表的尾部
-	 */
-	list_move_tail(&b->list, &c->data_buckets);
-	bkey_copy_key(&b->key, k);
-	b->last_write_point = write_point;
+  /*
+   * Move b to the end of the lru, and keep track of what this bucket was
+   * last used for:
+   * 将b这个结点移动到data_buckets链表的尾部
+   */
+  list_move_tail(&b->list, &c->data_buckets);
+  bkey_copy_key(&b->key, k);
+  b->last_write_point = write_point;
 
-	/* buckets中可用的sectors */
-	b->sectors_free	-= sectors;
+  /* buckets中可用的sectors */
+  b->sectors_free	-= sectors;
 
-	for (i = 0; i < KEY_PTRS(&b->key); i++) {
-		SET_PTR_OFFSET(&b->key, i, PTR_OFFSET(&b->key, i) + sectors);
+  for (i = 0; i < KEY_PTRS(&b->key); i++) {
+    SET_PTR_OFFSET(&b->key, i, PTR_OFFSET(&b->key, i) + sectors);
 
-                // TODO
-                atomic_long_add(sectors,
-                                &PTR_CACHE(c, &b->key, i)->sectors_written);
-	}
+    // TODO
+    atomic_long_add(sectors,
+        &PTR_CACHE(c, &b->key, i)->sectors_written);
+  }
 
-	/* XXX 这里的sectors不是应该是扇区数么，怎么能和block_size直接比较呢？*/
-	if (b->sectors_free < c->sb.block_size)
-		b->sectors_free = 0;
+  /* XXX 这里的sectors不是应该是扇区数么，怎么能和block_size直接比较呢？*/
+  if (b->sectors_free < c->sb.block_size)
+    b->sectors_free = 0;
 
-	/*
-	 * k takes refcounts on the buckets it points to until it's inserted
-	 * into the btree, but if we're done with this bucket we just transfer
-	 * get_data_bucket()'s refcount.
-	 * k拿到它指向的buckets的引用计数直到它被插入到btree当中
-	 */
-	if (b->sectors_free)
-		for (i = 0; i < KEY_PTRS(&b->key); i++)
-			atomic_inc(&PTR_BUCKET(c, &b->key, i)->pin);
+  /*
+   * k takes refcounts on the buckets it points to until it's inserted
+   * into the btree, but if we're done with this bucket we just transfer
+   * get_data_bucket()'s refcount.
+   * k拿到它指向的buckets的引用计数直到它被插入到btree当中
+   */
+  if (b->sectors_free)
+    for (i = 0; i < KEY_PTRS(&b->key); i++)
+      atomic_inc(&PTR_BUCKET(c, &b->key, i)->pin);
 
-	//spin_unlock(&c->data_bucket_lock);
-        pthread_spin_unlock(&c->data_bucket_lock);
-	return true;
+  //spin_unlock(&c->data_bucket_lock);
+  pthread_spin_unlock(&c->data_bucket_lock);
+  return true;
 }
 
 /* Init */
 
 void bch_open_buckets_free(struct cache_set *c)
 {
-	struct open_bucket *b;
+  struct open_bucket *b;
 
-	while (!list_empty(&c->data_buckets)) {
-		b = list_first_entry(&c->data_buckets,
-				     struct open_bucket, list);
-		list_del(&b->list);
-		//kfree(b);
-		free(b);
-	}
+  while (!list_empty(&c->data_buckets)) {
+    b = list_first_entry(&c->data_buckets,
+        struct open_bucket, list);
+    list_del(&b->list);
+    //kfree(b);
+    free(b);
+  }
 }
 
 int bch_open_buckets_alloc(struct cache_set *c)
 {
-	int i;
+  int i;
 
-	//spin_lock_init(&c->data_bucket_lock);
-        pthread_spin_init(&c->data_bucket_lock, 0);
-        /*printf(" alloc.c FUN %s: open_bucket nr=%d. add open_bucket to cache data_buckets list\n",__func__,MAX_OPEN_BUCKETS);*/
-	for (i = 0; i < MAX_OPEN_BUCKETS; i++) {
-		//struct open_bucket *b = kzalloc(sizeof(*b), GFP_KERNEL);
-		struct open_bucket *b = malloc(sizeof(*b));
-		memset(b, 0, sizeof(*b));
-		if (!b)
-			return -ENOMEM;
+  //spin_lock_init(&c->data_bucket_lock);
+  pthread_spin_init(&c->data_bucket_lock, 0);
+  /*printf(" alloc.c FUN %s: open_bucket nr=%d. add open_bucket to cache data_buckets list\n",__func__,MAX_OPEN_BUCKETS);*/
+  for (i = 0; i < MAX_OPEN_BUCKETS; i++) {
+    //struct open_bucket *b = kzalloc(sizeof(*b), GFP_KERNEL);
+    struct open_bucket *b = malloc(sizeof(*b));
+    memset(b, 0, sizeof(*b));
+    if (!b)
+      return -ENOMEM;
 
-		list_add(&b->list, &c->data_buckets);
-	}
+    list_add(&b->list, &c->data_buckets);
+  }
 
-	return 0;
+  return 0;
 }
 
 // TODO fixed by me
 #if 0
 int bch_cache_allocator_start(struct cache *ca)
 {
-	struct task_struct *k = kthread_run(bch_allocator_thread,
-					    ca, "bcache_allocator");
-	if (IS_ERR(k))
-		return PTR_ERR(k);
+  struct task_struct *k = kthread_run(bch_allocator_thread,
+      ca, "bcache_allocator");
+  if (IS_ERR(k))
+    return PTR_ERR(k);
 
-	ca->alloc_thread = k;
-	return 0;
+  ca->alloc_thread = k;
+  return 0;
 }
 #endif
 
 int bch_cache_allocator_start(struct cache *ca)
 {
-	int err;
-	err = pthread_create(&ca->alloc_thread, NULL, (void *)bch_allocator_thread, (void *)ca);
-    	if (err != 0)
-    	{
-                /*printf("can't create thread:%s\n", strerror(err));*/
-            return err;
-    	}
-	return 0;
+  int err;
+  err = pthread_create(&ca->alloc_thread, NULL, (void *)bch_allocator_thread, (void *)ca);
+  if (err != 0)
+  {
+    /*printf("can't create thread:%s\n", strerror(err));*/
+    return err;
+  }
+  return 0;
 }

@@ -132,9 +132,6 @@ static void read_moving(struct cache_set *c)
   off_t offset = 0;
   uint64_t len = 0;
   int j;
-  struct keylist          insert_keys;
-
-  bch_keylist_init(&insert_keys);
   /*struct moving_io *io;*/
   /*struct bio *bio;*/
   /*struct closure cl;*/
@@ -199,23 +196,30 @@ static void read_moving(struct cache_set *c)
     memset(data,'0',sizeof(char)*len);
     sync_read(c->fd, data, len, offset);
 
-    struct bkey *new_key = NULL;
+    if (KEY_DIRTY(&w->key) || !ptr_stale(c, &w->key, 0)) {
+      struct bkey *new_key = NULL;
+      struct keylist          insert_keys;
 
-    new_key = insert_keys.top;
-    bkey_init(new_key);
+      bch_keylist_init(&insert_keys);
 
-    bkey_copy_key(new_key, &w->key);
-    SET_KEY_OFFSET(new_key, KEY_START(&w->key));
-    if (KEY_DIRTY(&w->key))
-      SET_KEY_DIRTY(new_key, true);
-    int ret = bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 0, 1);
-    for (j = 0; j < KEY_PTRS(new_key); j++) {
-      off_t ssd_off = PTR_OFFSET(new_key, j) << 9;
-      len = KEY_SIZE(new_key) << 9;
-      /*memset(data,'0',sizeof(char)*len);*/
-      sync_write(c->fd, data, len, ssd_off);
+      new_key = insert_keys.top;
+      bkey_init(new_key);
+
+      bkey_copy_key(new_key, &w->key);
+      SET_KEY_OFFSET(new_key, KEY_START(&w->key));
+      if (KEY_DIRTY(&w->key))
+        SET_KEY_DIRTY(new_key, true);
+
+      int ret = bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 0, 1);
+      for (j = 0; j < KEY_PTRS(new_key); j++) {
+        off_t ssd_off = PTR_OFFSET(new_key, j) << 9;
+        len = KEY_SIZE(new_key) << 9;
+        sync_write(c->fd, data, len, ssd_off);
+      }
+
+      bch_keylist_push(&insert_keys);
+      bch_data_insert_keys(c, &insert_keys);
     }
-    bch_keylist_push(&insert_keys);
 
     free(data);
 
@@ -223,7 +227,6 @@ static void read_moving(struct cache_set *c)
     free(w);
   }
 
-  bch_data_insert_keys(c, &insert_keys);
   /*if (0) {*/
   /*err:		if (!IS_ERR_OR_NULL(w->private))*/
   /*kfree(w->private);*/
@@ -269,9 +272,8 @@ void bch_moving_gc(struct cache_set *c)
       /* 如果为元数据或数据占用量为bucket_size，则continue */
       if (GC_MARK(b) == GC_MARK_METADATA ||
           !GC_SECTORS_USED(b) ||
-          GC_SECTORS_USED(b) == ca->sb.bucket_size)
-        /*GC_SECTORS_USED(b) == ca->sb.bucket_size ||*/
-        /*atomic_read(&b->pin))*/
+          GC_SECTORS_USED(b) == ca->sb.bucket_size ||
+          atomic_read(&b->pin))
         continue;
 
       if (!heap_full(&ca->heap)) {
