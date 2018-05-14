@@ -11,15 +11,16 @@ if which ccache ; then
     ARGS="$ARGS -DWITH_CCACHE=ON"
 fi
 
-mkdir build
+mkdir -p build
 cd build
 
 #cmake -DBOOST_J=$(nproc) $ARGS "$@" ..
 
 # Use devel packages installed in system
-cmake -DCMAKE_C_FLAGS="-O0 -g3 -gdwarf-4" \
+cmake -DBOOST_DEVEL_DIR="/var/lib/qemu-kvm/ceph/boost-devel" \
+      -DCMAKE_C_FLAGS="-O0 -g3 -gdwarf-4" \
       -DCMAKE_CXX_FLAGS="-O0 -g3 -gdwarf-4" \
-      -DWITH_TESTS=OFF -DWITH_SYSTEM_BOOST=ON \
+      -DWITH_TESTS=ON -DWITH_SYSTEM_BOOST=ON \
       -DWITH_SYSTEM_ROCKSDB=ON \
       -DALLOCATOR=tcmalloc_minimal \
       $ARGS "$@" ..

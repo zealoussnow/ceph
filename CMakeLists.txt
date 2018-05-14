@@ -567,12 +567,15 @@ set(BOOST_LIB_COMPONENTS
 )
 
 # require minimally the bundled version
+option(BOOST_DEVEL_DIR "use a specified boost library" "")
 if(WITH_SYSTEM_BOOST)
   if(USE_BOOST_SHARED_LIB)
     set(Boost_USE_STATIC_LIBS OFF)
   else()
     set(Boost_USE_STATIC_LIBS ON)
   endif()
+  set(CMAKE_FIND_ROOT_PATH ${BOOST_DEVEL_DIR})
+  message(STATUS "FIND BOOST -> CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
   find_package(Boost 1.61 COMPONENTS ${BOOST_COMPONENTS} REQUIRED)
   foreach(c ${BOOST_LIB_COMPONENTS})
     string(TOUPPER ${c} upper_c)
@@ -587,6 +590,9 @@ if(WITH_SYSTEM_BOOST)
       IMPORTED_LOCATION "${Boost_${upper_c}_LIBRARY}")
     list(APPEND Boost_LIBRARIES ${Boost_${upper_c}_LIBRARY})
   endforeach()
+  message(STATUS "Boost_INCLUDE_DIRS: ${Boost_INCLUDE_DIRS}")
+  message(STATUS "Boost_LIBRARY_DIRS: ${Boost_LIBRARY_DIRS}")
+  include_directories(BEFORE SYSTEM ${Boost_INCLUDE_DIRS}) # 忘加这一行后编译会出错
 else()
   set(BOOST_J 1 CACHE STRING
     "max jobs for Boost build") # override w/-DBOOST_J=<n>

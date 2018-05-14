@@ -897,6 +897,8 @@ add_subdirectory(googletest/googlemock)
 add_subdirectory(test)
 endif(WITH_TESTS)
 
+add_subdirectory(my_workspace)
+
 add_subdirectory(compressor)
 
 add_subdirectory(tools)
