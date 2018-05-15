@@ -37,6 +37,8 @@ CEPH_CACHE_API int T2Store_Cache_sync_read(struct cache_context *ctx, void *bl, 
 CEPH_CACHE_API int T2Store_Cache_aio_write(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
 CEPH_CACHE_API int T2Store_Cache_aio_read(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
 
+CEPH_CACHE_API int t2store_cache_invalidate_region(struct cache_context * ctx, uint64_t off, uint64_t len);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1263,8 +1263,8 @@ init(struct cache * ca)
   /*traverse_btree(ca);*/
   /*pthread_cond_signal(&ca->set->btree_cache_wait_cond);*/
 
-  bch_cached_dev_writeback_start(ca->set->dc);
-  bch_sectors_dirty_init(ca->set->dc);
+  /*bch_cached_dev_writeback_start(ca->set->dc);*/
+  /*bch_sectors_dirty_init(ca->set->dc);*/
   /*atomic_set(&ca->set->dc->has_dirty, 1);*/
   /*atomic_inc(&ca->set->dc->count);*/
 

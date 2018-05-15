@@ -103,6 +103,9 @@ public:
 
   // for managing buffered readers/writers
   int invalidate_cache(uint64_t off, uint64_t len) override;
+  int invalidate_region(uint64_t off, uint64_t len) override {
+    return 0;
+  }
   int open(const std::string& path) override;
   virtual int open(const std::string& path, const std::string& c_path) override {
     return 0;

@@ -8138,6 +8138,30 @@ void BlueStore::_txc_finalize_kv(TransContext *txc, KeyValueDB::Transaction t)
 
 void BlueStore::_txc_applied_kv(TransContext *txc)
 {
+  // release invalidate region 
+  interval_set<uint64_t> tmp_allocated, tmp_released;
+  interval_set<uint64_t> *pallocated = &txc->allocated;
+  interval_set<uint64_t> *preleased = &txc->released;
+  if (!txc->allocated.empty() && !txc->released.empty()) {
+    interval_set<uint64_t> overlap;
+    overlap.intersection_of(txc->allocated, txc->released);
+    if (!overlap.empty()) {
+      tmp_allocated = txc->allocated;
+      tmp_allocated.subtract(overlap);
+      tmp_released = txc->released;
+      tmp_released.subtract(overlap);
+      pallocated = &tmp_allocated;
+      preleased = &tmp_released;
+    }
+  }
+  for (interval_set<uint64_t>::iterator p = preleased->begin();
+      p != preleased->end();
+      ++p) {
+    dout(1) << __func__ << " invalidate 0x" << std::hex << p.get_start()
+             << "~" << p.get_len() << std::dec << dendl;
+    bdev->invalidate_region(p.get_start(), p.get_len());
+  }
+  //
   for (auto ls : { &txc->onodes, &txc->modified_objects }) {
     for (auto& o : *ls) {
       dout(20) << __func__ << " onode " << o << " had " << o->flushing_count

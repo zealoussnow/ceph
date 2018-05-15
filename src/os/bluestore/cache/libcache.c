@@ -91,3 +91,9 @@ int T2Store_Cache_aio_submit(struct cache_context *ctx, io_context_t io_ctx, lon
   return ret;
 }
 
+int t2store_cache_invalidate_region(struct cache_context * ctx, uint64_t off, uint64_t len)
+{
+  int ret = 0;
+  ret = cache_invalidate_region(ctx->cache, off, len);
+  return ret;
+}

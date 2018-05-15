@@ -1013,3 +1013,10 @@ int CacheDevice::invalidate_cache(uint64_t off, uint64_t len)
   return r;
 }
 
+int CacheDevice::invalidate_region(uint64_t off, uint64_t len)
+{
+  int ret = 0;
+  ret = t2store_cache_invalidate_region(&cache_ctx, off, len);
+  return ret;
+}
+

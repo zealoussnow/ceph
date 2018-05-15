@@ -143,6 +143,7 @@ public:
 
   // for managing buffered readers/writers
   virtual int invalidate_cache(uint64_t off, uint64_t len) = 0;
+  virtual int invalidate_region(uint64_t off, uint64_t len) = 0;
   virtual int open(const std::string& path) = 0;
   virtual int open(const std::string& path, const std::string& c_path) = 0;
   virtual int write_cache_super(const std::string& path){ return 0; };
