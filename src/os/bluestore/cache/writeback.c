@@ -367,7 +367,7 @@ static void read_dirty(struct cached_dev *dc)
     /*delay = writeback_delay(dc, KEY_SIZE(&w->key));*/
   }
 
-  printf("writeback_keys num ==== %d\n", num);
+  /*printf("writeback_keys num ==== %d\n", num);*/
 
   /*if (0) {*/
   /*err_free:*/
@@ -535,7 +535,7 @@ static int bch_writeback_thread(void *arg)
 
   pthread_setname_np(pthread_self(), "writeback_thread");
   while (!dc->writeback_should_stop) {
-    printf("<%s>: start writeback\n", __func__);
+    /*printf("<%s>: start writeback\n", __func__);*/
     /*down_write(&dc->writeback_lock);*/
 
     /* 如果不为dirty或者writeback机制未运行时，该线程让出CPU控制权 */

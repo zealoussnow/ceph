@@ -401,13 +401,13 @@ bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
           goto check_failed;
       sectors_found = KEY_OFFSET(k) - KEY_START(insert);
     }
-    /************************
-    *               |--insert--|
-    *  |--k1--|  |-------k1-------|
-    ************************/
-    // 插入的bkey包含在某个已经存在的bkey内部
     if (bkey_cmp(insert, k) < 0 &&
                 bkey_cmp(&START_KEY(insert), &START_KEY(k)) > 0) {
+      /************************
+      *               |--insert--|
+      *  |--k1--|  |-------k-------|
+      ************************/
+      // 插入的bkey包含在某个已经存在的bkey内部
       /*
       * We overlapped in the middle of an existing key: that
       * means we have to split the old key. But we have to do
@@ -445,16 +445,32 @@ bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
     }
     // 插入的bkey跟已经存在的bkey存在部分重叠
     if (bkey_cmp(insert, k) < 0) {
+      /************************
+      *               |--insert--|
+      *  |--k1--|        |-------k-------|
+      ************************/
+      // 把重叠部分剪掉
       bch_cut_front(insert, k);
     } else {
-      if (bkey_cmp(&START_KEY(insert), &START_KEY(k)) > 0)
+      if (bkey_cmp(&START_KEY(insert), &START_KEY(k)) > 0) {
+        /************************
+        *                       |-----insert-------|
+        *  |--k1--|        |-------k-------|
+        ************************/
         old_offset = KEY_START(insert);
+      }
       if (bkey_written(b, k) &&
           bkey_cmp(&START_KEY(insert), &START_KEY(k)) <= 0) {
+          /************************
+          *  |--insert-----|     |--insert--|    |--insert--|    |--insert---|
+          *  |---k------|        |-- k -----|      |-- k ---|      |-- k --|
+          ************************/
+          // 不论是上面的哪种，k都是被新的insert完全覆盖，这时候，直接把k变成无效的bkey即可
           /*
           * Completely overwrote, so we don't have to
           * invalidate the binary search tree
           */
+          // 把k变成无效的bkey，即size=0
           bch_cut_front(k, k);
       } else {
         __bch_cut_back(&START_KEY(insert), k);
@@ -482,10 +498,13 @@ out:
   return false;
 }
 
+// 页节点判断一个bkey是否无效
+// true：无效，false：有效
 bool __bch_extent_invalid(struct cache_set *c, const struct bkey *k)
 {
   char buf[80];
   if (!KEY_SIZE(k)) {
+    CACHE_DEBUGLOG("Invalid bkey(size=0) \n");
     return true;
   }
   if (KEY_SIZE(k) > KEY_OFFSET(k)) {
@@ -499,6 +518,8 @@ bool __bch_extent_invalid(struct cache_set *c, const struct bkey *k)
 bad:
   bch_extent_to_text(buf, sizeof(buf), k);
   cache_bug(c, "spotted extent %s: %s", buf, bch_ptr_status(c, k));
+  CACHE_ERRORLOG("spotted extent %s: %s \n", buf, bch_ptr_status(c, k));
+  assert(" got bad bkey " == 0);
   return true;
 }
 
@@ -544,8 +565,10 @@ bch_extent_bad(struct btree_keys *bk, const struct bkey *k)
   struct btree *b = container_of(bk, struct btree, keys);
   struct bucket *g;
   unsigned i, stale;
-  if (!KEY_PTRS(k) || bch_extent_invalid(bk, k))
+  if (!KEY_PTRS(k) || bch_extent_invalid(bk, k)) {
+    CACHE_DEBUGLOG("Bad bkey(key_ptrs=0 or bkey is invalid \n");
     return true;
+  }
 
   for (i = 0; i < KEY_PTRS(k); i++) {
     if (!ptr_available(b->c, k, i)) {

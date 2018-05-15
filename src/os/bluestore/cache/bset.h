@@ -402,6 +402,11 @@ void bch_bkey_copy_single_ptr(struct bkey *, const struct bkey *,
 bool __bch_cut_front(const struct bkey *, struct bkey *);
 bool __bch_cut_back(const struct bkey *, struct bkey *);
 
+/*
+ * 将where和k的重叠位置区域中where之前的重叠区域从k中剪掉
+ * 得到的k是where以后的非重叠区域
+ * 要求where至少要 <= k，否则不存在where之后的区域
+*/
 static inline bool bch_cut_front(const struct bkey *where, struct bkey *k)
 {
   BUG_ON(bkey_cmp(where, k) > 0);

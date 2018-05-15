@@ -2081,6 +2081,9 @@ bch_btree_insert_keys(struct btree *b, struct btree_op *op,
       BKEY_PADDED(key) temp;
       bkey_copy(&temp.key, insert_keys->keys);
       bch_cut_back(&b->key, &temp.key);
+      // 处理逻辑上是将重叠部分插入到当前btree节点中，非重叠部分插入到下一个节点中
+      // temp.key经过cut_back之后，得到的就是重叠部分的bkey，用来插入节点
+      // insert_keys->keys经过cut_front将重叠部分的区域剪掉，得到的就是非重叠部分的区域
       bch_cut_front(&b->key, insert_keys->keys);
       CACHE_DEBUGLOG(" insert start tmp key(of=%lu,len=%lu) <= btree key(of=%lu,len=%lu)\n", KEY_OFFSET(&temp.key), KEY_SIZE(&temp.key),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
       ret |= btree_insert_key(b, &temp.key, replace_key);
@@ -2254,13 +2257,14 @@ bch_btree_insert_node(struct btree *b, struct btree_op *op,
   /*printf(" btree.c FUN %s: Btree Insert Start Insert keys \n",__func__);*/
   CACHE_DEBUGLOG(" direct insert keys \n");
   if (bch_btree_insert_keys(b, op, insert_keys, replace_key)) {
-    /*printf(" btree.c FUN %s: Btree Insert Start Insert keys Sucessfull,b->level=%d\n",__func__,b->level);*/
-    // 暂时按同步写的方式更行btree node
+    // 不考虑异常情况，后期测试性能数据可以先不同步写
     bch_btree_node_write(b);
-    /*if (!b->level) [> 如果是叶子节点，不立即更新，仅标记为dirty <]*/
-    /*bch_btree_leaf_dirty(b, journal_ref);*/
-    /*else    [> 非叶节点，更新完后直接写入 <]*/
-    /*bch_btree_node_write(b); //, &cl);*/
+    /*
+    if (!b->level) 
+      bch_btree_leaf_dirty(b, journal_ref);
+    else 
+      bch_btree_node_write(b); //, &cl);
+    */
   }
   pthread_mutex_unlock(&b->write_lock);
   /*

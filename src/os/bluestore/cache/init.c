@@ -1218,8 +1218,11 @@ traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
   struct bkey *k, *p = NULL;
   struct btree_iter iter;
   for_each_key(&b->keys, k, &iter) {
-    CACHE_DEBUGLOG("  bkey offset=%lu,size=%lu\n", KEY_OFFSET(k),KEY_SIZE(k));
-    printf("<%s>: btree node(level=%d,offset=%lu) bkey offset=%lu,size=%lu \n",__func__,b->level,KEY_OFFSET(&b->key),KEY_OFFSET(k),KEY_SIZE(k));
+    CACHE_DEBUGLOG("bkey(start=%lu,of=%lu,size=%lu,ptr_off=%lu)\n", 
+                        KEY_OFFSET(k)-KEY_SIZE(k),KEY_OFFSET(k),KEY_SIZE(k),PTR_OFFSET(k,0));
+    printf("<%s>: btree node(level=%d,offset=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu) \n",
+                        __func__, b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),
+                        KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k));
   }
   CACHE_DEBUGLOG(">>>>>> END <<<<<<<\n");
   return MAP_CONTINUE;
@@ -1397,6 +1400,51 @@ aio_write_completion(void *cb)
       assert(" test aio enqueue faild " == 0);
     }
   }
+}
+
+int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
+{
+  printf("<%s>: Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) \n",
+                        __func__, offset/512,offset,len/512,len);
+
+  CACHE_DEBUGLOG("Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) \n",
+                        offset/512,offset,len/512,len);
+  int ret = 0;
+  struct keylist *insert_keys = NULL;
+  struct bkey *k = NULL;
+
+  insert_keys = calloc(1, sizeof(*insert_keys));
+  if ( !insert_keys ) {
+    goto err;
+  }
+  bch_keylist_init(insert_keys);
+
+  k = get_init_bkey(insert_keys, offset);
+  if ( !k ) {
+    ret = -1;
+    goto free_keylist;
+  }
+
+  SET_KEY_OFFSET(k, KEY_OFFSET(k) + (len >> 9));
+  SET_KEY_SIZE(k, (len >> 9));
+  bch_keylist_push(insert_keys);
+
+  /*printf("\n before invalidate region \n");*/
+  /*traverse_btree(ca);*/
+  /*printf(" \n");*/
+
+  bch_data_insert_keys(ca->set, insert_keys);
+
+  /*printf("\n after invalidate region \n");*/
+  /*traverse_btree(ca);*/
+  /*printf(" \n");*/
+
+  ret = 0;
+
+free_keylist:
+  free(insert_keys);
+err:
+  return ret;
 }
 
 int
@@ -2085,23 +2133,32 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
 int main()
 {
   struct cache *ca = T2Molloc(sizeof(struct cache));
-  int fd = open("/dev/sdb", O_RDWR );
+  // int fd = open("/dev/sdc", O_RDWR );
   ca->fd = fd;
   init(ca);
-  /*g_cache = ca;*/
+  void *data = NULL;
+  uint64_t len = 512*1025;
+  uint64_t offset = 8192;
 
-  /*ca->handler = aio_init();*/
+  posix_memalign((void **)&data, 512, len);
+  memset(data, 'b', len);
+  /*cache_aio_write(ca, data, offset, len, NULL, NULL);*/
+
   ca->handler = aio_init((void *)ca);
   sleep(1);
-  aio_write_test(ca);
+  /*aio_write_test(ca);*/
+  cache_aio_write(ca, data, 512*16, 512*8, NULL, NULL);
+  sleep(4);
+  cache_aio_write(ca, data, 512*24, 512*8, NULL, NULL);
   sleep(4);
   traverse_btree(ca);
-  aio_read_test(ca);
+  printf(" start invalidate region \n");
+  cache_invalidate_region(ca,512*16, 512*8);
+  sleep(4);
+  traverse_btree(ca);
   while(1) {
-    /*if (g_aio_completion ){*/
-        /*return ;*/
-    /*}*/
     sleep(5);
+    /*traverse_btree(ca);*/
   }
   return 0;
 }

@@ -192,20 +192,54 @@ void bch_bkey_copy_single_ptr(struct bkey *dest, const struct bkey *src,
 
 bool __bch_cut_front(const struct bkey *where, struct bkey *k)
 {
+/*
+ *  |-- w --|    |--- w ---|      |-- w --|
+ *  |-- k --|      |-- k --|    |--- k ---|
+ *
+ *  |-- w --|     |-- w --|     |-- w --|           |-- w --|
+ *   |-- k --|   |--- k ---|            |-- k --|             |-- k --|  
+ */
   unsigned i, len = 0;
   
+  /*
+   * |-- w --|            |-- w --|
+   *         |-- k --|              |-- k --|
+   */
+  // 没有重叠的区域
   if (bkey_cmp(where, &START_KEY(k)) <= 0)
     return false;
 
-  if (bkey_cmp(where, k) < 0)
-    len = KEY_OFFSET(k) - KEY_OFFSET(where);
-  else
-    bkey_copy_key(k, where);
 
-  for (i = 0; i < KEY_PTRS(k); i++)
+  if (bkey_cmp(where, k) < 0) {
+  /*
+   *  |-- w --|--len--|    |-- w --|--len--|
+   *    |---- k ------|  |------ k ----------|
+   */
+    len = KEY_OFFSET(k) - KEY_OFFSET(where);
+  } else {
+   /*  |-- w --|    |--- w ---|      |-- w --|
+    *  |-- k --|      |-- k --|    |--- k ---|
+    */ 
+    // where=k，说明k已经没有可以表示的区间了，
+    // 所以直接用where的信息来代替k
+    // 疑问？既然k没有可以表示的区间，为何还要用where的的信息
+    // 来表示k？
+    // 解答：len是0，k是无效的
+    // 疑问：如果where的起始位置在k的起始位置以内，那么直接把
+    // k无效掉，会不会导致k跟where前面非重叠部分的数据丢失？
+    bkey_copy_key(k, where);
+  }
+
+  for (i = 0; i < KEY_PTRS(k); i++) {
+    // 将k的ptr_offset移到新的位置，丢弃前面前面跟where重叠部分
+    // 的数据，保留len部分的数据
     SET_PTR_OFFSET(k, i, PTR_OFFSET(k, i) + KEY_SIZE(k) - len);
+  }
 
   BUG_ON(len > KEY_SIZE(k));
+  // 再把k的大小设置为len
+  // 这里很关键，如果说where跟k的位置刚好相等，说明k已经没有可表示
+  // 的区间了，虽然k会被改成where的信息,但是此时的它的len是0,k是无效的
   SET_KEY_SIZE(k, len);
   return true;
 }
@@ -1165,8 +1199,7 @@ btree_mergesort(struct btree_keys *b, struct bset *out,struct btree_iter *iter,
     }
   }
   out->keys = last ? (uint64_t *) bkey_next(last) - out->d : 0;
-  /*printf("sorted %i keys \n", out->keys);*/
-  //pr_debug("sorted %i keys", out->keys);
+  CACHE_DEBUGLOG("mergesort: sorted keys \n", out->keys);
 }
 
 static void __btree_sort(struct btree_keys *b, struct btree_iter *iter,
