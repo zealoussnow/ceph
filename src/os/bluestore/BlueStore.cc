@@ -21,6 +21,7 @@
 
 #include "BlueStore.h"
 #include "os/kv.h"
+#include "include/color.h"
 #include "include/compat.h"
 #include "include/intarith.h"
 #include "include/stringify.h"
@@ -32,6 +33,7 @@
 #include "BlueRocksEnv.h"
 #include "auth/Crypto.h"
 #include "common/EventTrace.h"
+#include "cache/libcache.h"
 
 #define dout_context cct
 #define dout_subsys ceph_subsys_bluestore
@@ -5227,11 +5229,23 @@ int BlueStore::mkfs()
   if (r < 0)
     goto out_close_fsid;
   
-  r = _setup_block_symlink_or_file("ssd_cache", cct->_conf->t2store_cache_path,
-                                   cct->_conf->t2store_cache_size,
-                                   cct->_conf->t2store_cache_create);
-  if (r < 0)
-    goto out_close_fsid;
+  if (cct->_conf->block_type == "cache") {
+    char osd_devid[16];
+    memset(osd_devid, 0, sizeof(osd_devid));
+    snprintf(osd_devid, sizeof(osd_devid), "osd%s_ssd", cct->_conf->name.get_id().c_str());
+    dout(20) << " got osd_devid " << osd_devid << dendl;
+    const char *osd_cache_path = get_osd_dev(cct->_conf->t2store_bdev_conf.c_str(), osd_devid);
+    if (!osd_cache_path) {
+      derr << TEXT_RED << __func__ << " cannot get osd cache device" << TEXT_NORMAL << dendl;
+      r = -ENOENT;
+      goto out_close_fsid;
+    }
+    r = _setup_block_symlink_or_file("ssd_cache", osd_cache_path,
+        cct->_conf->t2store_cache_size,
+        cct->_conf->t2store_cache_create);
+    if (r < 0)
+      goto out_close_fsid;
+  }
 
   if (cct->_conf->bluestore_bluefs) {
     r = _setup_block_symlink_or_file("block.wal", cct->_conf->bluestore_block_wal_path,

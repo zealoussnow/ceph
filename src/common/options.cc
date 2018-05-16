@@ -3199,10 +3199,10 @@ std::vector<Option> get_global_options() {
     .set_default("")
     .set_description("backend store block type"),
     
-    Option("t2store_cache_path", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("")
+    Option("t2store_bdev_conf", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("/etc/ceph/bdev.conf.in")
     .add_tag("mkfs")
-    .set_description("Path to cache device/file"),
+    .set_description("spdk bdev configure file"),
 
     Option("t2store_cache_size", Option::TYPE_UINT, Option::LEVEL_DEV)
     .set_default(10ull * 1024*1024*1024)
@@ -3213,7 +3213,7 @@ std::vector<Option> get_global_options() {
     .set_default(true)
     .add_tag("mkfs")
     .set_description("Create t2store_cache_path if it doesn't exist")
-    .add_see_also("t2store_cache_path").add_see_also("t2store_cache_size"),
+    .add_see_also("t2store_bdev_conf").add_see_also("t2store_cache_size"),
 
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")
