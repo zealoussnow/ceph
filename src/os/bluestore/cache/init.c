@@ -1212,18 +1212,19 @@ int
 traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
 {
   printf("<%s>: >>>>>> Entry Btree Node(level=%d,offset=%lu) <<<<<<\n",__func__,b->level,KEY_OFFSET(&b->key));
-  CACHE_DEBUGLOG(">>>>>> Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n", 
-      b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
+  CACHE_DEBUGLOG(">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n", 
+                        b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
   struct bkey *k, *p = NULL;
   struct btree_iter iter;
   for_each_key(&b->keys, k, &iter) {
-    CACHE_DEBUGLOG("bkey(start=%lu,of=%lu,size=%lu,ptr_off=%lu)\n", 
-                        KEY_OFFSET(k)-KEY_SIZE(k),KEY_OFFSET(k),KEY_SIZE(k),PTR_OFFSET(k,0));
-    printf("<%s>: btree node(level=%d,offset=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu) \n",
+    CACHE_DEBUGLOG("node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
+                        b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),
+                        KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k));
+    printf("<%s>: node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
                         __func__, b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),
-                        KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k));
+                        KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k));
   }
-  CACHE_DEBUGLOG(">>>>>> END <<<<<<<\n");
+
   return MAP_CONTINUE;
 }
 
@@ -1987,32 +1988,6 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   return ret;
 }
 
-void
-read_complete_cb(void *arg){
-  printf("<%s>: I got the data!\n",__func__);
-}
-
-void 
-aio_read_test(struct cache *ca)
-{
-  int i;
-  uint64_t len = 512*64;
-  uint64_t offset[3] = {512*100, 512 * 1039, 512 * 1080};
-  void *data = NULL;
-
-  posix_memalign(&data, 512, len);
-  for (i = 0; i < 3; ++i) {
-    cache_aio_read(ca, data, offset[i], len, read_complete_cb, NULL);
-    sleep(3);
-  }
-  cache_aio_read(ca, data, 512 * 1039, 512*2, read_complete_cb, NULL);
-  sleep(1);
-  for (i = 0; i < 3; ++i) {
-    cache_aio_read(ca, data, offset[i], len, read_complete_cb, NULL);
-    sleep(1);
-  }
-}
-
 // cache super block
 int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
     bool writeback, bool discard, bool wipe_bcache,
@@ -2128,37 +2103,3 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
   return 0;
 }
 
-#if 0
-int main()
-{
-  struct cache *ca = T2Molloc(sizeof(struct cache));
-  // int fd = open("/dev/sdc", O_RDWR );
-  ca->fd = fd;
-  init(ca);
-  void *data = NULL;
-  uint64_t len = 512*1025;
-  uint64_t offset = 8192;
-
-  posix_memalign((void **)&data, 512, len);
-  memset(data, 'b', len);
-  /*cache_aio_write(ca, data, offset, len, NULL, NULL);*/
-
-  ca->handler = aio_init((void *)ca);
-  sleep(1);
-  /*aio_write_test(ca);*/
-  cache_aio_write(ca, data, 512*16, 512*8, NULL, NULL);
-  sleep(4);
-  cache_aio_write(ca, data, 512*24, 512*8, NULL, NULL);
-  sleep(4);
-  traverse_btree(ca);
-  printf(" start invalidate region \n");
-  cache_invalidate_region(ca,512*16, 512*8);
-  sleep(4);
-  traverse_btree(ca);
-  while(1) {
-    sleep(5);
-    /*traverse_btree(ca);*/
-  }
-  return 0;
-}
-#endif

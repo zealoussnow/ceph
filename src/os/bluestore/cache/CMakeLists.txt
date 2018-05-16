@@ -62,7 +62,6 @@ set(dpdk_libs_whole
 #add_executable(go ${libcache_srcs})
 #target_link_libraries(go m pthread uuid blkid -Wl,--whole-archive
 
-add_library(t2cache_objs OBJECT ${libcache_srcs})
 #add_library(t2cache STATIC ${libcache_srcs})
 #include_directories(/root/spdk/include)
 #link_directories(/root/spdk/build/lib)
@@ -71,3 +70,18 @@ add_library(t2cache_objs OBJECT ${libcache_srcs})
         #${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
         #-Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
         #-Wl,--end-group -Wl,--no-whole-archive numa dl rt)
+
+if(CACHE_TEST)
+  list(APPEND libcache_srcs
+    test.c
+    )
+  add_executable(go ${libcache_srcs})
+  add_definitions("-Wall -g")
+  target_link_libraries(go m pthread uuid blkid -Wl,--whole-archive
+        ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
+        -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
+        -Wl,--end-group -Wl,--no-whole-archive numa dl rt)
+else()
+  add_library(t2cache_objs OBJECT ${libcache_srcs})
+endif(CACHE_TEST)
+
