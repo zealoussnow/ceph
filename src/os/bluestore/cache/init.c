@@ -39,7 +39,6 @@
 LIST_HEAD(bch_cache_sets);
 /*struct mutex bch_register_lock;*/
 pthread_mutex_t bch_register_lock;
-pthread_mutex_t g_insert_lock;
 
 enum prio_io_op {
   REQ_OP_READ,
@@ -1003,9 +1002,9 @@ bch_data_insert_keys(struct cache_set *c_set,
   if (!journal_ref) {
     return ;
   }
-  pthread_mutex_lock(&g_insert_lock);
+
   ret = bch_btree_insert(c_set, insert_keys, NULL, replace_key);
-  pthread_mutex_unlock(&g_insert_lock);
+
   if (ret == -ESRCH) {
     printf("What should I do?\n");
   }
