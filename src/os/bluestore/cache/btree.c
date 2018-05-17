@@ -121,21 +121,20 @@
  * @b:		parent btree node
  * @op:		pointer to struct btree_op
  */
-#define btree(fn, key, b, op, ...)					\
-  ({									\
-   int _r, l = (b)->level - 1;					\
-   bool _w = l <= (op)->lock;					\
-   CACHE_DEBUGLOG(" node(of:%lu) get id=0x%lx",KEY_OFFSET(key),pthread_self());       \
-   struct btree *_child = bch_btree_node_get((b)->c, op, key, l,	\
-       _w, b);		\
-       if (!IS_ERR(_child)) {						\
-       _r = bch_btree_ ## fn(_child, op, ##__VA_ARGS__);	\
-       } else								\
-       _r = PTR_ERR(_child);					\
-       rw_unlock(_w, _child);	        				\
-       CACHE_DEBUGLOG(" node(of:%lu) get id=0x%lx get done",KEY_OFFSET(key),pthread_self());       \
-       _r;								\
-       })
+#define btree(fn, key, b, op, ...)                                     \
+({                                                                     \
+  int _r, l = (b)->level - 1;                                          \
+  bool _w = l <= (op)->lock;                                           \
+  struct btree *_child = bch_btree_node_get((b)->c, op, key, l,        \
+                                             _w, b);                   \
+  if (!IS_ERR(_child)) {                                               \
+     _r = bch_btree_ ## fn(_child, op, ##__VA_ARGS__);                 \
+  } else {                                                             \
+      _r = PTR_ERR(_child);                                            \
+  }                                                                    \
+  rw_unlock(_w, _child);                                               \
+  _r;                                                                  \
+})
 
 /**
  * btree_root - call a function on the root of the btree
@@ -177,25 +176,28 @@
 /*pthread_cond_timedwait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut,&out);     \*/
 
 #define btree_root(fn, c, op, ...)                                                              \
-  ({                                                                                              \
-   int _r = -EINTR;                                                                              \
-   do {                                                                                          \
-   struct btree *_b = (c)->root;                                                               \
-   bool _w = insert_lock(op, _b);                                                              \
-   rw_lock(_w, _b, _b->level);                                                                 \
-   if (_b == (c)->root && _w == insert_lock(op, _b)) {                                         \
-   _r = bch_btree_ ## fn(_b, op, ##__VA_ARGS__);                                             \
-   }                                                                                           \
-   rw_unlock(_w, _b);                                                                          \
-   bch_cannibalize_unlock(c);                                                                  \
-   if (_r == -EINTR) {                                                                         \
-   pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
-   pthread_cond_wait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut);               \
-   pthread_mutex_unlock(&(c)->btree_cache_wait_mut);                                         \
-   }                                                                                           \
-   } while (_r == -EINTR);                                                                       \
-   _r;                                                                                           \
-   })
+({                                                                                              \
+  int _r = -EINTR;                                                                              \
+  do {                                                                                          \
+    struct btree *_b = (c)->root;                                                               \
+    bool _w = insert_lock(op, _b);                                                              \
+    rw_lock(_w, _b, _b->level);                                                                 \
+    if (_b == (c)->root && _w == insert_lock(op, _b)) {                                         \
+      _r = bch_btree_ ## fn(_b, op, ##__VA_ARGS__);                                             \
+    }                                                                                           \
+    rw_unlock(_w, _b);                                                                          \
+    bch_cannibalize_unlock(c);                                                                  \
+    if (_r == -EINTR) {                                                                         \
+      struct timespec out;                                                                      \
+      gettimeofday(&out, NULL);                                                                 \
+      out.tv_sec+=0.5;                                                                          \
+      pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
+      pthread_cond_timedwait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut,&out);     \
+      pthread_mutex_unlock(&(c)->btree_cache_wait_mut);                                         \
+    }                                                                                           \
+  } while (_r == -EINTR);                                                                       \
+  _r;                                                                                           \
+})
 
 static inline struct bset *write_block(struct btree *b)
 {
@@ -275,7 +277,6 @@ void bch_btree_node_read_done(struct btree *b)
       goto err;
     }
     err = "bad checksum";
-    /*printf(" i -> version = %d \n", i->version);*/
     switch (i->version) {
     case 0:
       if (i->csum != csum_set(i)) {
@@ -294,7 +295,6 @@ void bch_btree_node_read_done(struct btree *b)
     }
     bch_btree_iter_push(iter, i->start, bset_bkey_last(i));
     b->written += set_blocks(i, block_bytes(b->c));
-    /*printf(" b->written = %d \n", b->written);*/
   }
   err = "corrupted btree";
   for (i = write_block(b); bset_sector_offset(&b->keys, i) < KEY_SIZE(&b->key);
@@ -314,7 +314,6 @@ void bch_btree_node_read_done(struct btree *b)
     bch_bset_init_next(&b->keys, write_block(b),bset_magic(&b->c->sb));
   }
 out:
-  //mempool_free(iter, b->c->fill_iter);
   free(iter);
   return;
 err:
@@ -2338,11 +2337,17 @@ static int btree_insert_fn(struct btree_op *b_op, struct btree *b)
 
   int ret = bch_btree_insert_node(b, &op->op, op->keys, op->journal_ref, 
       op->replace_key);
-  /*if (ret && !bch_keylist_empty(op->keys))*/
-  // 只要还有剩余的bkey，我们就应该让它接着遍历下一个节点进行插入
-  if (!bch_keylist_empty(op->keys)) {
+
+  if (ret && !bch_keylist_empty(op->keys)) {
+    // 如果出现内部错误，并且还有未完成的bkey，则返回
+    // 内部错误，等待下一次插入
+    return ret;
+  } else if (!bch_keylist_empty(op->keys)) {
+    // 如果是正常的插入成功，但是还有未插入的成功的，则
+    // 可以接着插入到下一个节点
     return MAP_CONTINUE;
   } else {
+    // 全部插入成功，结束
     return MAP_DONE;
   }
 }
@@ -2381,7 +2386,7 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   } else if (op.op.insert_collision) {
     ret = -ESRCH;
   }
-
+  printf(" insert return ret = %d\n", ret);
   return ret;
 }
 
@@ -2413,15 +2418,13 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op,
     btree_map_nodes_fn *fn, int flags)
 {
   int ret = MAP_CONTINUE;
-  /*printf( " \033[1m\033[45;33m btree.c FUN %s: map nodes recurse bkey from offset=%ld,b->level=%d \033[0m\n", __func__,(int64_t)KEY_OFFSET(from),b->level);*/
-  /*printf( " \033[1m\033[45;33m btree.c FUN %s:    b->level=%d  \033[0m\n", __func__,b->level);*/
+
   if (b->level) {
     struct bkey *k;
     struct btree_iter iter;
     // iter root node keys(those keys are the max of btree node keylist)
     bch_btree_iter_init(&b->keys, &iter, from);
     while ((k = bch_btree_iter_next_filter(&iter, &b->keys, bch_ptr_bad))) {
-      /*printf( " \033[1m\033[45;33m btree.c FUN %s: btree node bkey offset=%d\033[0m\n", __func__,KEY_OFFSET(k));*/
       ret = btree(map_nodes_recurse, k, b, op, from, fn, flags);
       from = NULL;
       // if has uninsert bkey, we should map_continue
@@ -2463,6 +2466,7 @@ static int bch_btree_map_keys_recurse(struct btree *b, struct btree_op *op,
   if (!b->level && (flags & MAP_END_KEY))
     ret = fn(op, b, &KEY(KEY_INODE(&b->key),
           KEY_OFFSET(&b->key), 0));
+
   return ret;
 }
 
