@@ -1005,6 +1005,10 @@ bch_data_insert_keys(struct cache_set *c_set,
 
   ret = bch_btree_insert(c_set, insert_keys, NULL, replace_key);
 
+  if (ret != 0) {
+    printf(" bch btree insert error ret=%d\n", ret);
+    assert(" bch btree insert error "==0);
+  }
   if (ret == -ESRCH) {
     printf("What should I do?\n");
   }
@@ -1342,9 +1346,9 @@ aio_write_completion(void *cb)
   }
 
   if (( item->data + item->o_len ) == ( item->io.pos + item->io.len )) {
-    printf("<%s> AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n", 
-                __func__, item->o_offset/512, item->o_offset, item->o_len/512,
-                item->o_len, item->io.success);
+    /*printf("<%s> AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n", */
+                /*__func__, item->o_offset/512, item->o_offset, item->o_len/512,*/
+                /*item->o_len, item->io.success);*/
     CACHE_DEBUGLOG("AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n", 
                 item->o_offset/512, item->o_offset, item->o_len/512,
                 item->o_len, item->io.success);

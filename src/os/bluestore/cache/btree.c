@@ -2092,8 +2092,11 @@ bch_btree_insert_keys(struct btree *b, struct btree_op *op,
       break;
     }
   }
-  if (!ret)
+  if (!ret) {
+    printf("%s: ret=%d \n", __func__, ret);
+    assert(" insert error" ==0);
     op->insert_collision = true;
+  }
 
   BUG_ON(!bch_keylist_empty(insert_keys) && b->level);
   //BUG_ON(bch_count_data(&b->keys) < oldsize);
@@ -2386,7 +2389,7 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   } else if (op.op.insert_collision) {
     ret = -ESRCH;
   }
-  printf(" insert return ret = %d\n", ret);
+  /*printf(" insert return ret = %d\n", ret);*/
   return ret;
 }
 
@@ -2418,6 +2421,7 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op,
     btree_map_nodes_fn *fn, int flags)
 {
   int ret = MAP_CONTINUE;
+  struct btree_insert_op *i_op = container_of(op, struct btree_insert_op, op);
 
   if (b->level) {
     struct bkey *k;
@@ -2426,7 +2430,10 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op,
     bch_btree_iter_init(&b->keys, &iter, from);
     while ((k = bch_btree_iter_next_filter(&iter, &b->keys, bch_ptr_bad))) {
       ret = btree(map_nodes_recurse, k, b, op, from, fn, flags);
-      from = NULL;
+      /*from = NULL;*/
+      if ( from != NULL ) {
+        SET_KEY_OFFSET(from, KEY_START(i_op->keys->keys));
+      }
       // if has uninsert bkey, we should map_continue
       if (ret != MAP_CONTINUE)
         return ret;
