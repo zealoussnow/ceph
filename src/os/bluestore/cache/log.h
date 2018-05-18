@@ -22,7 +22,7 @@ enum cache_log_level cache_log_get_level(void);
 #define CACHE_WARNLOG(...) cache_log(CACHE_LOG_WARN, __FILE__, __LINE__, __func__, __VA_ARGS__); 
 #define CACHE_NOTICELOG(...) cache_log(CACHE_LOG_NOTICE, __FILE__, __LINE__, __func__, __VA_ARGS__); 
 #define CACHE_INFOLOG(...) cache_log(CACHE_LOG_INFO, __FILE__, __LINE__, __func__, __VA_ARGS__); 
-#define CACHE_DEBUGLOG(...) cache_log(CACHE_LOG_INFO, __FILE__, __LINE__, __func__, __VA_ARGS__); 
+#define CACHE_DEBUGLOG(...) cache_log(CACHE_LOG_DEBUG, __FILE__, __LINE__, __func__, __VA_ARGS__);
 
 #endif
 

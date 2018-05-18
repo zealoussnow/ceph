@@ -141,6 +141,7 @@ int CacheDevice::cache_init()
   cache_ctx.fd_cache=fd_cache;
   cache_ctx.fd_direct=fd_direct;
   cache_ctx.fd_buffered=fd_buffered;
+  cache_ctx.whoami = cct->_conf->name.get_id().c_str();
 
   dout(1)<< __func__ << " lb cache_ctx.registered "<< cache_ctx.registered <<dendl;
   if (cache_ctx.registered)

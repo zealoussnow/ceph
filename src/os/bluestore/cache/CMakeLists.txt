@@ -11,6 +11,7 @@ set (libcache_srcs
     journal.c
     libcache.c
     aio.c
+    conf.c
     sync_io.c
     writeback.c
     movinggc.c

@@ -12,6 +12,8 @@
 #include <pthread.h>
 #include "aio.h"
 
+#include "log.h"
+#include "bcache.h"
 
 /*struct aio_handler;*/
 struct thread_data;
@@ -98,7 +100,6 @@ spdk_cache_start_poller(void *thread_ctx,
 
   cache_poller->poller_fn = fn;
   cache_poller->io_channel_ctx = channel_ctx;
-  /*cache_poller->period_microseconds = period_microseconds;*/
   cache_poller->period_microseconds = td->t_options->period_microseconds;
 
   ct->cp = cache_poller;
@@ -325,12 +326,40 @@ spdk_cache_setup(struct thread_data *td)
     SPDK_ERRLOG("Invalid configuration file format\n");
     goto free_conf;
   }
+
+  struct spdk_conf_section *sp;
+  char *section_name = "DPDK_ENV";
+  char *app_name  = NULL;
+  char *core_mask = NULL;
+  int mem_size  = 0;
+
+  sp = spdk_conf_find_section(config, section_name);
+  if (sp == NULL) {
+    SPDK_ERRLOG("Failed to init dpdk env, can't find section: %s, will use default value\n", section_name);
+    assert("failed to init dpdk env" == 0);
+  } else {
+    app_name =  spdk_conf_section_get_val(sp, "name");
+    if (app_name == NULL) {
+      app_name = "t2cache";
+      SPDK_WARNLOG("%s: missing app name, use default value: %s\n", __func__, app_name);
+    }
+
+    core_mask = spdk_conf_section_get_val(sp, "core_mask");
+    if (core_mask == NULL)
+      assert("core_mask is NULL" == 0);
+
+    mem_size = spdk_conf_section_get_intval(sp, "mem_size");
+    if (mem_size == 0)
+      assert("mem_size is 0" == 0);
+  }
+
   spdk_conf_set_as_default(config);
   spdk_env_opts_init(&opts);
-  opts.name = "t2cache";
-  /*opts.core_mask = "0x03";*/
-  /*opts.core_mask = "0x0f";*/
-  opts.core_mask = "0x07";
+
+  opts.name = app_name;
+  opts.core_mask = core_mask;
+  opts.mem_size = mem_size;
+
   if (spdk_env_init(&opts) < 0) {
     SPDK_ERRLOG("Unable to initialize SPDK env\n");
     goto free_conf;
@@ -437,15 +466,39 @@ aio_init(void * ca)
   struct thread_options *t_options = NULL;
   struct thread_data *td1 = NULL;
   struct aio_handler *handler = NULL;
+
+  struct spdk_conf *config = NULL;
+  config = spdk_conf_allocate();
+  if (!config) {
+    SPDK_ERRLOG("failed to allocate config\n");
+    assert("failed to allocate config" == 0);
+  }
+
+  ret = spdk_conf_read(config, path);
+  if (ret < 0) {
+    SPDK_ERRLOG("can't read conf\n");
+    assert("can't read conf" == 0);
+  }
+
+  struct spdk_conf_section *sp = NULL;
+  sp = spdk_conf_find_section(config, "AIO");
+  if (sp == NULL) {
+    SPDK_ERRLOG("can't find section AIO\n");
+    assert("can't find section AIO" == 0);
+  }
+
+  int poll_period = spdk_conf_section_get_intval(sp, "poll_period");
+  if (poll_period == 0) {
+    SPDK_WARNLOG("poll period is 0");
+  }
   
   handler = calloc(1, sizeof(*handler));
   t_options = calloc(1, sizeof(*t_options));
   t_options->conf = path;
   t_options->type = CACHE_THREAD_CACHE;
-  t_options->name = "AIO0";
+  //t_options->name = "AIO0";
   t_options->thread_name = "aio_init_thread";
-  /*t_options->period_microseconds = 1000000;*/
-  t_options->period_microseconds = 100000;
+  t_options->period_microseconds = poll_period;
 
   td1 = create_new_thread(t_options);
   assert ( td1 != NULL);
@@ -464,18 +517,39 @@ aio_init(void * ca)
   hdd_options = calloc(1, sizeof(*hdd_options));
   ssd_options = calloc(1, sizeof(*ssd_options));
 
-  hdd_options->name = "AIO1";
+  CACHE_DEBUGLOG("I'm osd.%s\n", ((struct cache *)ca)->whoami);
+  char backend_device[16];
+  memset(backend_device, 0, sizeof(backend_device));
+  snprintf(backend_device, sizeof(backend_device), "osd%s_hdd", ((struct cache *)ca)->whoami);
+  hdd_options->name = backend_device;
   hdd_options->thread_name = "aio_hdd_thread";
   hdd_options->conf = path;
-  hdd_options->period_microseconds = 100000;
+
+  hdd_options->period_microseconds = poll_period;
   hdd_options->type = CACHE_THREAD_BACKEND;
 
-  ssd_options->name = "AIO0";
+  char cache_device[16];
+  memset(cache_device, 0, sizeof(cache_device));
+  snprintf(cache_device, sizeof(cache_device), "osd%s_ssd", ((struct cache *)ca)->whoami);
+  ssd_options->name = cache_device;
   ssd_options->thread_name = "aio_cache_thread";
   ssd_options->conf = path;
   ssd_options->type = CACHE_THREAD_CACHE;
-  ssd_options->period_microseconds = 100000;
+  ssd_options->period_microseconds = poll_period;
 
+  int cache_thread_core_percent = 0;
+  sp = spdk_conf_find_section(config, "DPDK_ENV");
+
+  cache_thread_core_percent = spdk_conf_section_get_intval(sp, "cache_thread_core_percent");
+  if (cache_thread_core_percent == 0) {
+    SPDK_WARNLOG("cache_thread_core_percent will use default value");
+    cache_thread_core_percent = 50;
+  }
+  uint32_t current_core_count = spdk_env_get_core_count();
+  uint32_t cache_thread_cores = current_core_count * cache_thread_core_percent / 100;
+  spdk_conf_free(config);
+  CACHE_DEBUGLOG("current_core_count: %u, cache_thread_core_percent: %d, cache_thread_cores: %u\n",
+      current_core_count, cache_thread_core_percent, cache_thread_cores);
 
   TAILQ_INIT(&handler->cache_threads);
   TAILQ_INIT(&handler->backend_threads);
@@ -485,7 +559,7 @@ aio_init(void * ca)
     if (lcore == 0) {
       continue;
     }
-    if ( lcore <= 1 ) {
+    if (lcore <= cache_thread_cores) {
       td = create_new_thread(ssd_options);
       spdk_env_thread_launch_pinned(lcore, cache_thread_fn, (void *)td);
       td->lcore = lcore;
@@ -497,7 +571,7 @@ aio_init(void * ca)
       spdk_env_thread_launch_pinned(lcore, cache_thread_fn, (void *)td);
       handler->nr_backend++;
       TAILQ_INSERT_TAIL(&handler->backend_threads, td , node);
-      }
+    }
   }
 
   sleep(2);

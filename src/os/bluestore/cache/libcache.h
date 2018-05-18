@@ -17,6 +17,7 @@ struct cache_context {
         int fd_direct;
         int fd_buffered;
         bool registered;
+        const char *whoami;
 };
 
 
@@ -38,6 +39,7 @@ CEPH_CACHE_API int T2Store_Cache_aio_write(struct cache_context * ctx, void *bl,
 CEPH_CACHE_API int T2Store_Cache_aio_read(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
 
 CEPH_CACHE_API int t2store_cache_invalidate_region(struct cache_context * ctx, uint64_t off, uint64_t len);
+CEPH_CACHE_API const char *get_osd_dev(const char *cf_name, const char *osd_devid);
 
 #ifdef __cplusplus
 }
