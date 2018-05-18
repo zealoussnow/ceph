@@ -1354,10 +1354,6 @@ static bool btree_gc_mark_node(struct btree *b, struct gc_stat *gc)
         bset_written(&b->keys, t) &&
         bkey_cmp(&b->key, &t->end) < 0,
         b, "found short btree key in gc");
-  printf("%s, b->c->gc_always_rewrite = %d\n", __func__, b->c->gc_always_rewrite);
-  printf("%s, stale = %d\n", __func__, stale);
-  printf("%s, good keys = %d\n", __func__, good_keys);
-  printf("%s, keys = %d\n", __func__, keys);
   if (b->c->gc_always_rewrite)
     return true;
   if (stale > 10)
@@ -1498,7 +1494,7 @@ static int btree_gc_coalesce(struct btree *b, struct btree_op *op,
   /* We emptied out this node */
   //BUG_ON(btree_bset_first(new_nodes[0])->keys);
   btree_node_free(new_nodes[0]);
-  //rw_unlock(true, new_nodes[0]);
+  rw_unlock(true, new_nodes[0]);
   new_nodes[0] = NULL;
 
   for (i = 0; i < nodes; i++) {
@@ -1576,7 +1572,7 @@ static int btree_gc_rewrite_node(struct btree *b, struct btree_op *op,
   //BUG_ON(!bch_keylist_empty(&keys));
 
   btree_node_free(replace);
-  //rw_unlock(true, n);
+  rw_unlock(true, n);
 
   /* Invalidated our iterator */
   return -EINTR;
@@ -1657,7 +1653,7 @@ static int btree_gc_recurse(struct btree *b, struct btree_op *op,
       if (btree_node_dirty(last->b))
         bch_btree_node_write(last->b); //, writes);
       pthread_mutex_unlock(&last->b->write_lock);
-      //rw_unlock(true, last->b);
+      rw_unlock(true, last->b);
     }
 
     memmove(r + 1, r, sizeof(r[0]) * (GC_MERGE_NODES - 1));
@@ -1675,7 +1671,7 @@ static int btree_gc_recurse(struct btree *b, struct btree_op *op,
       if (btree_node_dirty(i->b))
         bch_btree_node_write(i->b); //, writes);
       pthread_mutex_unlock(&i->b->write_lock);
-      //rw_unlock(true, i->b);
+      rw_unlock(true, i->b);
     }
 
   return ret;
@@ -1699,7 +1695,7 @@ static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
 
       bch_btree_set_root(n);
       btree_node_free(b);
-      //rw_unlock(true, n);
+      rw_unlock(true, n);
 
       return -EINTR;
     }
@@ -1892,6 +1888,7 @@ static int bch_gc_thread(void *arg)
 {
   struct cache_set *c = arg;
 
+  pthread_setname_np(pthread_self(), "moving_gc");
   while (1) {
     //wait_event_interruptible(c->gc_wait,
     //	   kthread_should_stop() || gc_should_run(c));
