@@ -332,6 +332,7 @@ static void read_dirty(struct cached_dev *dc)
 
     delay = writeback_delay(dc, KEY_SIZE(&w->key));
 
+    free(io->data);
     free(io);
     list_del(&w->list);
 
