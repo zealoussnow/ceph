@@ -2361,35 +2361,38 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   struct btree_insert_op op;
   int ret = 0;
   BUG_ON(bch_keylist_empty(keys));
-  CACHE_DEBUGLOG("btree insert nkey=%d", bch_keylist_nkeys(keys));
-  /*printf(" btree.c FUN %s: Btree Insert journal_ref=%d\n",__func__,journal_ref);*/
-  bch_btree_op_init(&op.op, SHRT_MAX); /* XXX 第三个参数write_lock_level指什么？*/
+
+  /* op.op.lock mean choose lock level in btree node
+  * 0 means op only lock leaf node
+  * SHRT_MAX means op lock from root
+  */
+  /*bch_btree_op_init(&op.op, 0); */
+  /* we don't have rw_sem, so lock from root, this is
+  * not a good choice, we should change in the future
+  */
+  bch_btree_op_init(&op.op, SHRT_MAX); 
+
   op.keys		= keys;
   op.journal_ref	= journal_ref;
   op.replace_key	= replace_key;
 
-  // 理论上这一层的while循环可以去掉,我们必须保证一次对数的递归
-  // 就能完全的将所有的bkey插入到树中，因为树中一定存在一个叶节
-  // 点的key是继承自根节点，即它的key是U64_MAX
   while (!ret && !bch_keylist_empty(keys)) {
-    op.op.lock = 0;
-    CACHE_DEBUGLOG("    < map leaf nodes >   \n");
+    /*op.op.lock = 0;*/
+    op.op.lock = SHRT_MAX;
     ret = bch_btree_map_leaf_nodes(&op.op, c, &START_KEY(keys->keys),
         btree_insert_fn);
-    CACHE_DEBUGLOG("    < end map leaf nodes >   \n");
   }
 
-  // 如果插入
   if (ret) {
     struct bkey *k;
-    /*printf(" btree.c FUN %s: Btree Insert Error ret=%i\n",__func__, ret);*/
+    CACHE_ERRORLOG("Insert keylist to Btree Faild ret=%i\n", ret);
     while ((k = bch_keylist_pop(keys))){
       bkey_put(c, k);
     }
   } else if (op.op.insert_collision) {
     ret = -ESRCH;
   }
-  /*printf(" insert return ret = %d\n", ret);*/
+
   return ret;
 }
 
