@@ -117,7 +117,7 @@ public:
   int open(const std::string& path) override;
   int open(const std::string& path, const std::string& c_path) override;
   int write_cache_super(const std::string& path) override;
-  int cache_init() override;
+  int cache_init(const std::string& path) override;
 
   void close() override;
 };

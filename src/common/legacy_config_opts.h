@@ -1014,9 +1014,13 @@ OPTION(bluestore_spdk_max_io_completion, OPT_U32)
 
 // t2cache
 OPTION(block_type, OPT_STR)
-OPTION(t2store_bdev_conf, OPT_STR)
+OPTION(t2store_cache_path, OPT_STR)
 OPTION(t2store_cache_size, OPT_U64)  // 10gb for testing
 OPTION(t2store_cache_create, OPT_BOOL)
+OPTION(t2store_core_mask, OPT_STR)
+OPTION(t2store_mem_size, OPT_U64)
+OPTION(t2store_poll_period, OPT_U64)
+OPTION(t2store_cache_thread_core_percent, OPT_FLOAT)
 
 OPTION(bluestore_block_path, OPT_STR)
 OPTION(bluestore_block_size, OPT_U64)  // 10gb for testing

@@ -428,7 +428,7 @@ struct cache {
   struct aio_handler  * handler;
   int                  fd;
   int                     hdd_fd;
-  const char *whoami;
+  const char *bdev_path;
   struct cache_set      *set;
   struct cache_sb               sb;
   //struct bio          sb_bio;

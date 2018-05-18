@@ -3199,8 +3199,8 @@ std::vector<Option> get_global_options() {
     .set_default("")
     .set_description("backend store block type"),
     
-    Option("t2store_bdev_conf", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("/etc/ceph/bdev.conf.in")
+    Option("t2store_cache_path", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("")
     .add_tag("mkfs")
     .set_description("spdk bdev configure file"),
 
@@ -3213,7 +3213,26 @@ std::vector<Option> get_global_options() {
     .set_default(true)
     .add_tag("mkfs")
     .set_description("Create t2store_cache_path if it doesn't exist")
-    .add_see_also("t2store_bdev_conf").add_see_also("t2store_cache_size"),
+    .add_see_also("t2store_cache_path").add_see_also("t2store_cache_size"),
+
+    Option("t2store_core_mask", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("0x1f")
+    .add_tag("dpdk_env")
+    .set_description("dpdk env core mask"),
+
+    Option("t2store_mem_size", Option::TYPE_UINT, Option::LEVEL_DEV)
+    .set_default(256)
+    .add_tag("dpdk_env")
+    .set_description("dpdk env mem size (M)"),
+
+    Option("t2store_poll_period", Option::TYPE_UINT, Option::LEVEL_DEV)
+    .set_default(100000)
+    .add_tag("dpdk_env")
+    .set_description("dpdk env poll period(us)"),
+
+    Option("t2store_cache_thread_core_percent", Option::TYPE_FLOAT, Option::LEVEL_BASIC)
+    .set_default(.5)
+    .set_description("cache/backend thead percent"),
 
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")

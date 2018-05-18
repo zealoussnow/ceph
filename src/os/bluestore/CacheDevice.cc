@@ -135,13 +135,14 @@ int CacheDevice::_lock()
   return 0;
 }
 
-int CacheDevice::cache_init()
+int CacheDevice::cache_init(const std::string& path)
 {
   int r = 0;
+  string bdev_path = path + "/bdev.conf.in";
   cache_ctx.fd_cache=fd_cache;
   cache_ctx.fd_direct=fd_direct;
   cache_ctx.fd_buffered=fd_buffered;
-  cache_ctx.whoami = cct->_conf->name.get_id().c_str();
+  cache_ctx.bdev_path = bdev_path.c_str();
 
   dout(1)<< __func__ << " lb cache_ctx.registered "<< cache_ctx.registered <<dendl;
   if (cache_ctx.registered)

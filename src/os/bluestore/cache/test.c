@@ -236,8 +236,9 @@ void * bch_data_insert(struct cache *ca)
 int main()
 {
   struct cache *ca = T2Molloc(sizeof(struct cache));
-  int fd = open("/dev/sdc", O_RDWR );
+  /*int fd = open("/dev/sdc1", O_RDWR );*/
   ca->fd = fd;
+  ca->bdev_path="/etc/ceph/bdev.conf.in";
   init(ca);
   ca->handler = aio_init((void *)ca);
 

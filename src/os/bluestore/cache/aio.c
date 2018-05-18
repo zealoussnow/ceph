@@ -452,7 +452,6 @@ create_new_thread(struct thread_options *t_options)
   return td;
 }
 
-/*int main(int argc, char **argv)*/
 void *
 aio_init(void * ca)
 {
@@ -462,7 +461,7 @@ aio_init(void * ca)
 
   int ret = 0;
   int lcore;
-  char *path = "/etc/ceph/bdev.conf.in";
+  char *path = ((struct cache *)ca)->bdev_path;
   struct thread_options *t_options = NULL;
   struct thread_data *td1 = NULL;
   struct aio_handler *handler = NULL;
@@ -470,33 +469,33 @@ aio_init(void * ca)
   struct spdk_conf *config = NULL;
   config = spdk_conf_allocate();
   if (!config) {
-    SPDK_ERRLOG("failed to allocate config\n");
+    CACHE_ERRORLOG("failed to allocate config\n");
     assert("failed to allocate config" == 0);
   }
 
   ret = spdk_conf_read(config, path);
   if (ret < 0) {
-    SPDK_ERRLOG("can't read conf\n");
+    CACHE_ERRORLOG("can't read conf\n");
     assert("can't read conf" == 0);
   }
 
   struct spdk_conf_section *sp = NULL;
-  sp = spdk_conf_find_section(config, "AIO");
+  sp = spdk_conf_find_section(config, "DPDK_ENV");
   if (sp == NULL) {
-    SPDK_ERRLOG("can't find section AIO\n");
+    CACHE_ERRORLOG("can't find section AIO (path=%s)\n", path);
     assert("can't find section AIO" == 0);
   }
 
+  /*int poll_period = 100000;*/
   int poll_period = spdk_conf_section_get_intval(sp, "poll_period");
   if (poll_period == 0) {
-    SPDK_WARNLOG("poll period is 0");
+    CACHE_WARNLOG("poll period is 0, set default 100000");
+    poll_period = 100000;
   }
-  
   handler = calloc(1, sizeof(*handler));
   t_options = calloc(1, sizeof(*t_options));
   t_options->conf = path;
   t_options->type = CACHE_THREAD_CACHE;
-  //t_options->name = "AIO0";
   t_options->thread_name = "aio_init_thread";
   t_options->period_microseconds = poll_period;
 
@@ -508,45 +507,39 @@ aio_init(void * ca)
     assert(" spdk_cache_setup faild " == 0);
   }
 
-  /*uint32_t max;*/
-  /*max = spdk_env_get_core_count();*/
-
   struct thread_options *hdd_options;
   struct thread_options *ssd_options;
 
   hdd_options = calloc(1, sizeof(*hdd_options));
   ssd_options = calloc(1, sizeof(*ssd_options));
 
-  CACHE_DEBUGLOG("I'm osd.%s\n", ((struct cache *)ca)->whoami);
-  char backend_device[16];
-  memset(backend_device, 0, sizeof(backend_device));
-  snprintf(backend_device, sizeof(backend_device), "osd%s_hdd", ((struct cache *)ca)->whoami);
-  hdd_options->name = backend_device;
+  hdd_options->name = "hdd";
   hdd_options->thread_name = "aio_hdd_thread";
   hdd_options->conf = path;
 
   hdd_options->period_microseconds = poll_period;
   hdd_options->type = CACHE_THREAD_BACKEND;
 
-  char cache_device[16];
-  memset(cache_device, 0, sizeof(cache_device));
-  snprintf(cache_device, sizeof(cache_device), "osd%s_ssd", ((struct cache *)ca)->whoami);
-  ssd_options->name = cache_device;
+  ssd_options->name = "ssd";
   ssd_options->thread_name = "aio_cache_thread";
   ssd_options->conf = path;
   ssd_options->type = CACHE_THREAD_CACHE;
   ssd_options->period_microseconds = poll_period;
 
-  int cache_thread_core_percent = 0;
+  char * cache_percent = NULL;
+  float cache_thread_core_percent = 0;
   sp = spdk_conf_find_section(config, "DPDK_ENV");
 
-  cache_thread_core_percent = spdk_conf_section_get_intval(sp, "cache_thread_core_percent");
-  if (cache_thread_core_percent == 0) {
-    SPDK_WARNLOG("cache_thread_core_percent will use default value");
-    cache_thread_core_percent = 50;
+  cache_percent = spdk_conf_section_get_val(sp, "cache_thread_core_percent");
+  if (cache_percent == NULL) {
+    CACHE_WARNLOG("cache_thread_core_percent will use default value 0.5");
+    cache_thread_core_percent = 0.5;
+  } else {
+    cache_thread_core_percent = atof(cache_percent);
+    CACHE_DEBUGLOG("cache_thread_core_percent value %f \n", cache_thread_core_percent);
   }
   uint32_t current_core_count = spdk_env_get_core_count();
-  uint32_t cache_thread_cores = current_core_count * cache_thread_core_percent / 100;
+  uint32_t cache_thread_cores = current_core_count * cache_thread_core_percent;
   spdk_conf_free(config);
   CACHE_DEBUGLOG("current_core_count: %u, cache_thread_core_percent: %d, cache_thread_cores: %u\n",
       current_core_count, cache_thread_core_percent, cache_thread_cores);

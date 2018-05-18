@@ -62,7 +62,7 @@ getblocks(int fd)
     if (ioctl(fd, BLKGETSIZE, &ret)) {
       perror("ioctl error");
       exit(EXIT_FAILURE);
-    }
+  }
   return ret;
 }
 

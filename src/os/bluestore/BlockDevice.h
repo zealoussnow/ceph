@@ -147,7 +147,7 @@ public:
   virtual int open(const std::string& path) = 0;
   virtual int open(const std::string& path, const std::string& c_path) = 0;
   virtual int write_cache_super(const std::string& path){ return 0; };
-  virtual int cache_init(){ return 0; };
+  virtual int cache_init(const std::string& path){ return 0; };
   virtual void close() = 0;
 };
 

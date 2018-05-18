@@ -113,7 +113,7 @@ public:
   int write_cache_super(const std::string& path) override {
     return 0;
   }
-  virtual int cache_init() override { 
+  virtual int cache_init(const std::string& path) override { 
     return 0; 
   }
   void close() override;

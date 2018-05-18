@@ -17,7 +17,7 @@ struct cache_context {
         int fd_direct;
         int fd_buffered;
         bool registered;
-        const char *whoami;
+        const char *bdev_path;
 };
 
 

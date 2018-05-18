@@ -34,7 +34,7 @@ int T2Store_Cache_register_cache(struct cache_context *ctx)
   memset(ctx->cache, 0, sizeof(struct cache));
   ((struct cache *)ctx->cache)->fd=ctx->fd_cache;
   ((struct cache *)ctx->cache)->hdd_fd=ctx->fd_direct;
-  ((struct cache *)ctx->cache)->whoami = ctx->whoami;
+  ((struct cache *)ctx->cache)->bdev_path = ctx->bdev_path;
   printf(" libcache.c <%s> fd_cache = %d \n", __func__, ctx->fd_cache);
   ret = init(ctx->cache);
   if (ret < 0 )
