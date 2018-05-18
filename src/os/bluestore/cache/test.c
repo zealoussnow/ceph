@@ -148,6 +148,90 @@ void do_write_big_test(struct cache *ca)
   printf(" ********* done write big test ********** \n");
 }
 
+void 
+bch_data_insert_start(struct cache *ca, struct keylist *insert_keys)
+{
+  int i, j;
+  int keynum = 150;
+  int keynum2 = 10;
+  uint64_t start = 0;
+  uint64_t start2 = 1000;
+  char * data=NULL;
+  uint64_t len = 2*512;
+  uint64_t len2 = 4*512;
+  struct keylist insert_keys2;
+  bch_keylist_init(&insert_keys2);
+  for (i = 0; i < keynum; i++) {
+    struct bkey *k = NULL;
+    k = insert_keys->top;
+    bkey_init(k);
+    SET_KEY_INODE(k, 1);
+    SET_KEY_OFFSET(k, start);
+    SET_KEY_DIRTY(k, true);
+    // 写入的数据按扇区对齐后的大小来分配bucket的资源,但是写入的数据依然按实际的长度
+    // 比如：bio.bi_size是实际的数据长度，但是对bio分配bucket资源的时候，给的bi_size>>9
+    // 之后变成扇区数进行分配，并不会改变bi_size原有的大小
+    int sectors = ( len % 512 ) ? ( len / 512 + 1 ) : ( len / 512 );
+    data=T2Molloc(sizeof(char)*len);
+    memset(data,'x',sizeof(char)*len);
+    int ret = bch_alloc_sectors(ca->set, k, sectors, 0, 0, 1);
+    printf( " main.c FUN %s: after alloc sectors KEY_OFFSET=%d,KEY_SIZE=%d\n", __func__,KEY_OFFSET(k),KEY_SIZE(k));
+    for (j = 0; j < KEY_PTRS(k); j++) {
+      off_t ssd_off = PTR_OFFSET(k, j) << 9;
+      printf( " main.c FUN %s: Write Data SSD fd=%d,start=0x%x,len=%d\n", __func__,ca->fd,ssd_off,len);
+      sync_write(ca->fd, data, len, ssd_off);
+    }
+    free(data);
+    start=start+2*sectors;
+    /*start=start+2*sectors;*/
+    /*len=2*len;*/
+    /*start = start + 1;*/
+    bch_keylist_push(insert_keys);
+  }
+  printf( " \n");
+  printf( " main.c FUN %s: >>>>>>>>>>>  Start Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
+  bch_data_insert_keys(ca->set, insert_keys);
+  printf( " main.c FUN %s: >>>>>>>>>>>  End Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
+  printf(" \n");
+
+  for (i = 0; i < keynum2; i++) {
+    struct bkey *k = NULL;
+    k = insert_keys2.top;
+    bkey_init(k);
+    SET_KEY_INODE(k, 1);
+    SET_KEY_OFFSET(k, start2);
+    SET_KEY_DIRTY(k, true);
+    int sectors = (len2 % 512)? ( len2 / 512 + 1) : ( len2 / 512);
+    data = T2Molloc(sizeof(char)*len2);
+    memset(data,'j',sizeof(char)*len2);
+    int ret = bch_alloc_sectors(ca->set, k, sectors, 0, 0, 1);
+    for (j = 0; j < KEY_PTRS(k); j++) {
+      off_t ssd_off = PTR_OFFSET(k, j) << 9;
+      /*printf( " main.c FUN %s: Write Data SSD fd=%d,start=0x%x,len=%d\n", __func__,ca->fd,ssd_off,len);*/
+      sync_write(ca->fd, data, len2, ssd_off);
+    }
+    free(data);
+    start2=start2+2*sectors;
+    bch_keylist_push(&insert_keys2);
+  }
+  printf(" \n");
+  printf( " main.c FUN %s: >>>>>>>>>>>  Start Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
+  bch_data_insert_keys(ca->set, &insert_keys2);
+  printf( " main.c FUN %s: >>>>>>>>>>>  End Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
+  return ;
+
+err:
+  printf("can not alloc sectors!\n");
+}
+
+
+void * bch_data_insert(struct cache *ca)
+{
+  struct keylist insert_keys;
+  bch_keylist_init(&insert_keys);
+  bch_data_insert_start(ca, &insert_keys);
+}
+
 
 int main()
 {
