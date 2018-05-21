@@ -81,6 +81,10 @@ PTYPE = {
             'ready': '5ce17fce-4087-4169-b7ff-056cc58473f9',
             'tobe': '5ce17fce-4087-4169-b7ff-056cc58472be',
         },
+        'ssd_cache': {
+            'ready': '9edda69e-d60c-4db5-ab3b-5f2f9a8e8362',
+            'tobe': '3993b747-8ad6-489f-b5ef-9d74844bd14c',
+        },
         'osd': {
             'ready': '4fbd7e29-9d25-41b8-afd0-062c0ceff05d',
             'tobe': '89c57f98-2fe5-4dc0-89c1-f3ad0ceff2be',
@@ -2124,6 +2128,7 @@ class PrepareBluestore(Prepare):
         self.block = PrepareBluestoreBlock(args)
         self.blockdb = PrepareBluestoreBlockDB(args)
         self.blockwal = PrepareBluestoreBlockWAL(args)
+        self.ssd_cache = PrepareBlueStoreCache(args)
 
     @staticmethod
     def parser():
@@ -2149,6 +2154,7 @@ class PrepareBluestore(Prepare):
             PrepareBluestoreBlock.parser(),
             PrepareBluestoreBlockDB.parser(),
             PrepareBluestoreBlockWAL.parser(),
+            PrepareBlueStoreCache.parser(),
         ]
 
     def _prepare(self):
@@ -2159,13 +2165,20 @@ class PrepareBluestore(Prepare):
             to_prepare_list.append(self.blockdb)
         if getattr(self.data.args, 'block.wal'):
             to_prepare_list.append(self.blockwal)
+        block_type = get_conf(
+            cluster=self.args.cluster,
+            variable='block_type',
+        )
+        if block_type == 'cache':
+            if getattr(self.data.args, 'ssd_cache'):
+                to_prepare_list.append(self.ssd_cache)
         to_prepare_list.append(self.block)
         self.data.prepare(*to_prepare_list)
 
 
 class Space(object):
 
-    NAMES = ('block', 'journal', 'block.db', 'block.wal')
+    NAMES = ('block', 'journal', 'block.db', 'block.wal', 'ssd_cache')
 
 
 class PrepareSpace(object):
@@ -2570,6 +2583,43 @@ class PrepareBluestoreBlockWAL(PrepareSpace):
         )
         return parser
 
+class PrepareBlueStoreCache(PrepareSpace):
+
+    def __init__(self, args):
+        self.name = 'ssd_cache'
+        super(PrepareBlueStoreCache, self).__init__(args)
+
+    def get_space_size(self):
+        block_size = get_conf(
+            cluster=self.args.cluster,
+            variable='t2store_cache_size',
+        )
+
+        if block_size is None:
+            return 10240 # MB, default size
+        else:
+            return int(block_size) / 1048576 # MB
+
+
+    def desired_partition_number(self):
+        if getattr(self.args, 'ssd_cache') == self.args.data:
+            num = 5
+        else:
+            num = 0
+        return num
+
+    def wants_space(self):
+        return False
+
+    @staticmethod
+    def parser():
+        parser = PrepareSpace.parser('ssd_cache', positional=False)
+        parser.add_argument(
+            '--ssd_cache',
+            metavar='SSD_CACHE',
+            help='path to the device for bluestore ssd_cache',
+        )
+        return parser
 
 class CryptHelpers(object):
 
