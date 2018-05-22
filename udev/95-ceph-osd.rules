@@ -48,6 +48,16 @@ ACTION=="change", SUBSYSTEM=="block", \
   ENV{ID_PART_ENTRY_TYPE}=="5ce17fce-4087-4169-b7ff-056cc58473f9", \
   OWNER="ceph", GROUP="ceph", MODE="660"
 
+# BLOCK.SSD_CACHE_UUID
+ACTION=="add", SUBSYSTEM=="block", \
+  ENV{DEVTYPE}=="partition", \
+  ENV{ID_PART_ENTRY_TYPE}=="9edda69e-d60c-4db5-ab3b-5f2f9a8e8362", \
+  OWNER:="ceph", GROUP:="ceph", MODE:="660", \
+  RUN+="/usr/sbin/ceph-disk --log-stdout -v trigger /dev/$name"
+ACTION=="change", SUBSYSTEM=="block", \
+  ENV{ID_PART_ENTRY_TYPE}=="9edda69e-d60c-4db5-ab3b-5f2f9a8e8362", \
+ 
+
 # LOCKBOX_UUID
 ACTION=="add", SUBSYSTEM=="block", \
   ENV{DEVTYPE}=="partition", \
