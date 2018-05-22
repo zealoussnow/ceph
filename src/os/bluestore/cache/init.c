@@ -1641,6 +1641,11 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
 
   item->strategy = CACHE_MODE_WRITEBACK;
   /*insert_keys = calloc(1, sizeof(*insert_keys));*/
+  if (item->strategy != CACHE_MODE_WRITEAROUND) {
+    if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
+      wake_up_gc(ca->set);
+  }
+
   item->io.type=CACHE_IO_TYPE_WRITE;
   item->ca_handler = ca;
   switch (item->strategy) {
