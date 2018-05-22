@@ -842,7 +842,9 @@ int CacheDevice::write(
   bufferlist &bl,
   bool buffered)
 {
+  IOContext ioc(cct, NULL);
   uint64_t len = bl.length();
+  int r;
   dout(20) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
            << (buffered ? " (buffered)" : " (direct)")
            << dendl;
@@ -860,7 +862,32 @@ int CacheDevice::write(
   bl.hexdump(*_dout);
   *_dout << dendl;
 
-  return _sync_write(off, bl, buffered);
+  _aio_log_start(&ioc, off, len);
+
+  Task *t = new Task(this, IOCommand::WRITE_COMMAND, off, len, 1);
+  t->write_bl = std::move(bl);
+  t->ctx = &ioc;
+  ++ioc.num_running;
+
+  queue_task(t);
+
+  while ( t->return_code > 0 ) {
+    t->io_wait();
+  }
+  r = t->return_code;
+
+  delete t;
+  return r;
+
+  //if ((!buffered || bl.get_num_buffers() >= IOV_MAX) &&
+      //bl.rebuild_aligned_size_and_memory(block_size, block_size)) {
+    //dout(20) << __func__ << " rebuilding buffer to be aligned" << dendl;
+  //}
+  //dout(40) << "data: ";
+  //bl.hexdump(*_dout);
+  //*_dout << dendl;
+
+  //return _sync_write(off, bl, buffered);
 }
 
 void CacheDevice::queue_task(Task *t, uint64_t ops)

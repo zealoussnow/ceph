@@ -245,7 +245,8 @@ static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
     for (i = 0; i < KEY_PTRS(&w->key); i++)
       atomic_inc(&PTR_BUCKET(dc->c, &w->key, i)->pin);
 
-    ret = bch_btree_insert(dc->c, &keys, NULL, &w->key);
+    // TODO why replace key???
+    ret = bch_btree_insert(dc->c, &keys, NULL, NULL);
   }
 }
 
@@ -289,7 +290,6 @@ static void read_dirty(struct cached_dev *dc)
 {
   unsigned delay = 0;
   struct keybuf_key *w;
-  int num = 0;
   /*struct dirty_io *io;*/
   /*struct closure cl;*/
 
@@ -307,8 +307,6 @@ static void read_dirty(struct cached_dev *dc)
           struct keybuf_key, list);
     else
       break;
-
-    num++;
 
     if (KEY_START(&w->key) != dc->last_read ||
         jiffies_to_msecs(delay) > 50)
@@ -334,6 +332,7 @@ static void read_dirty(struct cached_dev *dc)
 
     delay = writeback_delay(dc, KEY_SIZE(&w->key));
 
+    free(io->data);
     free(io);
     list_del(&w->list);
 
@@ -366,8 +365,6 @@ static void read_dirty(struct cached_dev *dc)
 
     /*delay = writeback_delay(dc, KEY_SIZE(&w->key));*/
   }
-
-  /*printf("writeback_keys num ==== %d\n", num);*/
 
   /*if (0) {*/
   /*err_free:*/

@@ -1191,8 +1191,8 @@ init(struct cache * ca)
   /*traverse_btree(ca);*/
   /*pthread_cond_signal(&ca->set->btree_cache_wait_cond);*/
 
-  /*bch_cached_dev_writeback_start(ca->set->dc);*/
-  /*bch_sectors_dirty_init(ca->set->dc);*/
+  bch_cached_dev_writeback_start(ca->set->dc);
+  bch_sectors_dirty_init(ca->set->dc);
   /*atomic_set(&ca->set->dc->has_dirty, 1);*/
   /*atomic_inc(&ca->set->dc->count);*/
 
@@ -1771,7 +1771,8 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
      read_cache_look_done(item);
      return MAP_DONE;
    }
-   else if (KEY_DIRTY(key)) { // bkey in data
+   /*else if (KEY_DIRTY(key)) { // bkey in data*/
+   else { // bkey in data
      printf("<%s>: find bkey offset=%lu,size=%lu \n",
          __func__,KEY_OFFSET(key),KEY_SIZE(key));
      is_end = set_item_io(item, key);
