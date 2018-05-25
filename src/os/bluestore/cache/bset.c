@@ -686,19 +686,19 @@ void bch_bset_build_written_tree(struct btree_keys *b)
   unsigned j, cacheline = 1;
   
   b->last_set_unwritten = 0;
+
   bset_alloc_tree(b, t);
+
   t->size = min_t(unsigned, bkey_to_cacheline(t, bset_bkey_last(t->data)),
       b->set->tree + btree_keys_cachelines(b) - t->tree);
-  /**********************/
-  // 先不构建辅助树，直接全部采用线性方式索引
-  t->size=0;
-  return;
-  /**********************/
+
   if (t->size < 2) {
     t->size = 0;
     return;
   }
-  t->extra = (t->size - rounddown(t->size - 1, 4)) << 1;
+  // fix bug of to_inorder error
+  t->extra = (t->size - rounddown_pow_of_two(t->size - 1)) << 1;
+
   /* First we figure out where the first key in each cacheline is */
   for (j = inorder_next(0, t->size); j; j = inorder_next(j, t->size)) {
     while (bkey_to_cacheline(t, k) < cacheline) {
