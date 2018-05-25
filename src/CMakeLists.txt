@@ -874,45 +874,52 @@ add_executable(ceph-osd ${ceph_osd_srcs})
 add_dependencies(ceph-osd erasure_code_plugins)
 target_link_libraries(ceph-osd osd os global-static common
   ${BLKID_LIBRARIES} ${RDMA_LIBRARIES})
-set (spdk_libs_whole 
-    spdk_bdev_malloc 
-    spdk_bdev_null 
-    spdk_bdev_nvme 
-    spdk_nvme
-    spdk_vbdev_error 
-    spdk_vbdev_gpt 
-    spdk_vbdev_lvol 
-    spdk_vbdev_split
-    spdk_blob 
-    spdk_blob_bdev 
-    spdk_lvol 
-    spdk_bdev_aio 
-    spdk_bdev_virtio
-    spdk_virtio 
-    )
-set(spdk_libs
-    spdk_util 
-    spdk_bdev 
-    spdk_conf 
-    spdk_copy 
-    spdk_rpc
-    spdk_jsonrpc 
-    spdk_json 
-    spdk_log 
-    spdk_env_dpdk 
-   )
-set(dpdk_libs_whole
-    rte_eal 
-    rte_mempool
-    rte_ring 
-    rte_mempool_ring 
-    rte_pci 
-    rte_bus_pci 
-   )
-target_link_libraries(ceph-osd m pthread uuid blkid -Wl,--whole-archive
-        ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
-        -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
-        -Wl,--end-group -Wl,--no-whole-archive numa dl rt)
+
+if (USE_SPDK_AIO)
+  set (spdk_libs_whole
+          spdk_bdev_malloc
+          spdk_bdev_null
+          spdk_bdev_nvme
+          spdk_nvme
+          spdk_vbdev_error
+          spdk_vbdev_gpt
+          spdk_vbdev_lvol
+          spdk_vbdev_split
+          spdk_blob
+          spdk_blob_bdev
+          spdk_lvol
+          spdk_bdev_aio
+          spdk_bdev_virtio
+          spdk_virtio
+          )
+  set(spdk_libs
+          spdk_util
+          spdk_bdev
+          spdk_conf
+          spdk_copy
+          spdk_rpc
+          spdk_jsonrpc
+          spdk_json
+          spdk_log
+          spdk_env_dpdk
+          )
+  set(dpdk_libs_whole
+          rte_eal
+          rte_mempool
+          rte_ring
+          rte_mempool_ring
+          rte_pci
+          rte_bus_pci
+          )
+  target_link_libraries(ceph-osd m pthread uuid blkid -Wl,--whole-archive
+          ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
+          -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
+          -Wl,--end-group -Wl,--no-whole-archive numa dl rt)
+else()
+  target_link_libraries(ceph-osd m pthread uuid blkid
+          -Wl,--no-whole-archive aio event
+          -Wl,--no-whole-archive numa dl rt)
+endif (USE_SPDK_AIO)
 
 
 
