@@ -36,7 +36,7 @@
 #define dout_subsys ceph_subsys_bdev
 #undef dout_prefix
 #define dout_prefix *_dout << "bdev(" << this << " " << path << ") "
-uint64_t g_completion=0;
+
 static constexpr uint32_t data_buffer_size = 8192;
 static constexpr uint16_t inline_segment_num = 32;
 
@@ -591,20 +591,17 @@ void CacheDevice::_aio_stop()
 
 void io_complete(void *t)
 {
-  //printf("   CacheDevice io completion \n");
   Task *task = static_cast<Task*>(t);
   CacheDevice *cache_device = task->device;
   ++cache_device->completed_op_seq;
   IOContext *ctx = task->ctx;
-  //printf("******** completion g_completion=%lu \n", g_completion);
-  //g_completion++;
+
   assert(ctx != NULL);
   if (task->command == IOCommand::WRITE_COMMAND) {
     if (ctx->priv) {
+      //TODO: need add a aio finish log
       if (!--ctx->num_running) {
-        //printf(" call bluestore aio completion \n");
         task->device->aio_callback(task->device->aio_callback_priv, ctx->priv);
-        //printf(" call bluestore aio completion done\n");
       }
     } else {
       ctx->try_aio_wake();
@@ -638,7 +635,7 @@ void CacheDevice::_aio_thread()
 {
   Task *t = nullptr;
   uint64_t off, len;
-  void *data = nullptr;
+  //void *data = nullptr;
   int r = 0;
 
   dout(10) << __func__ << " linbing " << dendl;
@@ -647,18 +644,19 @@ void CacheDevice::_aio_thread()
     for (; t; t = t->next) {
       off = t->offset;
       len = t->len;
-      data = malloc(len);
+      //data = malloc(len);
       switch (t->command) {
         case IOCommand::WRITE_COMMAND:
         {
           dout(20) << __func__ << " write command issued " << off << "~" << len << dendl;
-          auto blp = t->write_bl.begin();
-          blp.copy(len, static_cast<char*>(data));
+          //auto blp = t->write_bl.begin();
+          //blp.copy(len, static_cast<char*>(data));
           // TODO submit data to cache module
-          r = T2Store_Cache_aio_write(&cache_ctx, data, off, len, (void *)io_complete,(void *)t);
+          //r = T2Store_Cache_aio_write(&cache_ctx, data, off, len, (void *)io_complete,(void *)t);
+          r = T2Store_Cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
             derr << __func__ << " failed to do write command" << dendl;
-            free(data);
+            //free(data);
             delete t;
             ceph_abort();
           }
@@ -670,7 +668,7 @@ void CacheDevice::_aio_thread()
           r = T2Store_Cache_aio_read(&cache_ctx, t->read_ptr.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
             derr << __func__ << " failed to do read command" << dendl;
-            free(data);
+            //free(data);
             delete t;
             ceph_abort();
           }

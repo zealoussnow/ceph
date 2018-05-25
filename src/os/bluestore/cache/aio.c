@@ -193,7 +193,7 @@ spdk_cache_init(struct thread_data *td)
     rc = -1;
     goto err;
   }
-      rc = spdk_bdev_open(ct->bdev, true, NULL, NULL, &ct->desc);
+  rc = spdk_bdev_open(ct->bdev, true, NULL, NULL, &ct->desc);
   if (rc < 0) {
     SPDK_ERRLOG("Unable to open bdev %s\n", t_op->name);
     goto err;
@@ -234,6 +234,7 @@ cache_thread_fn(void * cb)
   int count;
   int rc;
   int ret = 0;
+  struct timespec out;
 
   assert( cb != NULL);
 
@@ -251,50 +252,38 @@ cache_thread_fn(void * cb)
   // ssd和hdd的写完成处理在aio这一层逻辑保持一致，直接回调上层的cb，ssd和hdd的上层iou_completion_cb
   // 可以根据上层逻辑来处理
   io_completion = spdk_cache_io_completion_cb;
-  /*switch (t_op->type) {*/
-      /*case CACHE_THREAD_CACHE: */
-          /*io_completion = spdk_cache_io_completion_cb;*/
-          /*break;*/
-      /*case CACHE_THREAD_BACKEND:*/
-          /*io_completion = spdk_backend_io_completion_cb;*/
-          /*break;*/
-      /*default:*/
-          /*assert(" Unknow cache thread type " == 0);*/
-  /*}*/
+
   while(1) {
-    ring_counts = spdk_ring_count(ct->ring);
-    if ( ring_counts == 0 ) {
-      pthread_mutex_lock(&ct->wait_mutex);
-      pthread_cond_wait(&ct->wait_cond, &ct->wait_mutex);
-      pthread_mutex_unlock(&ct->wait_mutex);
-      continue;
-    } 
-    while ( ring_counts ) {
-      // 1. dequeue不需要给ring_item分配空间
-      // 2.ring_item会用作为io_completion的回调参数，因此，还不能在dequeue的时候释放
-      // 这段区间，需要在上层根据IO的周期来释放
-      count = spdk_ring_dequeue(ct->ring, (void **)&item, 1);
-      if ( count == 1) {
-        switch ( item->io.type ) {
-          case CACHE_IO_TYPE_WRITE:
-            ret = spdk_bdev_write(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
-                            io_completion, item);
-            if ( ret < 0 ) {
-              assert(" write error ---------- " == 0);
-            }
-            break;
-          case CACHE_IO_TYPE_READ:
-            ret = spdk_bdev_read(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
-                            io_completion, item);
-            if (ret < 0) {
-              assert(" read error ---------- " == 0);
-            }
-            break;
-          default:
-            assert(" Unsupporte IO type " == 0);
-        }
+    count = spdk_ring_dequeue(ct->ring, (void **)&item, 1);
+    if ( count == 1) {
+      switch ( item->io.type ) {
+        case CACHE_IO_TYPE_WRITE:
+          ret = spdk_bdev_write(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
+                          io_completion, item);
+          if ( ret < 0 ) {
+            CACHE_ERRORLOG(" spdk_bdev_write error ret=%d\n", ret);
+            // 只是一次IO错误，不应该下断言，测试阶段，这里暂时按断言处理
+            assert(" spdk_bdev_write error " == 0);
+          }
+          break;
+        case CACHE_IO_TYPE_READ:
+          ret = spdk_bdev_read(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
+                          io_completion, item);
+          if (ret < 0) {
+            CACHE_ERRORLOG(" spdk_bdev_read error ret=%d\n", ret);
+            assert(" spdk_bdev_read error " == 0);
+          }
+          break;
+        default:
+          CACHE_ERRORLOG(" Unsuporte IO type(%d)\n", item->io.type);
+          assert(" Unsupporte IO type " == 0);
       }
-      ring_counts--;
+    } else {
+      gettimeofday(&out, NULL);
+      out.tv_sec+=0.5;
+      pthread_mutex_lock(&ct->wait_mutex);
+      pthread_cond_timedwait(&ct->wait_cond, &ct->wait_mutex, &out);
+      pthread_mutex_unlock(&ct->wait_mutex);
     }
   }
 }

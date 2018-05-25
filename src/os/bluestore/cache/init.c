@@ -1191,13 +1191,13 @@ init(struct cache * ca)
   /*traverse_btree(ca);*/
   /*pthread_cond_signal(&ca->set->btree_cache_wait_cond);*/
 
-  bch_cached_dev_writeback_start(ca->set->dc);
-  bch_sectors_dirty_init(ca->set->dc);
+  /*bch_cached_dev_writeback_start(ca->set->dc);*/
+  /*bch_sectors_dirty_init(ca->set->dc);*/
   /*atomic_set(&ca->set->dc->has_dirty, 1);*/
   /*atomic_inc(&ca->set->dc->count);*/
 
   bch_moving_init_cache_set(ca->set);
-  bch_gc_thread_start(ca->set);
+  /*bch_gc_thread_start(ca->set);*/
 
   ca->handler = aio_init((void *)ca);
   return 0;
@@ -1632,7 +1632,7 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   item->io_completion_cb = cb;
   item->io_arg = cb_arg;
 
-  item->strategy = get_cache_strategy(dc, item);
+  /*item->strategy = get_cache_strategy(dc, item);*/
   /**********   策略相关的代码 ******************/
   // 进行一些列判断，最终得到本次io的写入策略
   // 1. should bypass
