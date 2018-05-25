@@ -1,32 +1,26 @@
-set (libcache_srcs
-    ring.c
-    init.c
-    util.c
-    btree.c
-    bset.c
-    extents.c
-    alloc.c
-    debug.c
-    io.c
-    journal.c
-    libcache.c
-    conf.c
-    sync_io.c
-    writeback.c
-    movinggc.c
-    log.c
-    )
+set(libcache_srcs
+  ring.c
+  init.c
+  util.c
+  btree.c
+  bset.c
+  extents.c
+  alloc.c
+  debug.c
+  io.c
+  journal.c
+  libcache.c
+  conf.c
+  sync_io.c
+  writeback.c
+  movinggc.c
+  log.c
+  )
 
 if (USE_SPDK_AIO)
-    list(APPEND libcache_srcs
-            aio.c)
-else()
-    list(APPEND libcache_srcs
-            libaio.c
-            kfifo.c)
-endif (USE_SPDK_AIO)
-
-set (spdk_libs_whole
+  list(APPEND libcache_srcs
+    aio.c)
+  set(spdk_libs_whole
     spdk_bdev_malloc
     spdk_bdev_null
     spdk_bdev_nvme
@@ -42,8 +36,7 @@ set (spdk_libs_whole
     spdk_bdev_virtio
     spdk_virtio
     )
-    #aio
-set(spdk_libs
+  set(spdk_libs
     spdk_util
     spdk_bdev
     spdk_conf
@@ -53,22 +46,23 @@ set(spdk_libs
     spdk_json
     spdk_log
     spdk_env_dpdk
-   )
-set(dpdk_libs_whole
+    )
+  set(dpdk_libs_whole
     rte_eal
     rte_mempool
     rte_ring
     rte_mempool_ring
     rte_pci
     rte_bus_pci
-   )
-    #numa 
-    #dl 
-    #rt 
-    #uuid
-    #)
+    )
+else ()
+  list(APPEND libcache_srcs
+    libaio.c
+    kfifo.c)
+endif (USE_SPDK_AIO)
+
 #add_executable(go main.c alloc.c bset.c btree.c closure.c debug.c extents.c
-    #io.c journal.c movinggc.c request.c super.c util.c writeback.c)
+#io.c journal.c movinggc.c request.c super.c util.c writeback.c)
 #add_executable(go ${libcache_srcs})
 #target_link_libraries(go m pthread uuid blkid -Wl,--whole-archive
 
@@ -77,21 +71,28 @@ set(dpdk_libs_whole
 #link_directories(/root/spdk/build/lib)
 #link_directories(/root/spdk/dpdk/build/lib)
 #target_link_libraries(go m pthread uuid blkid -Wl,--whole-archive
-        #${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
-        #-Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
-        #-Wl,--end-group -Wl,--no-whole-archive numa dl rt)
+#${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
+#-Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
+#-Wl,--end-group -Wl,--no-whole-archive numa dl rt)
 
-if(CACHE_TEST)
+if (CACHE_TEST)
   list(APPEND libcache_srcs
     test.c
     )
   add_executable(go ${libcache_srcs})
   add_definitions("-Wall -g")
-  target_link_libraries(go m pthread uuid blkid -Wl,--whole-archive
-        ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
-        -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
-        -Wl,--end-group -Wl,--no-whole-archive numa dl rt)
-else()
+
+  if (USE_SPDK_AIO)
+    target_link_libraries(go m pthread uuid blkid -Wl,--whole-archive
+      ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
+      -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
+      -Wl,--end-group -Wl,--no-whole-archive numa dl rt)
+  else ()
+    target_link_libraries(go m pthread uuid blkid
+      -Wl,--whole-archive ${spdk_libs_whole}
+      -Wl,--no-whole-archive aio event numa dl rt)
+  endif (USE_SPDK_AIO)
+else ()
   add_library(t2cache_objs OBJECT ${libcache_srcs})
-endif(CACHE_TEST)
+endif (CACHE_TEST)
 
