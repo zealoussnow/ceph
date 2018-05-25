@@ -1154,10 +1154,33 @@ err_close:
   return -1;
 }
 
+static int bch_keylist_realloc(struct keylist *l, unsigned u64s,
+                               struct cache_set *c)
+{
+        size_t oldsize = bch_keylist_nkeys(l);
+        size_t newsize = oldsize + u64s;
+
+        /*
+         * The journalling code doesn't handle the case where the keys to insert
+         * is bigger than an empty write: If we just return -ENOMEM here,
+         * bio_insert() and bio_invalidate() will insert the keys created so far
+         * and finish the rest when the keylist is empty.
+         */
+        if (newsize * sizeof(uint64_t) > block_bytes(c) - sizeof(struct jset))
+                return -ENOMEM;
+
+        return __bch_keylist_realloc(l, u64s);
+}
+
 struct bkey *
-get_init_bkey(struct keylist *keylist, uint64_t offset)
+get_init_bkey(struct keylist *keylist, uint64_t offset, struct cache *ca)
 {
   struct bkey *k = NULL;
+
+  if (bch_keylist_realloc(keylist, 3, ca->set)) {
+    assert("no memory" == 0);
+  }
+
   k = keylist->top;
 
   if ( k ) {
@@ -1174,7 +1197,7 @@ int item_write_next(struct ring_item *item, bool dirty)
   int ret = 0;
   struct cache *ca = item->ca_handler;
   struct bkey *k = NULL;
-  k = get_init_bkey(item->insert_keys, (item->o_offset + item->io.len));
+  k = get_init_bkey(item->insert_keys, (item->o_offset + item->io.len), ca);
   if ( !k ) {
     goto free_keylist;
     assert ( " keylist is not enough, need realloc " == 0);
@@ -1309,7 +1332,7 @@ int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
   }
   bch_keylist_init(insert_keys);
 
-  k = get_init_bkey(insert_keys, offset);
+  k = get_init_bkey(insert_keys, offset, ca);
   if ( !k ) {
     ret = -1;
     goto free_keylist;
@@ -1351,7 +1374,7 @@ do_write_writearound(struct ring_item * item)
   /*bkey_init(k);*/
   /*SET_KEY_INODE(k, 1);*/
   /*SET_KEY_OFFSET(k, (item->o_offset>>9));*/
-  k = get_init_bkey(insert_keys, item->o_offset);
+  k = get_init_bkey(insert_keys, item->o_offset, ca);
   if ( !k ) {
     goto free_keylist;
   }
@@ -1394,14 +1417,16 @@ do_write_writeback(struct ring_item * item)
     goto err;
   }
   bch_keylist_init(insert_keys);
-  k = get_init_bkey(insert_keys, item->o_offset);
+
+  k = get_init_bkey(insert_keys, item->o_offset, ca);
   if ( !k ) {
     goto free_keylist;
     /*assert(" keylist is not enough, need realloc " == 0);*/
   }
-  SET_KEY_DIRTY(k, true);
+
   ret = bch_alloc_sectors(ca->set, k, (item->o_len >> 9), 0, 0, 1);
 
+  SET_KEY_DIRTY(k, true);
   item->io.pos = item->data;
   item->io.offset = (PTR_OFFSET(k, 0) << 9);
   item->io.len = (KEY_SIZE(k)<<9);
@@ -1568,8 +1593,6 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   CACHE_DEBUGLOG("write","IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
   struct ring_item *item = NULL;
   int ret=0;
-  struct bkey start = KEY(1, (offset>>9),0);
-  struct bkey end = KEY(1, ((offset+len)>>9),0);
   struct cached_dev *dc = ca->set->dc;
 
   item = get_ring_item(data, offset, len);
