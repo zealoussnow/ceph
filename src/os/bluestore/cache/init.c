@@ -1776,8 +1776,10 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
      read_cache_look_done(item);
      return MAP_DONE;
    }
-   /*else if (KEY_DIRTY(key)) { // bkey in data*/
-   else { // bkey in data
+   // todo: set a flag to switch read DIRTY
+   // if full in cache, wo need to read undirty
+   // if not full in cache, wo not need to read undirty
+   else if (KEY_SIZE(key) && KEY_PTRS(key)) { // bkey in data*/
      printf("<%s>: find bkey offset=%lu,size=%lu \n",
          __func__,KEY_OFFSET(key),KEY_SIZE(key));
      is_end = set_item_io(item, key);
@@ -1876,7 +1878,7 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
     return MAP_DONE;
   }
   // bkey in data
-  else if (KEY_SIZE(key)) {
+  else if (KEY_SIZE(key) && KEY_PTRS(key)) {
     //pos
     int is_dirty = KEY_DIRTY(key);
     item->io.offset += cache_len - (item->io.offset - cache_start);
