@@ -2546,13 +2546,12 @@ static int refill_keybuf_fn(struct btree_op *op, struct btree *b,
   if (refill->pred(buf, k)) {
     struct keybuf_key *w = NULL;
     pthread_spin_lock(&buf->lock);
-    w = malloc(sizeof(struct keybuf_key));
+    w = calloc(1, sizeof(struct keybuf_key));
     if (!w) {
       pthread_spin_unlock(&buf->lock);
       return -ENOMEM;
     }
 
-    memset(w, 0, sizeof(struct keybuf_key));
     bkey_init(&w->key);
     bch_keybuf_add(buf, w);
     bkey_copy(&w->key, k);
@@ -2644,7 +2643,7 @@ void bch_refill_keybuf(struct cache_set *c, struct keybuf *buf,
 static void __bch_keybuf_del(struct keybuf *buf, struct keybuf_key *w)
 {
   list_del(&w->list);
-  free(w);
+  T2Free(w);
 }
 
 void bch_keybuf_del(struct keybuf *buf, struct keybuf_key *w)
@@ -2663,7 +2662,7 @@ bool bch_keybuf_check_overlapping(struct keybuf *buf, struct bkey *start,
     struct bkey *end)
 {
   bool ret = false;
-  struct keybuf_key *w, *next;
+  struct keybuf_key *w, *prev;
 
   /*show_list(buf);*/
 
@@ -2672,15 +2671,13 @@ bool bch_keybuf_check_overlapping(struct keybuf *buf, struct bkey *start,
     return false;
 
   pthread_spin_lock(&buf->lock);
-  w = bch_keybuf_first(buf);
-  while(!bch_keybuf_head(buf, w)) {
-    next = bch_keybuf_next(buf, w);
-    if (bkey_cmp(&START_KEY(&w->key), end) >= 0 || bkey_cmp(&w->key, start) <= 0) {
-    } else {
+  bch_keybuf_each_entry(w, buf) {
+    if (bkey_cmp(&START_KEY(&w->key), end) < 0 && bkey_cmp(&w->key, start) > 0) {
       ret = true;
+      prev = bch_keybuf_prev(buf, w);
       __bch_keybuf_del(buf, w);
+      w = prev;
     }
-    w = next;
   }
   pthread_spin_unlock(&buf->lock);
 

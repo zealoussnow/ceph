@@ -250,24 +250,6 @@ static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
   }
 }
 
-#if 0
-static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
-{
-  if (KEY_DIRTY(&w->key)) {
-    int ret;
-    unsigned i;
-    struct keylist keys;
-
-    bch_keylist_init(&keys);
-
-    /*bch_keylist_add(&keys, &KEY(1, KEY_OFFSET(&w->key), KEY_SIZE(&w->key)));*/
-    bch_keylist_add(&keys, &w->key);
-
-    bch_data_insert_keys(dc->c, &keys);
-  }
-}
-#endif
-
 static void dirty_io_write(struct dirty_io *io, struct cached_dev *dc)
 {
   sync_write(dc->c->hdd_fd, io->data, io->len, io->offset);
@@ -422,11 +404,11 @@ static void refill_full_stripes(struct cached_dev *dc)
     next_stripe = find_next_zero_bit(dc->full_dirty_stripes,
         dc->nr_stripes, stripe);
 
-    buf->last_scanned = KEY(1,
+    buf->last_scanned = KEY(0,
         stripe * dc->stripe_size, 0);
 
     bch_refill_keybuf(dc->c, buf,
-        &KEY(1,
+        &KEY(0,
           next_stripe * dc->stripe_size, 0),
         dirty_pred);
 
@@ -453,8 +435,8 @@ next:
 static bool refill_dirty(struct cached_dev *dc)
 {
   struct keybuf *buf = &dc->writeback_keys;
-  struct bkey start = KEY(1, 0, 0);
-  struct bkey end = KEY(1, MAX_KEY_OFFSET, 0);
+  struct bkey start = KEY(0, 0, 0);
+  struct bkey end = KEY(0, MAX_KEY_OFFSET, 0);
   struct bkey start_pos;
 
   /*
@@ -568,7 +550,7 @@ void bch_sectors_dirty_init(struct cached_dev *dc)
   bch_btree_op_init(&op, -1);
   /*op.inode = d->id; [> 这里的inode就是bcache的从设备号 <]*/
 
-  bch_btree_map_keys(&op, dc->c, &KEY(1, 0, 0),
+  bch_btree_map_keys(&op, dc->c, &KEY(0, 0, 0),
       sectors_dirty_init_fn, 0);
 
   dc->sectors_dirty_last = bcache_dev_sectors_dirty(dc);

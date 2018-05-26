@@ -348,7 +348,7 @@ struct keybuf_key *bch_keybuf_next_rescan(struct cache_set *, struct keybuf *,
 
 #define bch_keybuf_each_entry(pos, buf)				\
 	for (pos = bch_keybuf_first(buf);	                \
-	     &pos->list != &(buf)->list;			\
+             !bch_keybuf_head(buf, pos);                        \
 	     pos = bch_keybuf_next(buf, pos))
 
 struct btree_insert_op {
