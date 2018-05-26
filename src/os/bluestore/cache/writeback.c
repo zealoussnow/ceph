@@ -565,8 +565,6 @@ void bch_cached_dev_writeback_init(struct cached_dev *dc)
 
   INIT_LIST_HEAD(&dc->writeback_keys.list);
   bch_keybuf_init(&dc->writeback_keys);
-  CACHE_DEBUGLOG("list", "writeback_keys %p list_empty %d \n", 
-      &dc->writeback_keys, bch_keybuf_empty(&dc->writeback_keys));
 
   dc->sequential_cutoff           = 4 << 20;
   dc->writeback_metadata		= true;
