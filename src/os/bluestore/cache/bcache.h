@@ -261,6 +261,7 @@ struct keybuf_key {
 };
 
 struct keybuf {
+  pthread_spinlock_t      lock;
   struct list_head        list;
   struct bkey             last_scanned;
   struct bkey           start;

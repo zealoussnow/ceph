@@ -149,17 +149,18 @@ static void read_moving(struct cache_set *c)
      */
     /*w = bch_keybuf_next_rescan(c, &c->moving_gc_keys,*/
     /*&MAX_KEY, moving_pred);*/
-    if (!list_empty(&c->moving_gc_keys.list))
-      w = list_first_entry(&c->moving_gc_keys.list,
-          struct keybuf_key, list);
-    else
+    pthread_spin_lock(&c->moving_gc_keys.lock);
+    if (!bch_keybuf_empty(&c->moving_gc_keys)) {
+      w = bch_keybuf_first(&c->moving_gc_keys);
+    } else {
+      pthread_spin_unlock(&c->moving_gc_keys.lock);
       break;
+    }
+    pthread_spin_unlock(&c->moving_gc_keys.lock);
 
 
     if (ptr_stale(c, &w->key, 0)) {
-      /*bch_keybuf_del(&c->moving_gc_keys, w);*/
-      list_del(&w->list);
-      free(w);
+      bch_keybuf_del(&c->moving_gc_keys, w);
       continue;
     }
 
@@ -223,8 +224,7 @@ static void read_moving(struct cache_set *c)
 
     free(data);
 
-    list_del(&w->list);
-    free(w);
+    bch_keybuf_del(&c->moving_gc_keys, w);
   }
 
   /*if (0) {*/
@@ -311,6 +311,6 @@ void bch_moving_gc(struct cache_set *c)
 void bch_moving_init_cache_set(struct cache_set *c)
 {
   INIT_LIST_HEAD(&c->moving_gc_keys.list);
-  /*bch_keybuf_init(&c->moving_gc_keys);*/
+  bch_keybuf_init(&c->moving_gc_keys);
   /*sema_init(&c->moving_in_flight, 64);*/
 }

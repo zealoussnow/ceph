@@ -336,9 +336,20 @@ void bch_refill_keybuf(struct cache_set *, struct keybuf *,
 bool bch_keybuf_check_overlapping(struct keybuf *, struct bkey *,
 				  struct bkey *);
 void bch_keybuf_del(struct keybuf *, struct keybuf_key *);
-struct keybuf_key *bch_keybuf_next(struct keybuf *);
+void bch_keybuf_add(struct keybuf *, struct keybuf_key *);
+struct keybuf_key *bch_keybuf_next(struct keybuf *, struct keybuf_key *);
+struct keybuf_key *bch_keybuf_prev(struct keybuf *, struct keybuf_key *);
+struct keybuf_key *bch_keybuf_first(struct keybuf *);
+struct keybuf_key *bch_keybuf_last(struct keybuf *);
+int bch_keybuf_empty(struct keybuf *);
+bool bch_keybuf_head(struct keybuf *, struct keybuf_key *);
 struct keybuf_key *bch_keybuf_next_rescan(struct cache_set *, struct keybuf *,
 					  struct bkey *, keybuf_pred_fn *);
+
+#define bch_keybuf_each_entry(pos, buf)				\
+	for (pos = bch_keybuf_first(buf);	                \
+	     &pos->list != &(buf)->list;			\
+	     pos = bch_keybuf_next(buf, pos))
 
 struct btree_insert_op {
 	struct btree_op	op;

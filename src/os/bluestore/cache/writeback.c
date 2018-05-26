@@ -302,11 +302,14 @@ static void read_dirty(struct cached_dev *dc)
 
   while (!dc->writeback_should_stop) {
 
-    if (!list_empty(&dc->writeback_keys.list))
-      w = list_first_entry(&dc->writeback_keys.list,
-          struct keybuf_key, list);
-    else
+    pthread_spin_lock(&dc->writeback_keys.lock);
+    if (!bch_keybuf_empty(&dc->writeback_keys)) {
+      w = bch_keybuf_first(&dc->writeback_keys);
+    } else {
+      pthread_spin_unlock(&dc->writeback_keys.lock);
       break;
+    }
+    pthread_spin_unlock(&dc->writeback_keys.lock);
 
     if (KEY_START(&w->key) != dc->last_read ||
         jiffies_to_msecs(delay) > 50)
@@ -334,36 +337,7 @@ static void read_dirty(struct cached_dev *dc)
 
     free(io->data);
     free(io);
-    list_del(&w->list);
-
-
-    /*w = bch_keybuf_next(&dc->writeback_keys);*/
-    /*if (!w)*/
-    /*break;*/
-    /*io = kzalloc(sizeof(struct dirty_io) + sizeof(struct bio_vec)*/
-    /** DIV_ROUND_UP(KEY_SIZE(&w->key), PAGE_SECTORS),*/
-    /*GFP_KERNEL);*/
-    /*if (!io)*/
-    /*goto err;*/
-
-    /*w->private	= io;*/
-    /*io->dc		= dc;*/
-
-    /*dirty_init(w);*/
-    /*bio_set_op_attrs(&io->bio, REQ_OP_READ, 0);*/
-    /*io->bio.bi_iter.bi_sector = PTR_OFFSET(&w->key, 0);*/
-    /*bio_set_dev(&io->bio, PTR_CACHE(dc->disk.c, &w->key, 0)->bdev);*/
-    /*io->bio.bi_end_io	= read_dirty_endio;*/
-
-    /*if (bio_alloc_pages(&io->bio, GFP_KERNEL))*/
-    /*goto err_free;*/
-
-    /*trace_bcache_writeback(&w->key);*/
-
-    /*down(&dc->in_flight);*/
-    /*closure_call(&io->cl, read_dirty_submit, NULL, &cl);*/
-
-    /*delay = writeback_delay(dc, KEY_SIZE(&w->key));*/
+    bch_keybuf_del(&dc->writeback_keys, w);
   }
 
   /*if (0) {*/
@@ -458,7 +432,7 @@ static void refill_full_stripes(struct cached_dev *dc)
 
     /*if (array_freelist_empty(&buf->freelist))*/
     /*return;*/
-    if (list_empty(&buf->list))
+    if (bch_keybuf_empty(buf))
       return;
 
     stripe = next_stripe;
@@ -501,7 +475,7 @@ static bool refill_dirty(struct cached_dev *dc)
   // TODO: array_freelist_empty是否与list_empty可互换？
   if (dc->partial_stripes_expensive) {
     refill_full_stripes(dc);
-    if (list_empty(&buf->list))
+    if (bch_keybuf_empty(buf))
       return false;
   }
 
@@ -517,9 +491,6 @@ static bool refill_dirty(struct cached_dev *dc)
    */
   buf->last_scanned = start;
   bch_refill_keybuf(dc->c, buf, &start_pos, dirty_pred);
-
-  if (list_empty(&dc->writeback_keys.list))
-    printf("<%s>: key writeback is null\n", __func__);
 
   return bkey_cmp(&buf->last_scanned, &start_pos) >= 0;
 }
@@ -546,7 +517,7 @@ static int bch_writeback_thread(void *arg)
 
     searched_full_index = refill_dirty(dc);
 
-    if (searched_full_index && list_empty(&dc->writeback_keys.list)) {
+    if (searched_full_index && bch_keybuf_empty(&dc->writeback_keys)) {
       atomic_set(&dc->has_dirty, 0);
       SET_BDEV_STATE(&dc->sb, BDEV_STATE_CLEAN);
       /*bch_write_bdev_super(dc, NULL);*/
@@ -611,6 +582,9 @@ void bch_cached_dev_writeback_init(struct cached_dev *dc)
   /*bch_keybuf_init(&dc->writeback_keys);*/
 
   INIT_LIST_HEAD(&dc->writeback_keys.list);
+  bch_keybuf_init(&dc->writeback_keys);
+  CACHE_DEBUGLOG("list", "writeback_keys %p list_empty %d \n", 
+      &dc->writeback_keys, bch_keybuf_empty(&dc->writeback_keys));
 
   dc->sequential_cutoff           = 4 << 20;
   dc->writeback_metadata		= true;

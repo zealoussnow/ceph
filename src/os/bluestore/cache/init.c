@@ -1596,7 +1596,7 @@ int get_cache_strategy(struct cached_dev *dc, struct ring_item *item)
 
 int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, void *cb, void *cb_arg)
 {
-  CACHE_DEBUGLOG("write","IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
+  CACHE_DEBUGLOG(CAT_WRITE,"IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
   struct ring_item *item = NULL;
   int ret=0;
   struct cached_dev *dc = ca->set->dc;
