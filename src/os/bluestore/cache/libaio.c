@@ -67,7 +67,7 @@ struct aio_handler {
 static void *
 cache_io_completion_cb(io_context_t ctx, struct iocb *iocb, long res,
                        long res2, struct ring_item *item) {
-  printf("<%s> AIO IO Completion success=%ld \n", __func__, res);
+  //printf("<%s> AIO IO Completion success=%ld \n", __func__, res);
   free(iocb);
   assert(res2 == 0);
   item->io.success = true;
@@ -129,7 +129,7 @@ cache_init(struct thread_data *td) {
 
   cache_thread = calloc(1, sizeof(*cache_thread));
   if (!cache_thread) {
-    printf("failed to allocate thread local context\n");
+    //printf("failed to allocate thread local context\n");
     goto err;
   }
 
@@ -141,7 +141,7 @@ cache_init(struct thread_data *td) {
   INIT_KFIFO(cache_thread->ring);
   rc = kfifo_alloc(&cache_thread->ring, RING_SIZE);
   if (rc) {
-    printf("failed to allocate ring\n");
+    //printf("failed to allocate ring\n");
     free(cache_thread);
     goto err;
   }
@@ -157,7 +157,7 @@ cache_init(struct thread_data *td) {
   if (rc) {
     kfifo_free(&cache_thread->ring);
     free(cache_thread);
-    printf("failed to allocate thread\n");
+    //printf("failed to allocate thread\n");
     goto err;
   }
 
