@@ -1,86 +1,87 @@
+#include <zlog.h>
 
-
-
-#include <syslog.h>
 #include <stdio.h>
-#include <stdarg.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+#include <unistd.h>
 
 #include "log.h"
 
-static const char *const cache_level_names[] = {
-        [CACHE_LOG_ERROR]        = "ERROR",
-        [CACHE_LOG_WARN]         = "WARNING",
-        [CACHE_LOG_NOTICE]       = "NOTICE",
-        [CACHE_LOG_INFO]         = "INFO",
-        [CACHE_LOG_DEBUG]        = "DEBUG",
-};
+const char *g_whoami = NULL;
+const char *g_log_path = NULL;
+int g_def_level = ZLOG_LEVEL_INFO;
 
-enum cache_log_level g_cache_log_level = CACHE_LOG_NOTICE;
+#define LOG_CAT  "t2store_cache"
+#define LOG_CONF "/tmp/t2store_cachelog.conf"
+#define LOG_FILE "\"%M(logpath)/ceph-cache.osd.%M(whoami).log\""
+#define CONF_LEN 512
 
-#define MAX_TMPBUF 1024
+static const char *default_log_format =
+"[formats]\n"
+"logfile_format = \"%d.%us %t [%V] %U %m\"\n"
+"debug_format = \"%d.%us %t [%V] %F:%L %U %m\"\n"
+"syslog_format  = \"%t [%V] %U %m\"\n"
+"\n"
+"[rules]\n"
+"*.ERROR >syslog,LOG_USER;syslog_format\n"
+"*.* " LOG_FILE " ;logfile_format\n";
 
-
-void cache_log_open()
+int log_init(const char *log_path, const char *log_instant)
 {
-  openlog("t2cache", LOG_PID, LOG_LOCAL7);
-}
+  g_log_path = log_path;
+  g_whoami = log_instant;
 
-void cache_log_close()
-{
-  closelog();
-}
-
-void cache_log_set_level(enum cache_log_level level)
-{
-  g_cache_log_level = level;
-}
-
-enum cache_log_level cache_log_get_level(void) 
-{
-  return g_cache_log_level;
-}
-
-void cache_log(enum cache_log_level level, const char *file, 
-    const int line, const char *func, const char *format, ...)
-
-{
-  int severity = LOG_INFO;
-  char buf[MAX_TMPBUF];
-  va_list ap;
-
-  switch (level) {
-    case CACHE_LOG_ERROR:
-      severity = LOG_ERR;
-      break;
-    case CACHE_LOG_WARN:
-      severity = LOG_WARNING;
-      break;
-    case CACHE_LOG_NOTICE:
-     severity = LOG_NOTICE;
-     break;
-    case CACHE_LOG_INFO:
-    case CACHE_LOG_DEBUG:
-      severity = LOG_INFO;
-      break;
+  if (access(LOG_CONF, F_OK)) {
+    FILE *fp = fopen(LOG_CONF, "wr");
+    if (fp == NULL) {
+      return -1;
     }
-    
+    fputs(default_log_format, fp);
+    fclose(fp);
+  }
+
+  int rc = zlog_init(LOG_CONF);
+  if (rc) {
+    return -1;
+  }
+  zlog_put_mdc("whoami", g_whoami);
+  zlog_put_mdc("logpath", g_log_path);
+
+  return 0;
+}
+
+void log_fini()
+{
+  return zlog_fini();
+}
+
+void set_loglevel(int level)
+{
+  g_def_level = level;
+}
+
+void cache_zlog(const char *file, size_t filelen, const char *func, size_t funclen,
+        long line, const int level,
+        const char *format, ...)
+{
+  char buf[BUFSIZ];
+  memset(buf, 0, BUFSIZ);
+
+  va_list ap;
   va_start(ap, format);
   vsnprintf(buf, sizeof(buf), format, ap);
-  
-  if (level <= g_cache_log_level) {
-    /*syslog(severity, "%s:%4d:%s: *%s*: %s", file, line, func, cache_level_names[level], buf);*/
-    syslog(severity, "%s: *%s*: %s", func, cache_level_names[level], buf);
+
+  zlog_category_t *zc = NULL;
+  zc = zlog_get_category(LOG_CAT);
+  if (!zc) {
+    zlog_fini();
+    return ;
   }
+
+  if (level >= g_def_level)
+    zlog(zc, file, filelen, func, funclen, line, level, format, buf); 
 
   va_end(ap);
 }
-
-
-/*int main()*/
-/*{*/
-  /*CACHE_DEBUGLOG(" xxxxxx debug xxxx \n");*/
-  /*CACHE_ERRORLOG(" xxxxx error xxxxx \n");*/
-  /*CACHE_WARNLOG(" xxxxx warn xxxxx \n");*/
-  /*CACHE_NOTICELOG(" xxxx notic xxxxxx \n");*/
-/*}*/

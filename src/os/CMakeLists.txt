@@ -72,7 +72,7 @@ if(WITH_SPDK)
 endif()
 
 add_library(os STATIC ${libos_srcs} $<TARGET_OBJECTS:kv_objs> $<TARGET_OBJECTS:t2cache_objs>)
-target_link_libraries(os uuid blkid)
+target_link_libraries(os uuid blkid zlog)
 #target_link_libraries(os ${t2cache} uuid blkid)
 if (USE_SPDK_AIO)
   set (spdk_libs_whole

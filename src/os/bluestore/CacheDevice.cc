@@ -143,7 +143,10 @@ int CacheDevice::cache_init(const std::string& path)
   cache_ctx.fd_direct=fd_direct;
   cache_ctx.fd_buffered=fd_buffered;
   cache_ctx.bdev_path = bdev_path.c_str();
+  cache_ctx.whoami = cct->_conf->name.get_id().c_str();
+  cache_ctx.log_path = cct->_conf->t2store_cache_log_path.c_str();
 
+  dout(0)<< __func__ << " cache log path "<< cache_ctx.log_path <<dendl;
   dout(1)<< __func__ << " lb cache_ctx.registered "<< cache_ctx.registered <<dendl;
   if (cache_ctx.registered)
     return r;

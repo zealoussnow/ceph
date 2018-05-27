@@ -3234,6 +3234,10 @@ std::vector<Option> get_global_options() {
     .set_default(.5)
     .set_description("cache/backend thead percent"),
 
+    Option("t2store_cache_log_path", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("/var/log/ceph")
+    .set_description("cache log path"),
+
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")
     .add_tag("mkfs")

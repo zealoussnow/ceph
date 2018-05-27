@@ -18,6 +18,8 @@ struct cache_context {
         int fd_buffered;
         bool registered;
         const char *bdev_path;
+        const char *whoami;
+        const char *log_path;
 };
 
 
