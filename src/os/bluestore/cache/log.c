@@ -26,7 +26,7 @@ static const char *default_log_format =
 "\n"
 "[rules]\n"
 "*.ERROR >syslog,LOG_USER;syslog_format\n"
-"*.* " LOG_FILE " ;logfile_format\n";
+"*.* " LOG_FILE " ;debug_format\n";
 
 int log_init(const char *log_path, const char *log_instant)
 {
@@ -66,12 +66,12 @@ void cache_zlog(const char *file, size_t filelen, const char *func, size_t funcl
         long line, const int level,
         const char *format, ...)
 {
-  char buf[BUFSIZ];
-  memset(buf, 0, BUFSIZ);
+  char formatted_buf[BUFSIZ];
+  memset(formatted_buf, 0, BUFSIZ);
 
   va_list ap;
   va_start(ap, format);
-  vsnprintf(buf, sizeof(buf), format, ap);
+  vsnprintf(formatted_buf, sizeof(formatted_buf), format, ap);
 
   zlog_category_t *zc = NULL;
   zc = zlog_get_category(LOG_CAT);
@@ -81,7 +81,7 @@ void cache_zlog(const char *file, size_t filelen, const char *func, size_t funcl
   }
 
   if (level >= g_def_level)
-    zlog(zc, file, filelen, func, funclen, line, level, format, buf); 
+    zlog(zc, file, filelen, func, funclen, line, level, "%s", formatted_buf);
 
   va_end(ap);
 }
