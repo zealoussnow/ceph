@@ -1,28 +1,34 @@
-#ifndef _LOG_H
-#define _LOG_H
+#ifndef CACHE_LOG_H
+#define CACHE_LOG_H
 
+#include <zlog.h>
 
+extern int log_init(const char *log_path, const char *log_instant);
+extern void set_loglevel(int level);
+extern void log_fini();
+extern void cache_zlog(const char *file, size_t filelen, const char *func, size_t funclen,
+        long line, const int level,
+        const char *format, ...);
 
+#define CACHE_ERRORLOG(format, args...) \
+        cache_zlog(__FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
+        ZLOG_LEVEL_ERROR, format, ##args)
 
-enum cache_log_level {
-        CACHE_LOG_ERROR,
-        CACHE_LOG_WARN,
-        CACHE_LOG_NOTICE,
-        CACHE_LOG_INFO,
-        CACHE_LOG_DEBUG,
-};
+#define CACHE_WARNLOG(format, args...) \
+        cache_zlog(__FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
+        ZLOG_LEVEL_WARN, format, ##args)
 
+#define CACHE_NOTICELOG(format, args...) \
+        cache_zlog(__FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
+        ZLOG_LEVEL_NOTICE, format, ##args)
 
-void cache_log_open();
-void cache_log_close();
-void cache_log_set_level(enum cache_log_level level);
-enum cache_log_level cache_log_get_level(void);
+#define CACHE_INFOLOG(format, args...) \
+        cache_zlog(__FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
+        ZLOG_LEVEL_INFO, format, ##args)
 
-#define CACHE_ERRORLOG(...) cache_log(CACHE_LOG_ERROR, __FILE__, __LINE__, __func__, __VA_ARGS__); 
-#define CACHE_WARNLOG(...) cache_log(CACHE_LOG_WARN, __FILE__, __LINE__, __func__, __VA_ARGS__); 
-#define CACHE_NOTICELOG(...) cache_log(CACHE_LOG_NOTICE, __FILE__, __LINE__, __func__, __VA_ARGS__); 
-#define CACHE_INFOLOG(...) cache_log(CACHE_LOG_INFO, __FILE__, __LINE__, __func__, __VA_ARGS__); 
-#define CACHE_DEBUGLOG(...) cache_log(CACHE_LOG_DEBUG, __FILE__, __LINE__, __func__, __VA_ARGS__);
+#define CACHE_DEBUGLOG(format, args...) \
+        cache_zlog(__FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
+        ZLOG_LEVEL_DEBUG, format, ##args)
 
 #endif
 

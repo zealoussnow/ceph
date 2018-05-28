@@ -1167,8 +1167,8 @@ traverse_btree(struct cache * c)
 int 
 init(struct cache * ca)
 {
-  cache_log_open();
-  cache_log_set_level(CACHE_LOG_DEBUG);
+  log_init(ca->log_path, ca->whoami);
+  set_loglevel(ZLOG_LEVEL_DEBUG);
   int fd = ca->fd;
   const char *err = "cannot allocate memory";
   struct cache_sb sb;
