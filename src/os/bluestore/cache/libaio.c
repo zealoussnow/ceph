@@ -208,7 +208,7 @@ cache_thread_fn(void *cb) {
           err = " Libaio read error ";
           break;
         default:
-          CACHE_ERRORLOG(" Unsuporte IO type(%d)\n", item->io.type);
+          CACHE_ERRORLOG(NULL," Unsuporte IO type(%d)\n", item->io.type);
           assert(" Unsupporte IO type " == 0);
       }
       io_set_eventfd(iocb, ct->efd);
@@ -216,7 +216,7 @@ cache_thread_fn(void *cb) {
       // TODO: submit multi-request
       rc = io_submit(*ct->ioctx, 1, &iocb);
       if ( rc < 0 ) {
-        CACHE_ERRORLOG(" %s: ret=%d\n", err, rc);
+        CACHE_ERRORLOG(NULL," %s: ret=%d\n", err, rc);
         // 只是一次IO错误，不应该下断言，测试阶段，这里暂时按断言处理
         assert(err == 0);
       }
@@ -348,19 +348,19 @@ get_conf(char *path, char **cache_name, char **backend_name, uint32_t *lcore_cou
     (*lcore_count)++;
     ret = ret >> 1;
   }
-  CACHE_INFOLOG("core_mask: %d\n", *lcore_count);
+  CACHE_INFOLOG(NULL, "core_mask: %d\n", *lcore_count);
   if (*lcore_count < 1) {
-    CACHE_ERRORLOG("fcore_mask: %d\n", *lcore_count);
+    CACHE_ERRORLOG(NULL,"fcore_mask: %d\n", *lcore_count);
     assert(*lcore_count > 0);
   }
 
   cache_percent = conf_section_get_val(sp, "cache_thread_core_percent");
   if (cache_percent == NULL) {
-    CACHE_WARNLOG("cache_thread_core_percent will use default value 0.5");
+    CACHE_WARNLOG(NULL,"cache_thread_core_percent will use default value 0.5");
     cache_thread_core_percent = 0.5;
   } else {
     cache_thread_core_percent = atof(cache_percent);
-    CACHE_DEBUGLOG("cache_thread_core_percent value %f \n", cache_thread_core_percent);
+    CACHE_DEBUGLOG(NULL,"cache_thread_core_percent value %f \n", cache_thread_core_percent);
   }
   *cache_thread_cores = (*lcore_count) * cache_thread_core_percent;
   conf_free(cf);

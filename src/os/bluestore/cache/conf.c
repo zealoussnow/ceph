@@ -209,7 +209,7 @@ static void append_cf_section(struct conf *cp, struct conf_section *sp)
   struct conf_section *last;
 
   if (cp == NULL) {
-    CACHE_ERRORLOG("cp is NULL\n");
+    CACHE_ERRORLOG(NULL,"cp is NULL\n");
     return;
   }
 
@@ -489,7 +489,7 @@ static int parse_line(struct conf *cp, char *lp)
 
   arg = str_trim(lp);
   if (arg == NULL) {
-    CACHE_ERRORLOG("no section\n");
+    CACHE_ERRORLOG(NULL,"no section\n");
     return -1;
   }
 
@@ -498,7 +498,7 @@ static int parse_line(struct conf *cp, char *lp)
     arg++;
     key = strsepq(&arg, "]");
     if (key == NULL || arg != NULL) {
-      CACHE_ERRORLOG("broken section\n");
+      CACHE_ERRORLOG(NULL,"broken section\n");
       return -1;
     }
     /* determine section number */
@@ -518,7 +518,7 @@ static int parse_line(struct conf *cp, char *lp)
     cp->current_section = sp;
     sp->name = strdup(key);
     if (sp->name == NULL) {
-      CACHE_ERRORLOG("cannot duplicate %s to sp->name\n", key);
+      CACHE_ERRORLOG(NULL,"cannot duplicate %s to sp->name\n", key);
       return -1;
     }
 
@@ -527,24 +527,24 @@ static int parse_line(struct conf *cp, char *lp)
     /* parameters */
     sp = cp->current_section;
     if (sp == NULL) {
-      CACHE_ERRORLOG("unknown section\n");
+      CACHE_ERRORLOG(NULL,"unknown section\n");
       return -1;
     }
     key = strsepq(&arg, CF_DELIM);
     if (key == NULL) {
-      CACHE_ERRORLOG("broken key\n");
+      CACHE_ERRORLOG(NULL,"broken key\n");
       return -1;
     }
 
     ip = allocate_cf_item();
     if (ip == NULL) {
-      CACHE_ERRORLOG("cannot allocate cf item\n");
+      CACHE_ERRORLOG(NULL,"cannot allocate cf item\n");
       return -1;
     }
     append_cf_item(sp, ip);
     ip->key = strdup(key);
     if (ip->key == NULL) {
-      CACHE_ERRORLOG("cannot make duplicate of %s\n", key);
+      CACHE_ERRORLOG(NULL,"cannot make duplicate of %s\n", key);
       return -1;
     }
     ip->val = NULL;
@@ -554,13 +554,13 @@ static int parse_line(struct conf *cp, char *lp)
         val = strsepq(&arg, CF_DELIM);
         vp = allocate_cf_value();
         if (vp == NULL) {
-          CACHE_ERRORLOG("cannot allocate cf value\n");
+          CACHE_ERRORLOG(NULL,"cannot allocate cf value\n");
           return -1;
         }
         append_cf_value(ip, vp);
         vp->value = strdup(val);
         if (vp->value == NULL) {
-          CACHE_ERRORLOG("cannot duplicate %s to vp->value\n", val);
+          CACHE_ERRORLOG(NULL,"cannot duplicate %s to vp->value\n", val);
           return -1;
         }
       }
@@ -640,13 +640,13 @@ int conf_read(struct conf *cp, const char *file)
 
   fp = fopen(file, "r");
   if (fp == NULL) {
-    CACHE_ERRORLOG("open error: %s\n", file);
+    CACHE_ERRORLOG(NULL,"open error: %s\n", file);
     return -1;
   }
 
   cp->file = strdup(file);
   if (cp->file == NULL) {
-    CACHE_ERRORLOG("cannot duplicate %s to cp->file\n", file);
+    CACHE_ERRORLOG(NULL,"cannot duplicate %s to cp->file\n", file);
     fclose(fp);
     return -1;
   }
@@ -677,7 +677,7 @@ int conf_read(struct conf *cp, const char *file)
       if (!q) {
         free(lp2);
         free(lp);
-        CACHE_ERRORLOG("malloc failed at line %d of %s\n", line, cp->file);
+        CACHE_ERRORLOG(NULL,"malloc failed at line %d of %s\n", line, cp->file);
         fclose(fp);
         return -1;
       }
@@ -693,7 +693,7 @@ int conf_read(struct conf *cp, const char *file)
 
     /* parse one line */
     if (parse_line(cp, p) < 0) {
-      CACHE_ERRORLOG("parse error at line %d of %s\n", line, cp->file);
+      CACHE_ERRORLOG(NULL,"parse error at line %d of %s\n", line, cp->file);
     }
 next_line:
     line++;
@@ -709,13 +709,13 @@ const char *get_osd_dev(const char *cf_name, const char *osd_devid)
 {
   struct conf *config = conf_allocate();
   if (!config) {
-    CACHE_ERRORLOG("unable to allocate config\n");
+    CACHE_ERRORLOG(NULL,"unable to allocate config\n");
     return NULL;
   }
 
   int ret = conf_read(config, cf_name);
   if (ret < 0) {
-    CACHE_ERRORLOG("cannot read specfied config file\n");
+    CACHE_ERRORLOG(NULL,"cannot read specfied config file\n");
     return NULL;
   }
 
@@ -724,7 +724,7 @@ const char *get_osd_dev(const char *cf_name, const char *osd_devid)
 
   sp = conf_find_section(config, secname);
   if (sp == NULL) {
-    CACHE_ERRORLOG("can't find section: %s\n", secname);
+    CACHE_ERRORLOG(NULL,"can't find section: %s\n", secname);
     return NULL;
   }
 

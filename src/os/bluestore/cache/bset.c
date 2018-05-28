@@ -31,7 +31,7 @@ void bch_dump_bset(struct btree_keys *b, struct bset *i, unsigned set)
 
   for (k = i->start; k < bset_bkey_last(i); k = next) {
     next = bkey_next(k);
-    CACHE_ERRORLOG("block %u key %u/%u: \n", 
+    CACHE_ERRORLOG(NULL,"block %u key %u/%u: \n", 
                 set, (unsigned) ((u64 *) k - i->d), i->keys);
     if (b->ops->key_dump)
       b->ops->key_dump(b, k);
@@ -42,7 +42,7 @@ void bch_dump_bset(struct btree_keys *b, struct bset *i, unsigned set)
     if (next < bset_bkey_last(i) &&
         bkey_cmp(k, b->ops->is_extents ?
           &START_KEY(next) : next) > 0) {
-      CACHE_ERRORLOG("Key skipped backwards\n");
+      CACHE_ERRORLOG(NULL,"Key skipped backwards\n");
     }
   }
 }
@@ -1199,7 +1199,7 @@ btree_mergesort(struct btree_keys *b, struct bset *out,struct btree_iter *iter,
     }
   }
   out->keys = last ? (uint64_t *) bkey_next(last) - out->d : 0;
-  CACHE_DEBUGLOG("mergesort: sorted keys \n", out->keys);
+  CACHE_DEBUGLOG(NULL,"mergesort: sorted keys \n", out->keys);
 }
 
 static void __btree_sort(struct btree_keys *b, struct btree_iter *iter,

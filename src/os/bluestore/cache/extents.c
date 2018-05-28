@@ -330,15 +330,15 @@ bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
 
   BUG_ON(!KEY_OFFSET(insert));
   BUG_ON(!KEY_SIZE(insert));
-  CACHE_DEBUGLOG("Extent node insert fixup: insert bkey(of=%lu,len=%lu)\n",
+  CACHE_DEBUGLOG(NULL,"Extent node insert fixup: insert bkey(of=%lu,len=%lu)\n",
                                KEY_OFFSET(insert),KEY_SIZE(insert));
   while (1) {
     struct bkey *k = bch_btree_iter_next(iter);
     if (!k) {
-      CACHE_DEBUGLOG("Extent node insert fixup: iter next bkey is NULL, break \n");
+      CACHE_DEBUGLOG(NULL,"Extent node insert fixup: iter next bkey is NULL, break \n");
       break;
     }
-    CACHE_DEBUGLOG("Extent node insert fixup: iter next bkey(of=%lu,len=%lu) \n"
+    CACHE_DEBUGLOG(NULL,"Extent node insert fixup: iter next bkey(of=%lu,len=%lu) \n"
         ,KEY_OFFSET(k),KEY_SIZE(k));
     /************************
     *            |--insert--|
@@ -374,7 +374,7 @@ bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
     * operations.
     */
     if (replace_key && KEY_SIZE(k)) {
-      CACHE_DEBUGLOG("Extent node insert fixup: replace_key is not NULL\n");
+      CACHE_DEBUGLOG(NULL,"Extent node insert fixup: replace_key is not NULL\n");
       /*
       * k might have been split since we inserted/found the
       * key we're replacing
@@ -504,7 +504,7 @@ bool __bch_extent_invalid(struct cache_set *c, const struct bkey *k)
 {
   char buf[80];
   if (!KEY_SIZE(k)) {
-    CACHE_DEBUGLOG("Invalid bkey(size=0) \n");
+    CACHE_DEBUGLOG(NULL,"Invalid bkey(size=0) \n");
     return true;
   }
   if (KEY_SIZE(k) > KEY_OFFSET(k)) {
@@ -566,7 +566,7 @@ bch_extent_bad(struct btree_keys *bk, const struct bkey *k)
   struct bucket *g;
   unsigned i, stale;
   if (!KEY_PTRS(k) || bch_extent_invalid(bk, k)) {
-    CACHE_DEBUGLOG("Bad bkey(key_ptrs=0 or bkey is invalid \n");
+    CACHE_DEBUGLOG(NULL,"Bad bkey(key_ptrs=0 or bkey is invalid \n");
     return true;
   }
 

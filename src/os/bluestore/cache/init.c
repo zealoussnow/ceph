@@ -1007,7 +1007,7 @@ bch_data_insert_keys(struct cache_set *c_set,
 
   if (ret != 0) {
     printf("<%s>: Keylist Insert error ret=%d\n", __func__, ret);
-    CACHE_ERRORLOG("Keylist Insert error ret=%d\n", ret);
+    CACHE_ERRORLOG(NULL,"Keylist Insert error ret=%d\n", ret);
     /*
      * for test, we assert every io should be sucessfull 
      * insert to btree, however, one io error should not
@@ -1140,12 +1140,12 @@ int
 traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
 {
   printf("<%s>: >>>>>> Entry Btree Node(level=%d,offset=%lu) <<<<<<\n",__func__,b->level,KEY_OFFSET(&b->key));
-  CACHE_DEBUGLOG(">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n", 
+  CACHE_DEBUGLOG(NULL,NULL, ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n", 
                         b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
   struct bkey *k, *p = NULL;
   struct btree_iter iter;
   for_each_key(&b->keys, k, &iter) {
-    CACHE_DEBUGLOG("node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
+    CACHE_DEBUGLOG(NULL,NULL, "node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
                         b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),
                         KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k));
     printf("<%s>: node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
@@ -1168,7 +1168,6 @@ int
 init(struct cache * ca)
 {
   log_init(ca->log_path, ca->whoami);
-  set_loglevel(ZLOG_LEVEL_DEBUG);
   int fd = ca->fd;
   const char *err = "cannot allocate memory";
   struct cache_sb sb;
@@ -1273,7 +1272,7 @@ aio_write_completion(void *cb)
     /*printf("<%s> AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n", */
                 /*__func__, item->o_offset/512, item->o_offset, item->o_len/512,*/
                 /*item->o_len, item->io.success);*/
-    CACHE_DEBUGLOG("AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n", 
+    CACHE_DEBUGLOG(NULL,"AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n", 
                 item->o_offset/512, item->o_offset, item->o_len/512,
                 item->o_len, item->io.success);
     switch (item->strategy) {
@@ -1307,7 +1306,7 @@ aio_write_completion(void *cb)
         bch_writeback_add(ca->set->dc);
         break;
       default:
-        CACHE_ERRORLOG("Unsupported io strategy(%d)\n",item->strategy);
+        CACHE_ERRORLOG(NULL,"Unsupported io strategy(%d)\n",item->strategy);
         assert(" Unsupported io strategy " == 0);
     }
     /*
@@ -1319,7 +1318,7 @@ aio_write_completion(void *cb)
      */
     if ( ret!=0 ) {
       // choice 1
-      CACHE_ERRORLOG("Insert btree error %d\n", ret);
+      CACHE_ERRORLOG(NULL,"Insert btree error %d\n", ret);
       assert("Insert btree error"==0);
     } else if( item->io_completion_cb ) {
       // choice 2
@@ -1350,7 +1349,7 @@ int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
   /*printf("<%s>: Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) \n",*/
                         /*__func__, offset/512,offset,len/512,len);*/
 
-  CACHE_DEBUGLOG("Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) \n",
+  CACHE_DEBUGLOG(NULL,"Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) \n",
                         offset/512,offset,len/512,len);
   int ret = 0;
   struct keylist *insert_keys = NULL;
@@ -1374,7 +1373,7 @@ int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
 
   ret = bch_data_insert_keys(ca->set, insert_keys);
   if ( ret !=0 ) {
-    CACHE_DEBUGLOG("Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) ERROR.\n",
+    CACHE_DEBUGLOG(NULL,"Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) ERROR.\n",
                         offset/512,offset,len/512,len);
     assert("Invaliedate region error"==0);
   }
@@ -1618,7 +1617,7 @@ int get_cache_strategy(struct cached_dev *dc, struct ring_item *item)
 
 int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, void *cb, void *cb_arg)
 {
-  CACHE_DEBUGLOG("cache_aio_write IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
+  CACHE_DEBUGLOG(NULL,"cache_aio_write IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
   struct ring_item *item = NULL;
   int ret=0;
   struct bkey start = KEY(1, (offset>>9),0);
@@ -1861,7 +1860,7 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
 
   printf("<%s>Is all cache: bkey(start=%lu,of=%lu,len=%lu) \n",__func__,
         (KEY_OFFSET(key) - KEY_SIZE(key)),KEY_OFFSET(key),KEY_SIZE(key));
-  CACHE_DEBUGLOG("Is all cache: bkey(start=%lu,of=%lu,len=%lu)\n",
+  CACHE_DEBUGLOG(NULL,"Is all cache: bkey(start=%lu,of=%lu,len=%lu)\n",
       (KEY_OFFSET(key) - KEY_SIZE(key)),KEY_OFFSET(key),KEY_SIZE(key));
   // bkey is before of data
   if (cache_end < item->o_offset) {
@@ -1872,7 +1871,7 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
   else if (cache_start > item->io.offset) {
     // hdd
     printf("<%s> Read: not all data in cache, goto read backend\n",__func__);
-    CACHE_DEBUGLOG("Read: not all data in cache, goto read backend \n");
+    CACHE_DEBUGLOG(NULL,"Read: not all data in cache, goto read backend \n");
     atomic_inc(&item->need_write_cache);
     cache_aio_read_backend(item);
     return MAP_DONE;
@@ -1885,7 +1884,7 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
     if (item->io.offset >= item->o_offset + item->o_len) {
       // all in ssd
       printf("<%s>: all data in cache, skip backend\n",__func__);
-      CACHE_DEBUGLOG("Read: all data in cache, skip goto read backend");
+      CACHE_DEBUGLOG(NULL,"Read: all data in cache, skip goto read backend");
       aio_read_backend_completion(item);
       return MAP_DONE;
     }
@@ -1900,13 +1899,13 @@ int
 cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
                    io_completion_fn io_completion, void *io_arg)
 {
-  /*CACHE_DEBUGLOG("********** Start traverse btree *************\n");*/
+  /*CACHE_DEBUGLOG(NULL,"********** Start traverse btree *************\n");*/
   /*printf("********** Start traverse btree *************\n");*/
   /*traverse_btree(ca);*/
   /*printf("********** End traverse btree *************\n");*/
-  /*CACHE_DEBUGLOG("********** End traverse btree *************\n");*/
+  /*CACHE_DEBUGLOG(NULL,"********** End traverse btree *************\n");*/
 
-  CACHE_DEBUGLOG("cache_aio_write IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
+  CACHE_DEBUGLOG(NULL,"cache_aio_write IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
   struct ring_item *item;
   struct search s;
   int ret = 0;

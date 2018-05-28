@@ -2027,13 +2027,13 @@ static bool btree_insert_key(struct btree *b, struct bkey *k,
 
   status = bch_btree_insert_key(&b->keys, k, replace_key);
   if (status != BTREE_INSERT_STATUS_NO_INSERT) {
-    CACHE_DEBUGLOG(" Insert keylist sucessfull \n");
+    CACHE_DEBUGLOG(NULL," Insert keylist sucessfull \n");
     bch_check_keys(&b->keys, "%u for %s", status,
         replace_key ? "replace" : "insert");
     //trace_bcache_btree_insert_key(b, k, replace_key != NULL,status);
     return true;
   } else {
-    CACHE_DEBUGLOG(" Insert keylist faild \n");
+    CACHE_DEBUGLOG(NULL," Insert keylist faild \n");
     return false;
   }
 }
@@ -2053,7 +2053,7 @@ static bool
 bch_btree_insert_keys(struct btree *b, struct btree_op *op,
     struct keylist *insert_keys, struct bkey *replace_key)
 {
-  CACHE_DEBUGLOG("   ***** start insert ***** \n");
+  CACHE_DEBUGLOG(CAT_BTREE,"   ***** start insert ***** \n");
   bool ret = false;
   int oldsize = bch_count_data(&b->keys);
   while (!bch_keylist_empty(insert_keys)) {
@@ -2063,14 +2063,14 @@ bch_btree_insert_keys(struct btree *b, struct btree_op *op,
     /*remaining=%lu\n",__func__,b->level,KEY_OFFSET(&b->key), \*/
     /*KEY_OFFSET(k),KEY_SIZE(k),bkey_u64s(k),insert_u64s_remaining(b));*/
     if (bkey_u64s(k) > insert_u64s_remaining(b)) {
-      CACHE_ERRORLOG("Not insert bkey_u64s=%d,remaining=%d\n",bkey_u64s(k), insert_u64s_remaining(b));
+      CACHE_ERRORLOG(NULL,"Not insert bkey_u64s=%d,remaining=%d\n",bkey_u64s(k), insert_u64s_remaining(b));
       break;
     }
     if (bkey_cmp(k, &b->key) <= 0) {
       if (!b->level) {
         bkey_put(b->c, k);
       }
-      CACHE_DEBUGLOG(" insert key(of=%lu,len=%lu) <= btree key(of=%lu,len=%lu)\n", KEY_OFFSET(k), KEY_SIZE(k),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
+      CACHE_DEBUGLOG(NULL," insert key(of=%lu,len=%lu) <= btree key(of=%lu,len=%lu)\n", KEY_OFFSET(k), KEY_SIZE(k),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
       ret |= btree_insert_key(b, k, replace_key);
       bch_keylist_pop_front(insert_keys);
     } else if (bkey_cmp(&START_KEY(k), &b->key) < 0) {
@@ -2081,11 +2081,11 @@ bch_btree_insert_keys(struct btree *b, struct btree_op *op,
       // temp.key经过cut_back之后，得到的就是重叠部分的bkey，用来插入节点
       // insert_keys->keys经过cut_front将重叠部分的区域剪掉，得到的就是非重叠部分的区域
       bch_cut_front(&b->key, insert_keys->keys);
-      CACHE_DEBUGLOG(" insert start tmp key(of=%lu,len=%lu) <= btree key(of=%lu,len=%lu)\n", KEY_OFFSET(&temp.key), KEY_SIZE(&temp.key),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
+      CACHE_DEBUGLOG(NULL," insert start tmp key(of=%lu,len=%lu) <= btree key(of=%lu,len=%lu)\n", KEY_OFFSET(&temp.key), KEY_SIZE(&temp.key),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
       ret |= btree_insert_key(b, &temp.key, replace_key);
       break;
     } else {
-      CACHE_ERRORLOG(" not match bkey(of=%lu,len=%lu),btree key(of=%lu,len=%lu)\n", KEY_OFFSET(k), KEY_SIZE(k),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
+      CACHE_ERRORLOG(NULL," not match bkey(of=%lu,len=%lu),btree key(of=%lu,len=%lu)\n", KEY_OFFSET(k), KEY_SIZE(k),KEY_OFFSET(&b->key),KEY_SIZE(&b->key));
       break;
     }
   }
@@ -2105,7 +2105,7 @@ btree_split(struct btree *b, struct btree_op *op,
     struct keylist *insert_keys,
     struct bkey *replace_key)
 {
-  CACHE_DEBUGLOG(" btree split \n");
+  CACHE_DEBUGLOG(NULL," btree split \n");
   bool split;
   struct btree *n1, *n2 = NULL, *n3 = NULL;
   uint64_t start_time = time(NULL); //local_clock();
@@ -2131,7 +2131,7 @@ btree_split(struct btree *b, struct btree_op *op,
   split = set_blocks(btree_bset_first(n1), block_bytes(n1->c)) > (btree_blocks(b) * 4) / 5;
   /*printf( "\033[1m\033[45;33m btree.c FUN %s: split=%d,set_blocks=%d,(btree_blocks(b)*4)/5=%d \033[0m\n", __func__,split,set_blocks(btree_bset_first(n1),block_bytes(n1->c)),(btree_blocks(b)*4)/5);*/
   /*printf( " btree.c FUN %s: split=%d,set_blocks=%d,(btree_blocks(b)*4)/5=%d\n", __func__,split,set_blocks(btree_bset_first(n1),block_bytes(n1->c)),(btree_blocks(b)*4)/5);*/
-  CACHE_DEBUGLOG(" split=%d \n", split);
+  CACHE_DEBUGLOG(NULL," split=%d \n", split);
   if (split) {
     unsigned keys = 0;
     //trace_bcache_btree_node_split(b, btree_bset_first(n1)->keys);
@@ -2141,7 +2141,7 @@ btree_split(struct btree *b, struct btree_op *op,
     }
 
     if (!b->parent) {
-      CACHE_DEBUGLOG(" split from root node \n");
+      CACHE_DEBUGLOG(NULL," split from root node \n");
       n3 = bch_btree_node_alloc(b->c, op, b->level + 1, NULL);
       if (IS_ERR(n3)) {
         goto err_free2;
@@ -2173,7 +2173,7 @@ btree_split(struct btree *b, struct btree_op *op,
     rw_unlock(true, n2);
   } else {
     //trace_bcache_btree_node_compact(b, btree_bset_first(n1)->keys);
-    CACHE_DEBUGLOG(" No split, direct insert to new replacement node n1\n");
+    CACHE_DEBUGLOG(NULL," No split, direct insert to new replacement node n1\n");
     pthread_mutex_lock(&n1->write_lock);
     bch_btree_insert_keys(n1, op, insert_keys, replace_key);
   }
@@ -2220,7 +2220,7 @@ err_free1:
   rw_unlock(true, n1);
 err:
   //WARN(1, "bcache: btree split failed (level %u)", b->level);
-  CACHE_ERRORLOG("bcache: btree split failed (level %u)", b->level);
+  CACHE_ERRORLOG(NULL,"bcache: btree split failed (level %u)", b->level);
   if (n3 == ERR_PTR(-EAGAIN) || n2 == ERR_PTR(-EAGAIN) ||
       n1 == ERR_PTR(-EAGAIN)) {
     return -EAGAIN;
@@ -2254,7 +2254,7 @@ bch_btree_insert_node(struct btree *b, struct btree_op *op,
   }
   BUG_ON(write_block(b) != btree_bset_last(b));
   /*printf(" btree.c FUN %s: Btree Insert Start Insert keys \n",__func__);*/
-  CACHE_DEBUGLOG(" direct insert keys \n");
+  CACHE_DEBUGLOG(NULL," direct insert keys \n");
   if (bch_btree_insert_keys(b, op, insert_keys, replace_key)) {
     // 不考虑异常情况，后期测试性能数据可以先不同步写
     bch_btree_node_write(b);
@@ -2284,7 +2284,7 @@ split:
   // 上面逻辑需要在后期思考清除
   if ( 1 ) {
     /*printf("\033[1m\033[45;33m btree.c FUN %s: Start Btree Split \033[0m\n",__func__);*/
-    CACHE_DEBUGLOG(" goto split insert \n");
+    CACHE_DEBUGLOG(NULL," goto split insert \n");
     int ret = btree_split(b, op, insert_keys, replace_key);
     /*printf("\033[1m\033[45;33m btree.c FUN %s: End Btree Split \033[0m\n",__func__);*/
     if (bch_keylist_empty(insert_keys)) {
@@ -2332,7 +2332,7 @@ out:
 
 static int btree_insert_fn(struct btree_op *b_op, struct btree *b)
 {
-  CACHE_DEBUGLOG(" insert fn \n");
+  CACHE_DEBUGLOG(NULL," insert fn \n");
   struct btree_insert_op *op = container_of(b_op, struct btree_insert_op, op);
 
   int ret = bch_btree_insert_node(b, &op->op, op->keys, op->journal_ref, 
@@ -2382,7 +2382,7 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
 
   if (ret) {
     struct bkey *k;
-    CACHE_ERRORLOG("Insert keylist to Btree Faild ret=%i\n", ret);
+    CACHE_ERRORLOG(NULL,"Insert keylist to Btree Faild ret=%i\n", ret);
     while ((k = bch_keylist_pop(keys))){
       bkey_put(c, k);
     }

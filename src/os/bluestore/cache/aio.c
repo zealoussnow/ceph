@@ -261,7 +261,7 @@ cache_thread_fn(void * cb)
           ret = spdk_bdev_write(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
                           io_completion, item);
           if ( ret < 0 ) {
-            CACHE_ERRORLOG(" spdk_bdev_write error ret=%d\n", ret);
+            CACHE_ERRORLOG(NULL," spdk_bdev_write error ret=%d\n", ret);
             // 只是一次IO错误，不应该下断言，测试阶段，这里暂时按断言处理
             assert(" spdk_bdev_write error " == 0);
           }
@@ -270,12 +270,12 @@ cache_thread_fn(void * cb)
           ret = spdk_bdev_read(ct->desc, ct->ch, item->io.pos, item->io.offset, item->io.len,
                           io_completion, item);
           if (ret < 0) {
-            CACHE_ERRORLOG(" spdk_bdev_read error ret=%d\n", ret);
+            CACHE_ERRORLOG(NULL," spdk_bdev_read error ret=%d\n", ret);
             assert(" spdk_bdev_read error " == 0);
           }
           break;
         default:
-          CACHE_ERRORLOG(" Unsuporte IO type(%d)\n", item->io.type);
+          CACHE_ERRORLOG(NULL," Unsuporte IO type(%d)\n", item->io.type);
           assert(" Unsupporte IO type " == 0);
       }
     } else {
@@ -458,27 +458,27 @@ aio_init(void * ca)
   struct spdk_conf *config = NULL;
   config = spdk_conf_allocate();
   if (!config) {
-    CACHE_ERRORLOG("failed to allocate config\n");
+    CACHE_ERRORLOG(NULL,"failed to allocate config\n");
     assert("failed to allocate config" == 0);
   }
 
   ret = spdk_conf_read(config, path);
   if (ret < 0) {
-    CACHE_ERRORLOG("can't read conf\n");
+    CACHE_ERRORLOG(NULL,"can't read conf\n");
     assert("can't read conf" == 0);
   }
 
   struct spdk_conf_section *sp = NULL;
   sp = spdk_conf_find_section(config, "DPDK_ENV");
   if (sp == NULL) {
-    CACHE_ERRORLOG("can't find section AIO (path=%s)\n", path);
+    CACHE_ERRORLOG(NULL,"can't find section AIO (path=%s)\n", path);
     assert("can't find section AIO" == 0);
   }
 
   /*int poll_period = 100000;*/
   int poll_period = spdk_conf_section_get_intval(sp, "poll_period");
   if (poll_period == 0) {
-    CACHE_WARNLOG("poll period is 0, set default 100000");
+    CACHE_WARNLOG(NULL,"poll period is 0, set default 100000");
     poll_period = 100000;
   }
   handler = calloc(1, sizeof(*handler));
@@ -521,16 +521,16 @@ aio_init(void * ca)
 
   cache_percent = spdk_conf_section_get_val(sp, "cache_thread_core_percent");
   if (cache_percent == NULL) {
-    CACHE_WARNLOG("cache_thread_core_percent will use default value 0.5");
+    CACHE_WARNLOG(NULL,"cache_thread_core_percent will use default value 0.5");
     cache_thread_core_percent = 0.5;
   } else {
     cache_thread_core_percent = atof(cache_percent);
-    CACHE_DEBUGLOG("cache_thread_core_percent value %f \n", cache_thread_core_percent);
+    CACHE_DEBUGLOG(NULL,"cache_thread_core_percent value %f \n", cache_thread_core_percent);
   }
   uint32_t current_core_count = spdk_env_get_core_count();
   uint32_t cache_thread_cores = current_core_count * cache_thread_core_percent;
   spdk_conf_free(config);
-  CACHE_DEBUGLOG("current_core_count: %u, cache_thread_core_percent: %d, cache_thread_cores: %u\n",
+  CACHE_DEBUGLOG(NULL,"current_core_count: %u, cache_thread_core_percent: %d, cache_thread_cores: %u\n",
       current_core_count, cache_thread_core_percent, cache_thread_cores);
 
   TAILQ_INIT(&handler->cache_threads);
