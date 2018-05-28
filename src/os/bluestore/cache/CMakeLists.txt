@@ -92,7 +92,6 @@ if (CACHE_TEST)
       -Wl,--whole-archive ${spdk_libs_whole}
       -Wl,--no-whole-archive aio event numa dl rt)
   endif (USE_SPDK_AIO)
-else ()
-  add_library(t2cache_objs OBJECT ${libcache_srcs})
 endif (CACHE_TEST)
 
+add_library(t2cache_objs OBJECT ${libcache_srcs})
