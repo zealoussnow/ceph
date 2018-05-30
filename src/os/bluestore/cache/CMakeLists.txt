@@ -86,11 +86,9 @@ if (CACHE_TEST)
     target_link_libraries(go m pthread uuid blkid -Wl,--whole-archive
       ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
       -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
-      -Wl,--end-group -Wl,--no-whole-archive numa dl rt)
+      -Wl,--end-group -Wl,--no-whole-archive numa dl rt zlog)
   else ()
-    target_link_libraries(go m pthread uuid blkid
-      -Wl,--whole-archive ${spdk_libs_whole}
-      -Wl,--no-whole-archive aio event numa dl rt)
+    target_link_libraries(go m pthread uuid blkid aio event numa dl rt zlog)
   endif (USE_SPDK_AIO)
 endif (CACHE_TEST)
 
