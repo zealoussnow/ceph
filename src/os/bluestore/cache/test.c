@@ -236,6 +236,9 @@ void * bch_data_insert(struct cache *ca)
 int main()
 {
   struct cache *ca = T2Molloc(sizeof(struct cache));
+  ca->log_path = "/var/log/ceph";
+  ca->whoami = "0";
+  log_init(ca->log_path, ca->whoami);
   /*int fd = open("/dev/sdc1", O_RDWR );*/
   ca->fd = fd;
   ca->bdev_path="/etc/ceph/bdev.conf.in";
