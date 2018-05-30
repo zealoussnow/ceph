@@ -579,4 +579,19 @@ extern unsigned int __kfifo_out(struct __kfifo *fifo,
 extern unsigned int __kfifo_out_peek(struct __kfifo *fifo,
                                      void *buf, unsigned int len);
 
+extern unsigned int __kfifo_in_r(struct __kfifo *fifo,
+                                 const void *buf, unsigned int len, size_t recsize);
+
+extern unsigned int __kfifo_out_r(struct __kfifo *fifo,
+                                  void *buf, unsigned int len, size_t recsize);
+
+extern unsigned int __kfifo_len_r(struct __kfifo *fifo, size_t recsize);
+
+extern void __kfifo_skip_r(struct __kfifo *fifo, size_t recsize);
+
+extern unsigned int __kfifo_out_peek_r(struct __kfifo *fifo,
+                                       void *buf, unsigned int len, size_t recsize);
+
+extern unsigned int __kfifo_max_r(unsigned int len, size_t recsize);
+
 #endif
