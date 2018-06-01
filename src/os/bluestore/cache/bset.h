@@ -262,7 +262,7 @@ static inline unsigned bset_sector_offset(struct btree_keys *b, struct bset *i)
 static inline size_t bch_btree_keys_u64s_remaining(struct btree_keys *b)
 {
   struct bset_tree *t = bset_tree_last(b);
-  //BUG_ON((PAGE_SIZE << b->page_order) < (bset_byte_offset(b, t->data) + set_bytes(t->data)));
+  BUG_ON((PAGE_SIZE << b->page_order) < (bset_byte_offset(b, t->data) + set_bytes(t->data)));
   if (!b->last_set_unwritten)
     return 0;
   return ((PAGE_SIZE << b->page_order) -

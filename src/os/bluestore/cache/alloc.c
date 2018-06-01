@@ -623,7 +623,7 @@ int __bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
   for (i = 0; i < n; i++) {
     struct cache *ca = c->cache_by_alloc[i];
     long b = bch_bucket_alloc(ca, reserve, wait);
-    /*printf(" alloc.c FUN %s: bucket alloc bucket nr=%ld\n",__func__,b);*/
+    CACHE_DEBUGLOG(CAT_BTREE, " alloc bucket %lu \n", b);
     if (b == -1) {
       goto err;
     }

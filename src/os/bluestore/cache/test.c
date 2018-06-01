@@ -64,6 +64,41 @@ aio_read_test(struct cache *ca)
   }
 }
 
+
+void do_write_split_test(struct cache *ca)
+{
+  void *data = NULL;
+  void *read_data = NULL;
+  uint64_t len = 512;
+  uint64_t offset = 8192;
+
+  posix_memalign((void **)&data, 512, len);
+  posix_memalign((void **)&read_data, 512, len);
+  memset(data, 'b', len);
+  memset(read_data, '0', len);
+
+  /*cache_aio_write(ca, data, offset, len, NULL, NULL);*/
+  /*sleep(1);*/
+  /*cache_aio_write(ca, data, offset + 2*len, len, NULL, NULL);*/
+  // write 512
+  int i = 0;
+  for (i; i<1000; i++ ) {
+    cache_aio_write(ca, data, offset+2*i, len, NULL, NULL);
+    offset=offset+2*len;
+  }
+  printf(" ----- \n");
+  sleep(10);
+  traverse_btree(ca);
+  /*sleep(4);*/
+  // read 512
+  /*cache_aio_read(ca, read_data, offset, len, read_complete_cb, NULL);*/
+  // wait writeback
+  /*sleep(4);*/
+  /*traverse_btree(ca);*/
+  // print read result
+  /*printf(" read result =%s \n", read_data);*/
+}
+
 void do_writeback_test(struct cache *ca)
 {
   printf(" ********* start writeback test *********** \n");
@@ -79,16 +114,21 @@ void do_writeback_test(struct cache *ca)
 
   sleep(1);
   // write 512
-  cache_aio_write(ca, data, offset, len, NULL, NULL);
-  sleep(4);
-  traverse_btree(ca);
+  int i = 1;
+  for ( i; i<1000; i++ ) {
+    cache_aio_write(ca, data, offset+1024*i, len*1024, NULL, NULL);
+  }
+  /*printf(" ----- \n");*/
+  /*sleep(10);*/
+  /*traverse_btree(ca);*/
+  /*sleep(4);*/
   // read 512
-  cache_aio_read(ca, read_data, offset, len, read_complete_cb, NULL);
+  /*cache_aio_read(ca, read_data, offset, len, read_complete_cb, NULL);*/
   // wait writeback
-  sleep(4);
-  traverse_btree(ca);
+  /*sleep(4);*/
+  /*traverse_btree(ca);*/
   // print read result
-  printf(" read result =%s \n", read_data);
+  /*printf(" read result =%s \n", read_data);*/
 }
 
 
@@ -232,24 +272,65 @@ void * bch_data_insert(struct cache *ca)
   bch_data_insert_start(ca, &insert_keys);
 }
 
+static unsigned 
+inorder_next(unsigned j, unsigned size)
+{
+  if (j * 2 + 1 < size) {
+    j = j * 2 + 1;
+    while (j * 2 < size) {
+      j *= 2;
+    }
+  } else {
+    j >>= ffz(j) + 1; /* arch/x86/include/asm/bitops.h, find first zero bit */
+  }
+
+  return j;
+}
+
+
+void inorder_test()
+{
+  unsigned j ;
+  unsigned size = 7;
+
+  //     1
+  //   2   3
+  // 4  5 6 7
+  for (j = inorder_next(0, size); j; j = inorder_next(j, size)) {
+    CACHE_DEBUGLOG(NULL, "inorder trave j %u \n", j);
+  }
+}
+
 
 int main()
 {
   struct cache *ca = T2Molloc(sizeof(struct cache));
-  ca->log_path = "/var/log/ceph";
-  ca->whoami = "0";
-  log_init(ca->log_path, ca->whoami);
-  /*int fd = open("/dev/sdc1", O_RDWR );*/
+  /*const char *cache_dev = "/dev/sdc";*/
+  /*ca->bdev_path="/etc/ceph/bdev.conf.in";*/
+  const char *log_path = "/var/log/ceph";
+  const char *whoami = "0";
+
+  log_init(log_path, whoami);
+
+  // 1. write_sb
+  write_sb(cache_dev,1,1024,0,0,1,0,16,false);
+
+  int fd = open(cache_dev, O_RDWR);
   ca->fd = fd;
-  ca->bdev_path="/etc/ceph/bdev.conf.in";
+
   init(ca);
-  ca->handler = aio_init((void *)ca);
+
+  /*do_write_split_test(ca);*/
 
   /*do_writeback_test(ca);*/
 
   /*do_invalidate_region_test(ca);*/
 
-  do_write_big_test(ca);
+  /*do_write_big_test(ca);*/
+
+  /*inorder_test();*/
+  /*sleep(5);*/
+  /*traverse_btree(ca);*/
 
   while(1) {
     sleep(5);

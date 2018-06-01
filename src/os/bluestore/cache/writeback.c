@@ -610,7 +610,6 @@ void bch_cached_dev_writeback_init(struct cached_dev *dc)
   /*init_rwsem(&dc->writeback_lock);*/
   /*bch_keybuf_init(&dc->writeback_keys);*/
 
-  printf("init writeback\n");
   INIT_LIST_HEAD(&dc->writeback_keys.list);
 
   dc->sequential_cutoff           = 4 << 20;

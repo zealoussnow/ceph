@@ -366,9 +366,10 @@ get_conf(char *path, char **cache_name, char **backend_name, uint32_t *lcore_cou
   conf_free(cf);
 }
 
-/*int main(int argc, char **argv)*/
 void *
 aio_init(void *ca) {
+  CACHE_DEBUGLOG(CAT_AIO, "libevent aio init\n");
+
   if (g_handler) {
     return (void *) g_handler;
   }

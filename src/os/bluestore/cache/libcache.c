@@ -9,88 +9,59 @@
 #include "bcache.h"
 
 
-int t2store_cache_write_cache_sb(const char *dev, unsigned block_size, unsigned bucket_size,
+int t2store_cache_write_cache_sb(const char *log_path, const char *whoami, const char *dev, 
+                     unsigned block_size, unsigned bucket_size,
                      bool writeback, bool discard, bool wipe_bcache,
                      unsigned cache_replacement_policy,
                      uint64_t data_offset, bool bdev)
 {
   int ret = 0;
+  log_init(log_path, whoami);
+  CACHE_INFOLOG(NULL, "write %s super block \n",dev);
   ret = write_sb(dev, block_size, bucket_size,
                          writeback, discard, wipe_bcache,
                          cache_replacement_policy,
                          data_offset,bdev);
-  printf(" ************** <%s> write sb done *************** \n",__func__);
+  CACHE_INFOLOG(NULL, "write %s super block done \n",dev);
   return ret;
 }
 
 
 
-int T2Store_Cache_register_cache(struct cache_context *ctx)
+int t2store_cache_register_cache(struct cache_context *ctx)
 {
   int ret = 0;
-  /*printf(" <%s> \n", __func__);*/
-  /*ctx->cache = malloc*/
+  log_init(ctx->log_path, ctx->whoami);
+
   ctx->cache = malloc(sizeof(struct cache));
   memset(ctx->cache, 0, sizeof(struct cache));
   ((struct cache *)ctx->cache)->fd=ctx->fd_cache;
   ((struct cache *)ctx->cache)->hdd_fd=ctx->fd_direct;
   ((struct cache *)ctx->cache)->bdev_path = ctx->bdev_path;
-  ((struct cache *)ctx->cache)->whoami = ctx->whoami;
-  ((struct cache *)ctx->cache)->log_path = ctx->log_path;
-  printf(" libcache.c <%s> fd_cache = %d \n", __func__, ctx->fd_cache);
+
   ret = init(ctx->cache);
-  if (ret < 0 )
-  {
-        ctx->registered=false;
-        return -1;
+  if (ret < 0 ) {
+    ctx->registered=false;
+    return -1;
   }
+
   ctx->registered=true;
-  printf("    after init cache = %p, set=%p ctx->registered=%d\n", ctx->cache, ((struct cache *)ctx->cache)->set, ctx->registered);
+  CACHE_INFOLOG(NULL, "After init: cache(%p), set(%p), registerd(%d) ret(%d)\n", ctx->cache, ((struct cache *)ctx->cache)->set, ctx->registered,ret);
+
   return ret;
 }
 
-int T2Store_Cache_sync_read(struct cache_context *ctx, void *bl, uint64_t off, uint64_t len)
+CEPH_CACHE_API int t2store_cache_aio_read(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg)
 {
   int ret = 0;
-  printf("\n libcache.c <%s>: Sync read ------------------ \n",__func__);
-  ret = cache_sync_read(ctx->cache, bl, off, len);
+  ret = cache_aio_read(ctx->cache, bl, off, len, cb, cb_arg);
   return ret;
-
 }
 
-int T2Store_Cache_sync_write(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len)
+CEPH_CACHE_API int t2store_cache_aio_write(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg)
 {
   int ret = 0;
-  printf(" libcache.c <%s> start write fd_cache=%d,fd_direct=%d \n", __func__, ctx->fd_cache,ctx->fd_direct);
-  /*printf(" libcache.c <%s>: Start write \n",__func__);*/
-  printf("   sync_write cache = %p \n", ctx->cache);
-  printf("   sync_write cache = %p, set=%p \n", ctx->cache, ((struct cache *)ctx->cache)->set);
-  ret = cache_sync_write(ctx->cache, bl, off, len);
-  /*printf(" libcache.c <%s>: print \n",__func__);*/
-
-  return ret;
-}
-
-CEPH_CACHE_API int T2Store_Cache_aio_read(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg)
-{
-    int ret = 0;
-    ret = cache_aio_read(ctx->cache, bl, off, len, cb, cb_arg);
-    return ret;
-}
-
-CEPH_CACHE_API int T2Store_Cache_aio_write(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg)
-{
-    int ret = 0;
-    ret = cache_aio_write(ctx->cache, bl, off, len, cb, cb_arg);
-    return ret;
-}
-
-int T2Store_Cache_aio_submit(struct cache_context *ctx, io_context_t io_ctx, long nr, struct iocb **iocb)
-{
-  int ret=0;
-  printf(" init.c <%s>  fd=%d\n", __func__,(*iocb)->aio_fildes);
-  ret = cache_aio_write(ctx->cache, io_ctx, nr, iocb);
-
+  ret = cache_aio_write(ctx->cache, bl, off, len, cb, cb_arg);
   return ret;
 }
 

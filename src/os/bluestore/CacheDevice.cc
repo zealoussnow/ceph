@@ -150,9 +150,8 @@ int CacheDevice::cache_init(const std::string& path)
   dout(1)<< __func__ << " lb cache_ctx.registered "<< cache_ctx.registered <<dendl;
   if (cache_ctx.registered)
     return r;
-  //assert(cache_ctx.registered==true);
-  //struct cache_context cache_ctx;
-  r = T2Store_Cache_register_cache(&cache_ctx);
+
+  r = t2store_cache_register_cache(&cache_ctx);
 
   return r;
 }
@@ -167,11 +166,13 @@ int CacheDevice::write_cache_super(const std::string& path)
   bool wipe_bcache = 1;
   unsigned cache_replacement_policy = 0;
   uint64_t data_offset = 16;
+  const char *whoami = cct->_conf->name.get_id().c_str();
+  const char *log_path = cct->_conf->t2store_cache_log_path.c_str();
 
-  r = t2store_cache_write_cache_sb(path.c_str(), block_size, bucket_size,
-                         writeback, discard, wipe_bcache,
-                         cache_replacement_policy,
-                         data_offset,false);
+  r = t2store_cache_write_cache_sb(log_path, whoami, path.c_str(), 
+                        block_size, bucket_size, writeback, discard, 
+                        wipe_bcache,cache_replacement_policy,
+                        data_offset,false);
   return r;
 }
 #if 1
@@ -638,7 +639,6 @@ void CacheDevice::_aio_thread()
 {
   Task *t = nullptr;
   uint64_t off, len;
-  //void *data = nullptr;
   int r = 0;
 
   dout(10) << __func__ << " linbing " << dendl;
@@ -647,19 +647,13 @@ void CacheDevice::_aio_thread()
     for (; t; t = t->next) {
       off = t->offset;
       len = t->len;
-      //data = malloc(len);
       switch (t->command) {
         case IOCommand::WRITE_COMMAND:
         {
           dout(20) << __func__ << " write command issued " << off << "~" << len << dendl;
-          //auto blp = t->write_bl.begin();
-          //blp.copy(len, static_cast<char*>(data));
-          // TODO submit data to cache module
-          //r = T2Store_Cache_aio_write(&cache_ctx, data, off, len, (void *)io_complete,(void *)t);
-          r = T2Store_Cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
+          r = t2store_cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
             derr << __func__ << " failed to do write command" << dendl;
-            //free(data);
             delete t;
             ceph_abort();
           }
@@ -668,10 +662,9 @@ void CacheDevice::_aio_thread()
         case IOCommand::READ_COMMAND:
         {
           dout(20) << __func__ << " read command issued " << off << "~" << len << dendl;
-          r = T2Store_Cache_aio_read(&cache_ctx, t->read_ptr.c_str(), off, len, (void *)io_complete,(void *)t);
+          r = t2store_cache_aio_read(&cache_ctx, t->read_ptr.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
             derr << __func__ << " failed to do read command" << dendl;
-            //free(data);
             delete t;
             ceph_abort();
           }
@@ -792,49 +785,6 @@ void CacheDevice::aio_submit(IOContext *ioc)
 
 int CacheDevice::_sync_write(uint64_t off, bufferlist &bl, bool buffered)
 {
-  uint64_t len = bl.length();
-  dout(5) << __func__ << " 0x" << std::hex << off << "~" << len
-          << std::dec << " buffered" << dendl;
-#if 0
-  if (cct->_conf->bdev_inject_crash &&
-      rand() % cct->_conf->bdev_inject_crash == 0) {
-    derr << __func__ << " bdev_inject_crash: dropping io 0x" << std::hex
-         << off << "~" << len << std::dec << dendl;
-    ++injecting_crash;
-    return 0;
-  }
-  vector<iovec> iov;
-  bl.prepare_iov(&iov);
-  int r = ::pwritev(buffered ? fd_buffered : fd_direct,
-                    &iov[0], iov.size(), off);
-#endif 
-#if 1
-  char * data = (char *)malloc(len);
-  char * pos = data;
-  for ( auto p : bl.buffers()){
-        memmove(pos,(void *)p.c_str(), p.length());
-        pos = pos+p.length();
-  }
-  int r = 0;
-  r = T2Store_Cache_sync_write(&cache_ctx, data, off, len);
-#endif 
-  if (r < 0) {
-    r = -errno;
-    derr << __func__ << " pwritev error: " << cpp_strerror(r) << dendl;
-    return r;
-  }
-  if (buffered) {
-     //initiate IO (but do not wait)
-    r = ::sync_file_range(fd_buffered, off, len, SYNC_FILE_RANGE_WRITE);
-    if (r < 0) {
-      r = -errno;
-      derr << __func__ << " sync_file_range error: " << cpp_strerror(r) << dendl;
-      return r;
-    }
-  }
-
-  io_since_flush.store(true);
-
   return 0;
 }
 
@@ -879,16 +829,6 @@ int CacheDevice::write(
 
   delete t;
   return r;
-
-  //if ((!buffered || bl.get_num_buffers() >= IOV_MAX) &&
-      //bl.rebuild_aligned_size_and_memory(block_size, block_size)) {
-    //dout(20) << __func__ << " rebuilding buffer to be aligned" << dendl;
-  //}
-  //dout(40) << "data: ";
-  //bl.hexdump(*_dout);
-  //*_dout << dendl;
-
-  //return _sync_write(off, bl, buffered);
 }
 
 void CacheDevice::queue_task(Task *t, uint64_t ops)

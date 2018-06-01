@@ -207,20 +207,19 @@ static inline struct bset *write_block(struct btree *b)
 
 static void bch_btree_init_next(struct btree *b)
 {
-  /* If not a leaf node, always sort */
-  bch_btree_sort(&b->keys, &b->c->sort);
-  /*if (b->level && b->keys.nsets) {*/
-  /*bch_btree_sort(&b->keys, &b->c->sort);*/
-  /*} else {*/
-  /*bch_btree_sort_lazy(&b->keys, &b->c->sort);*/
-  /*}*/
-  // block是按扇区来算的，根据block_bits来算，如果block_bits=0
-  // 说明block大小和扇区的大小是相等的，因此btree_blocks
-  // 实际上就是btree的扇区数，即KEY_SIZE(&b->key)=512扇区
+  CACHE_DEBUGLOG(CAT_BTREE,"btree init next (level %u nsets %u) \n",
+                        b->level, b->keys.nsets);
+  if (b->level && b->keys.nsets) {
+    bch_btree_sort(&b->keys, &b->c->sort);
+  } else {
+    bch_btree_sort_lazy(&b->keys, &b->c->sort);
+  }
+
+  CACHE_DEBUGLOG(CAT_BTREE,"btree written %u btree_bloks(b) %u \n", b->written, btree_blocks(b));
   if (b->written < btree_blocks(b)) {
-    // last_bset往后更新一个
     bch_bset_init_next(&b->keys, write_block(b), bset_magic(&b->c->sb));
   }
+  // 如果written = btree_blocks(b) 说明btree已经写满，不应该再被写入，因此不初始化下一个bset
 }
 
 /* Btree key manipulation */

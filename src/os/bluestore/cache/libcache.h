@@ -24,24 +24,15 @@ struct cache_context {
 
 
 
-CEPH_CACHE_API int t2store_cache_write_cache_sb(const char *dev, unsigned block_size, unsigned bucket_size,
+CEPH_CACHE_API int t2store_cache_write_cache_sb(const char *log_path, const char *whoami, const char *dev, 
+                     unsigned block_size, unsigned bucket_size,
                      bool writeback, bool discard, bool wipe_bcache,
                      unsigned cache_replacement_policy,
                      uint64_t data_offset, bool bdev);
-
-
-CEPH_CACHE_API int T2Store_Cache_register_cache(struct cache_context *ctx);
-
-  //r = T2Store_Cache_sync_write(&cache_ctx, bl, off, len);
-CEPH_CACHE_API int T2Store_Cache_sync_write(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len);
-CEPH_CACHE_API int T2Store_Cache_aio_submit(struct cache_context *ctx, io_context_t io_ctx, long nr, struct iocb **iocb);
-CEPH_CACHE_API int T2Store_Cache_sync_read(struct cache_context *ctx, void *bl, uint64_t off, uint64_t len);
-
-CEPH_CACHE_API int T2Store_Cache_aio_write(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
-CEPH_CACHE_API int T2Store_Cache_aio_read(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
-
+CEPH_CACHE_API int t2store_cache_register_cache(struct cache_context *ctx);
+CEPH_CACHE_API int t2store_cache_aio_write(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
+CEPH_CACHE_API int t2store_cache_aio_read(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
 CEPH_CACHE_API int t2store_cache_invalidate_region(struct cache_context * ctx, uint64_t off, uint64_t len);
-CEPH_CACHE_API const char *get_osd_dev(const char *cf_name, const char *osd_devid);
 
 #ifdef __cplusplus
 }

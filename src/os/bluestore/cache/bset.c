@@ -1152,10 +1152,10 @@ void bch_bset_sort_state_free(struct bset_sort_state *state)
 int bch_bset_sort_state_init(struct bset_sort_state *state, unsigned page_order)
 {
   //spin_lock_init(&state->time.lock);
-  
  state->page_order = page_order;
  state->crit_factor = int_sqrt(1 << page_order);
-
+ CACHE_INFOLOG(NULL, "state page_order %u crit_factor %u \n", 
+                state->page_order, state->crit_factor);
   //state->pool = mempool_create_page_pool(1, page_order);
   //if (!state->pool)
   //	return -ENOMEM;

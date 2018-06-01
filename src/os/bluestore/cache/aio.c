@@ -444,6 +444,7 @@ create_new_thread(struct thread_options *t_options)
 void *
 aio_init(void * ca)
 {
+  CACHE_DEBUGLOG(CAT_AIO, "spdk aio init\n");
   if ( g_handler ) {
     return (void *)g_handler;
   }
