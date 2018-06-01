@@ -1199,7 +1199,7 @@ btree_mergesort(struct btree_keys *b, struct bset *out,struct btree_iter *iter,
     }
   }
   out->keys = last ? (uint64_t *) bkey_next(last) - out->d : 0;
-  CACHE_DEBUGLOG(NULL,"mergesort: sorted keys \n", out->keys);
+  CACHE_DEBUGLOG(CAT_BSET,"mergesort: sorted keys %u \n", out->keys);
 }
 
 static void __btree_sort(struct btree_keys *b, struct btree_iter *iter,
@@ -1223,9 +1223,12 @@ static void __btree_sort(struct btree_keys *b, struct btree_iter *iter,
     //order = state->page_order;
   }
   start_time = clock();
-  btree_mergesort(b, out, iter, fixup, false);
+
+  // TODO: remove bad bkey, need verify futher
+  // btree_mergesort(b, out, iter, fixup, false);
+  btree_mergesort(b, out, iter, fixup, true);
+
   b->nsets = start;
-  /*printf(" b->nsets = %d \n", b->nsets);*/
   if (!start && order == b->page_order) {
     /*
      * Our temporary buffer is the same size as the btree node's
