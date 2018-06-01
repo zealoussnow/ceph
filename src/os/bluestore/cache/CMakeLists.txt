@@ -15,6 +15,7 @@ set(libcache_srcs
   writeback.c
   movinggc.c
   log.c
+  delayed_event.c
   )
 
 if (USE_SPDK_AIO)
@@ -83,7 +84,7 @@ if (CACHE_TEST)
   add_definitions("-Wall -g")
 
   if (USE_SPDK_AIO)
-    target_link_libraries(go m pthread uuid blkid -Wl,--whole-archive
+    target_link_libraries(go m pthread event uuid blkid -Wl,--whole-archive
       ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
       -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
       -Wl,--end-group -Wl,--no-whole-archive numa dl rt zlog)

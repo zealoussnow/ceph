@@ -115,7 +115,7 @@ if (USE_SPDK_AIO)
   #${dpdk_libs_whole} numa dl rt)
 
 
-  target_link_libraries(os m pthread uuid blkid -Wl,--whole-archive
+  target_link_libraries(os m pthread event uuid blkid -Wl,--whole-archive
           ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
           -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
           -Wl,--end-group -Wl,--no-whole-archive numa dl rt)

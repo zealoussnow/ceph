@@ -911,7 +911,7 @@ if (USE_SPDK_AIO)
           rte_pci
           rte_bus_pci
           )
-  target_link_libraries(ceph-osd m pthread uuid blkid -Wl,--whole-archive
+  target_link_libraries(ceph-osd m pthread event uuid blkid -Wl,--whole-archive
           ${spdk_libs_whole} -Wl,--no-whole-archive aio ${spdk_libs}
           -Wl,--start-group -Wl,--whole-archive ${dpdk_libs_whole}
           -Wl,--end-group -Wl,--no-whole-archive numa dl rt)

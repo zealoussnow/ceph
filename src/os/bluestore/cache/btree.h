@@ -103,6 +103,7 @@
 #include <semaphore.h>
 #include "bset.h"
 #include "debug.h"
+#include "delayed_event.h"
 
 struct btree_write {
 	atomic_t		*journal;
@@ -157,6 +158,7 @@ struct btree {
         sem_t                   io_mutex;
 
 	struct list_head	list;
+        struct event            ev_node_write;
 	//struct delayed_work	work;
 
 	struct btree_write	writes[2];

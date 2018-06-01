@@ -36,7 +36,7 @@
 #include "log.h"
 
 /*struct cache_set bch_cache_sets;*/
-LIST_HEAD(bch_cache_sets);
+T2_LIST_HEAD(bch_cache_sets);
 /*struct mutex bch_register_lock;*/
 pthread_mutex_t bch_register_lock;
 
@@ -455,6 +455,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
   iter_size = (sb->bucket_size / sb->block_size + 1) *
         sizeof(struct btree_iter_set);
 
+  c->ev_base = bch_delayed_work_init();
   /* XXX devices是一个二级指针 */
   // bch_btree_cache_alloc(c) btree 节点链表freeable、freed
   // 此处遗留
@@ -654,7 +655,7 @@ run_cache_set(struct cache_set *c)
   set_gc_sectors(c);
   if (CACHE_SYNC(&c->sb)) {
     CACHE_INFOLOG(NULL,"have sync run cache set from super \n");
-    LIST_HEAD(journal);
+    T2_LIST_HEAD(journal);
     struct bkey *k;
     struct jset *j;
     unsigned iter;

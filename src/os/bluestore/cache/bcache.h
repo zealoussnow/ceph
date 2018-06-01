@@ -529,6 +529,8 @@ struct cache_set {
   int                     hdd_fd;
   //struct closure              cl;
   
+  struct event_base     *ev_base;
+
   struct list_head      list;
   //struct kobject              kobj;
   //struct kobject              internal;
