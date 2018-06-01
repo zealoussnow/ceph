@@ -942,7 +942,7 @@ data_insert_test(struct cache * c)
   bch_keylist_init(&insert_keys);
   k=insert_keys.top;
   bkey_init(k);
-  SET_KEY_INODE(k, 1);
+  SET_KEY_INODE(k, 0);
   SET_KEY_OFFSET(k, 500);
   bch_alloc_sectors(c->set, k, 10, 0,0,1);
   printf(" KEY_SIZE(k) = %d \n", KEY_SIZE(k));
@@ -996,7 +996,7 @@ int cache_lookup_fn(struct btree_op *op, struct btree *b, struct bkey *k)
     return MAP_DONE;
   }
 
-  if (bkey_cmp(k, &KEY(1, start, 0)) <= 0) {
+  if (bkey_cmp(k, &KEY(0, start, 0)) <= 0) {
     return MAP_CONTINUE;
   }
   /*if (KEY_INODE(k) != 1 || KEY_START(k) > start) {*/
@@ -1050,7 +1050,7 @@ int cache_sync_read(struct cache *ca, void *data, uint64_t off, uint64_t len)
   s.left = len;
 
   while ( s.left > 0 ) {
-    bch_btree_map_keys(&s.op, ca->set, &KEY(1, s.offset, 0), cache_lookup_fn, MAP_END_KEY);
+    bch_btree_map_keys(&s.op, ca->set, &KEY(0, s.offset, 0), cache_lookup_fn, MAP_END_KEY);
   }
   ret = s.length;
   return ret;
@@ -1072,7 +1072,7 @@ int cache_sync_write(struct cache *ca, void * data, uint64_t off, uint64_t len)
     k = insert_keys.top;
 
     bkey_init(k);
-    SET_KEY_INODE(k, 1);
+    SET_KEY_INODE(k, 0);
     SET_KEY_OFFSET(k, (off>>9));
     SET_KEY_DIRTY(k, true);
     bch_alloc_sectors(ca->set, k, len>>9, 0, 0, 1);
@@ -1162,7 +1162,7 @@ get_init_bkey(struct keylist *keylist, uint64_t offset)
 
   if ( k ) {
     bkey_init(k);
-    SET_KEY_INODE(k, 1);
+    SET_KEY_INODE(k, 0);
     SET_KEY_OFFSET(k, (offset>>9));
   }
 
@@ -1549,8 +1549,8 @@ skip:
 int get_cache_strategy(struct cached_dev *dc, struct ring_item *item)
 {
   unsigned int mode = BDEV_CACHE_MODE(&dc->sb);
-  struct bkey start = KEY(1, item->o_offset >> 9, 0);
-  struct bkey end = KEY(1, (item->o_offset >> 9) + (item->o_len >> 9), 0);
+  struct bkey start = KEY(0, item->o_offset >> 9, 0);
+  struct bkey end = KEY(0, (item->o_offset >> 9) + (item->o_len >> 9), 0);
 
   bch_keybuf_check_overlapping(&dc->c->moving_gc_keys, &start, &end);
 
@@ -1568,8 +1568,8 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   CACHE_DEBUGLOG("write","IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
   struct ring_item *item = NULL;
   int ret=0;
-  struct bkey start = KEY(1, (offset>>9),0);
-  struct bkey end = KEY(1, ((offset+len)>>9),0);
+  struct bkey start = KEY(0, (offset>>9),0);
+  struct bkey end = KEY(0, ((offset+len)>>9),0);
   struct cached_dev *dc = ca->set->dc;
 
   item = get_ring_item(data, offset, len);
@@ -1772,7 +1772,7 @@ aio_read_backend_completion(void *cb)
   bch_btree_op_init(&s.op, -1);
   /*printf("<%s>: find btree node offset=%lu, len=%lu ------------------\n",*/
                         /*__func__, item->o_offset, item->o_len );*/
-  bch_btree_map_keys(&s.op, ca->set, &KEY(1,(s.item->o_offset >> 9),0),
+  bch_btree_map_keys(&s.op, ca->set, &KEY(0,(s.item->o_offset >> 9),0),
                         read_cache_lookup_fn, MAP_END_KEY);
 }
 
@@ -1788,7 +1788,8 @@ cache_aio_read_backend(struct ring_item *item)
   item->io.len = item->o_len;
   item->iou_completion_cb = aio_read_backend_completion;
 
-  /*printf("<%s>: aio_enqueue backend \n", __func__);*/
+  CACHE_DEBUGLOG(CAT_AIO,"aio_enqueue backend (start=%lu, len=%lu)\n",
+                 item->o_offset >> 9, item->o_len >> 9);
   // read hdd first
   ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
   if (ret < 0) {
@@ -1808,6 +1809,9 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
 
   CACHE_DEBUGLOG(CAT_READ,"iter bkey(start=%lu,of=%lu,len=%lu)\n",
       (KEY_OFFSET(key) - KEY_SIZE(key)),KEY_OFFSET(key),KEY_SIZE(key));
+  CACHE_DEBUGLOG(CAT_READ,"iter search(start=%lu,of=%lu,len=%lu)\n",
+                 (item->o_offset >> 9),((item->o_offset + item->o_len) >> 9),((item->o_len) >> 9));
+
   // bkey is before of data
   if (cache_end < item->o_offset) {
     return MAP_CONTINUE;
@@ -1862,7 +1866,7 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   
   s.item = item;
   bch_btree_op_init(&s.op, -1);
-  bch_btree_map_keys(&s.op, ca->set, &KEY(1,(s.item->o_offset >> 9),0),
+  bch_btree_map_keys(&s.op, ca->set, &KEY(0,(s.item->o_offset >> 9),0),
                         read_is_all_cache_fn, MAP_END_KEY);
   return ret;
 }
