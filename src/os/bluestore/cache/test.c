@@ -310,7 +310,7 @@ void inorder_test()
 int main()
 {
   struct cache *ca = T2Molloc(sizeof(struct cache));
-  const char *cache_dev = "/dev/sdc";
+  /*const char *cache_dev = "/dev/sdc";*/
   /*const char *hdd_dev = "/dev/sdd";*/
   /*ca->bdev_path="/etc/ceph/bdev.conf.in";*/
   const char *log_path = "/var/log/ceph";
