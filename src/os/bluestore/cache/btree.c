@@ -2459,8 +2459,16 @@ static int bch_btree_map_keys_recurse(struct btree *b, struct btree_op *op,
   int ret = MAP_CONTINUE;
   struct bkey *k;
   struct btree_iter iter;
+  CACHE_DEBUGLOG(SEARCH_TREE,"bkey search (start=%lu,of=%lu,len=%lu,inode=%u)\n",
+                 (KEY_OFFSET(from) - KEY_SIZE(from)),KEY_OFFSET(from),KEY_SIZE(from),KEY_INODE(from));
   bch_btree_iter_init(&b->keys, &iter, from);
   while ((k = bch_btree_iter_next_filter(&iter, &b->keys, bch_ptr_bad))) {
+    if ( k != NULL ) {
+        CACHE_DEBUGLOG(SEARCH_TREE,"iter next got bkey k (start=%lu,of=%lu,len=%lu,inode=%u)\n",
+                       (KEY_OFFSET(k)-KEY_SIZE(k)), KEY_OFFSET(k),KEY_SIZE(k),KEY_INODE(k));
+    } else {
+      CACHE_DEBUGLOG(SEARCH_TREE," iter get bkey k is NULL \n");
+    }
     ret = !b->level
       ? fn(op, b, k)
       : btree(map_keys_recurse, k, b, op, from, fn, flags);

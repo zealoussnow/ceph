@@ -21,6 +21,8 @@ extern void cache_zlog(const char *cat_type, const char *file,
 #define CAT_AIO_WRITE "aio_write"
 #define CAT_READ "read"
 #define CAT_WRITE "write"
+#define BUILD_TREE "build_tree"
+#define SEARCH_TREE "search_tree"
 
 #define CACHE_ERRORLOG(cat_type, format, args...) \
         cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
