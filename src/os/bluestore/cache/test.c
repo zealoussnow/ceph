@@ -311,21 +311,21 @@ int main()
 {
   struct cache *ca = T2Molloc(sizeof(struct cache));
   const char *cache_dev = "/dev/sdc";
-  const char *hdd_dev = "/dev/sdd";
-  ca->bdev_path="/etc/ceph/bdev.conf.in";
+  /*const char *hdd_dev = "/dev/sdd";*/
+  /*ca->bdev_path="/etc/ceph/bdev.conf.in";*/
   const char *log_path = "/var/log/ceph";
   const char *whoami = "0";
 
   log_init(log_path, whoami);
 
   // 1. write_sb
-  /*write_sb(cache_dev,1,1024,0,0,1,0,16,false);*/
+  write_sb(cache_dev,1,1024,0,0,1,0,16,false);
 
   int fd = open(cache_dev, O_RDWR);
   ca->fd = fd;
 
-  int hdd_fd = open(hdd_dev, O_RDWR);
-  ca->hdd_fd = hdd_fd;
+  /*int hdd_fd = open(hdd_dev, O_RDWR);*/
+  /*ca->hdd_fd = hdd_fd;*/
 
   init(ca);
 
