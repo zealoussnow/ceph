@@ -1,10 +1,11 @@
-#include "delayed_event.h"
+#include "delayed_work.h"
 #include "log.h"
 
 void delayed_work_add(struct event *ev, unsigned int seconds)
 {
   struct timeval tv;
 
+  CACHE_DEBUGLOG(CAT_EVENT, "add delay event\n");
   evutil_timerclear(&tv);
   tv.tv_sec = seconds;
   event_add(ev, &tv);
@@ -12,17 +13,19 @@ void delayed_work_add(struct event *ev, unsigned int seconds)
 
 void delayed_work_del(struct event *ev)
 {
+  CACHE_DEBUGLOG(CAT_EVENT, "del delay event\n");
   event_del(ev);
 }
 
 void delayed_work_assign(struct event *ev, struct event_base *base, void (*callback)(evutil_socket_t, short, void *), void *arg)
 {
+  CACHE_DEBUGLOG(CAT_EVENT, "assign delay event\n");
   event_assign(ev, base, -1, 0, callback, arg);
 }
 
 static void timeout_cb(evutil_socket_t fd, short events, void *arg) {
   // Nothing to do for this func
-  CACHE_INFOLOG(CAT_EVENT, "dispatch timeout cb %p\n", arg);
+  CACHE_DEBUGLOG(CAT_EVENT, "dispatch\n");
 }
 
 static int delayed_work_func(void *arg)
@@ -53,9 +56,8 @@ struct event_base *bch_delayed_work_init()
   base = event_base_new();
 
   err = pthread_create(&thread_delayed_event, NULL, (void *)delayed_work_func, (void *)base);
-  if (err != 0)
-  {
-    printf("can't create writeback thread:%s\n", strerror(err));
+  if (err != 0) {
+    CACHE_DEBUGLOG(CAT_EVENT, "can't create writeback thread:%s\n", strerror(err));
     return err;
   }
 

@@ -19,6 +19,7 @@
 #include "request.h"
 #include <math.h>
 #include "writeback.h"
+#include "delayed_work.h"
 
 #include <time.h>
 #include <ctype.h>

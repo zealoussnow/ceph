@@ -1,5 +1,5 @@
-#ifndef _BCACHE_DELAYED_EVENT_H
-#define _BCACHE_DELAYED_EVENT_H
+#ifndef _BCACHE_DELAYED_WORK_H
+#define _BCACHE_DELAYED_WORK_H
 
 #include <event2/event.h>
 #include <event2/event_struct.h>

@@ -103,7 +103,7 @@
 #include <semaphore.h>
 #include "bset.h"
 #include "debug.h"
-#include "delayed_event.h"
+#include "delayed_work.h"
 
 struct btree_write {
 	atomic_t		*journal;
@@ -164,6 +164,8 @@ struct btree {
 	struct btree_write	writes[2];
 	//struct bio		*bio;
 };
+
+#define BTREE_NODE_WRITE_DELAY_SECONDS 30
 
 #define BTREE_FLAG(flag)						\
 static inline bool btree_node_ ## flag(struct btree *b)			\

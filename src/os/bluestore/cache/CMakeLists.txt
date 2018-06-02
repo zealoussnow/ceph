@@ -15,7 +15,7 @@ set(libcache_srcs
   writeback.c
   movinggc.c
   log.c
-  delayed_event.c
+  delayed_work.c
   )
 
 if (USE_SPDK_AIO)

@@ -604,7 +604,7 @@ static void bch_btree_leaf_dirty(struct btree *b, atomic_t *journal_ref)
   BUG_ON(!i->keys);
 
   if (!btree_node_dirty(b)) {
-    delayed_work_add(&b->ev_node_write, 30);
+    delayed_work_add(&b->ev_node_write, BTREE_NODE_WRITE_DELAY_SECONDS);
   }
   //schedule_delayed_work(&b->work, 30 * HZ);
   /*
