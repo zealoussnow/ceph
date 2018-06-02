@@ -203,14 +203,12 @@ bch_data_insert_start(struct cache *ca, struct keylist *insert_keys)
   bch_keylist_init(&insert_keys2);
   for (i = 0; i < keynum; i++) {
     struct bkey *k = NULL;
-    k = insert_keys->top;
-    bkey_init(k);
-    SET_KEY_INODE(k, 1);
-    SET_KEY_OFFSET(k, start);
-    SET_KEY_DIRTY(k, true);
+    /*k = insert_keys->top;*/
+    k = get_init_bkey(insert_keys, start, ca);
     // 写入的数据按扇区对齐后的大小来分配bucket的资源,但是写入的数据依然按实际的长度
     // 比如：bio.bi_size是实际的数据长度，但是对bio分配bucket资源的时候，给的bi_size>>9
     // 之后变成扇区数进行分配，并不会改变bi_size原有的大小
+    SET_KEY_DIRTY(k, true);
     int sectors = ( len % 512 ) ? ( len / 512 + 1 ) : ( len / 512 );
     data=T2Molloc(sizeof(char)*len);
     memset(data,'x',sizeof(char)*len);
@@ -233,6 +231,7 @@ bch_data_insert_start(struct cache *ca, struct keylist *insert_keys)
   bch_data_insert_keys(ca->set, insert_keys);
   printf( " main.c FUN %s: >>>>>>>>>>>  End Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
   printf(" \n");
+  return;
 
   for (i = 0; i < keynum2; i++) {
     struct bkey *k = NULL;
@@ -322,6 +321,7 @@ int main()
 
   /*do_write_split_test(ca);*/
 
+  /*bch_data_insert(ca);*/
   /*do_writeback_test(ca);*/
 
   /*do_invalidate_region_test(ca);*/
