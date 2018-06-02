@@ -225,6 +225,8 @@ if(WITH_ZFS)
   set(HAVE_LIBZFS ${ZFS_FOUND})
 endif()
 
+find_package(Libevent 2.1.8 REQUIRED)
+
 option (USE_SPDK_AIO "Use SPDK BDEV AIO for device" OFF)
 
 option(WITH_SPDK "Enable SPDK" OFF)
