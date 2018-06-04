@@ -748,34 +748,51 @@ void io_complete(void *t)
 
 }
 
-void CacheDevice::_aio_writeback(struct ring_items *items){
+void CacheDevice::_aio_writeback(struct ring_items *items)
+{
   int r;
-  r = t2store_cache_aio_writeback_batch(&cache_ctx, items);
-  if (r < 0) {
-    dout(10) << __func__ << " failed to do write command" << dendl;
-    ceph_abort();
+  int size = t2store_cache_ring_items_get_size(items);
+  if (size > 0) { 
+    dout(1) << __func__ << "batch size " << size << dendl;
+    r = t2store_cache_aio_writeback_batch(&cache_ctx, items);
+    if (r < 0) {
+      dout(10) << __func__ << " failed to do write command" << dendl;
+      ceph_abort();
+    }
+    t2store_cache_aio_items_reset(items);
+    assert(t2store_cache_ring_items_get_size(items) == 0);
   }
-  t2store_cache_aio_items_reset(items);
 }
 
-void CacheDevice::_aio_writearound(struct ring_items *items){
+void CacheDevice::_aio_writearound(struct ring_items *items)
+{
   int r;
-  r = t2store_cache_aio_writearound_batch(&cache_ctx, items);
-  if (r < 0) {
-    dout(10) << __func__ << " failed to do write command" << dendl;
-    ceph_abort();
+  int size = t2store_cache_ring_items_get_size(items);
+  if (size > 0) {
+    dout(1) << __func__ << "batch size " << size << dendl;
+    r = t2store_cache_aio_writearound_batch(&cache_ctx, items);
+    if (r < 0) {
+      dout(10) << __func__ << " failed to do write command" << dendl;
+      ceph_abort();
+    }
+    t2store_cache_aio_items_reset(items);
+    assert(t2store_cache_ring_items_get_size(items) == 0);
   }
-  t2store_cache_aio_items_reset(items);
 }
 
-void CacheDevice::_aio_writethrough(struct ring_items *items){
+void CacheDevice::_aio_writethrough(struct ring_items *items)
+{
   int r;
-  r = t2store_cache_aio_writethrough_batch(&cache_ctx, items);
-  if (r < 0) {
-    dout(10) << __func__ << " failed to do write command" << dendl;
-    ceph_abort();
+  int size = t2store_cache_ring_items_get_size(items);
+  if (size > 0) {
+    r = t2store_cache_aio_writethrough_batch(&cache_ctx, items);
+    if (r < 0) {
+      dout(10) << __func__ << " failed to do write command" << dendl;
+      ceph_abort();
+    }
+    t2store_cache_aio_items_reset(items);
+    assert(t2store_cache_ring_items_get_size(items) == 0);
   }
-  t2store_cache_aio_items_reset(items);
 }
 
 void CacheDevice::_aio_thread()
@@ -783,6 +800,7 @@ void CacheDevice::_aio_thread()
   Task *t = nullptr;
   uint64_t off, len;
   int r = 0;
+  uint8_t strategy;
   int max_buffer = cct->_conf->cache_aio_write_batch_max_size;
   r = t2store_cache_aio_thread_init(&cache_ctx);
   if (r < 0) {
@@ -794,7 +812,7 @@ void CacheDevice::_aio_thread()
   struct ring_items *items_wt = t2store_cache_aio_items_alloc(max_buffer);
   struct ring_item *item;
 
-  dout(10) << __func__ << " linbing " << dendl;
+  dout(10) << __func__ << " start aio thread" << dendl;
   while (true) {
     //bool inflight = queue_op_seq.load() - completed_op_seq.load();
     for (; t; t = t->next) {
@@ -806,43 +824,34 @@ void CacheDevice::_aio_thread()
           dout(20) << __func__ << " write command issued " << off << "~" << len << dendl;
           if (cct->_conf->cache_aio_write_batch) {
             item = t2store_cache_aio_get_item(t->write_bl.c_str(), off, len, (void *) io_complete, (void *) t);
-
-            // for CACHE_MODE_WRITEBACK
-            if (t2store_cache_aio_get_cache_strategy(&cache_ctx, item) == CACHE_MODE_WRITEBACK) {
-              if(t2store_cache_aio_items_add(items_wb, item) < 0){
-                _aio_writeback(items_wb);
-                if(t2store_cache_aio_items_add(items_wb, item) < 0){
-                  dout(10) << __func__ << " failed to add write to queue" << dendl;
-                  delete t;
-                  ceph_abort();
+            strategy = t2store_cache_aio_get_cache_strategy(&cache_ctx, item);
+            switch (strategy) {
+              case CACHE_MODE_WRITEBACK:
+retry_wb:       if (t2store_cache_aio_items_add(items_wb, item) < 0) {
+                  dout(20) << __func__ << "add writeback items full, flush and retry" << dendl;
+                  _aio_writeback(items_wb);
+                  goto retry_wb;
                 }
-              }
-              break;
-            } if (t2store_cache_aio_get_cache_strategy(&cache_ctx, item) == CACHE_MODE_WRITEAROUND) {
-              if(t2store_cache_aio_items_add(items_wa, item) < 0){
-                _aio_writearound(items_wa);
-                if(t2store_cache_aio_items_add(items_wa, item) < 0){
-                  dout(10) << __func__ << " failed to add write to queue" << dendl;
-                  delete t;
-                  ceph_abort();
+                break;
+              case CACHE_MODE_WRITEAROUND:
+retry_wa:       if (t2store_cache_aio_items_add(items_wa, item) < 0) {
+                  dout(20) << __func__ << "add writearound items full, flush and retry" << dendl;
+                  _aio_writearound(items_wa);
+                  goto retry_wa;
                 }
-              }
-              break;
-            } else if (t2store_cache_aio_get_cache_strategy(&cache_ctx, item) == CACHE_MODE_WRITETHROUGH) {
-              if(t2store_cache_aio_items_add(items_wt, item) < 0){
-                _aio_writethrough(items_wt);
-                if(t2store_cache_aio_items_add(items_wt, item) < 0){
-                  dout(10) << __func__ << " failed to add write to queue" << dendl;
-                  delete t;
-                  ceph_abort();
+                break;
+              case CACHE_MODE_WRITETHROUGH:
+retry_wt:       if (t2store_cache_aio_items_add(items_wt, item) < 0) {
+                  dout(20) << __func__ << "add writethrough items full, flush and retry" << dendl;
+                  _aio_writearound(items_wt);
+                  goto retry_wt;
                 }
-              }
-              break;
-            } else {
-              free(item);
+                break;
+              default:
+                assert("Unsupported io stragegy" == 0);
             }
-          }
-
+            break;
+          } 
           // for no batch
           r = t2store_cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
@@ -856,10 +865,9 @@ void CacheDevice::_aio_thread()
         case IOCommand::READ_COMMAND:
         {
           // write first
-          _aio_writeback(items_wb);
-          _aio_writethrough(items_wt);
-          _aio_writearound(items_wa);
-
+          //_aio_writeback(items_wb);
+          //_aio_writethrough(items_wt);
+          //_aio_writearound(items_wa);
           dout(20) << __func__ << " read command issued " << off << "~" << len << dendl;
           r = t2store_cache_aio_read(&cache_ctx, t->read_ptr.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
@@ -873,11 +881,11 @@ void CacheDevice::_aio_thread()
         {
           // TODO
           dout(20) << __func__ << " flush command issueed " << dendl;
+          assert(" flush commnad not imp yet " == 0);
           break;
         }
       }
     }
-
     {
       Mutex::Locker l(queue_lock);
       if (!task_queue.empty()) {
@@ -885,8 +893,8 @@ void CacheDevice::_aio_thread()
         task_queue.pop();
       } else {
         _aio_writeback(items_wb);
-        _aio_writethrough(items_wt);
-        _aio_writearound(items_wa);
+        //_aio_writethrough(items_wt);
+        //_aio_writearound(items_wa);
         if (aio_stop) {
           t2store_cache_aio_items_free(items_wb);
           t2store_cache_aio_items_free(items_wt);

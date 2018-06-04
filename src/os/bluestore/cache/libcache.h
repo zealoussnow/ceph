@@ -60,7 +60,8 @@ CEPH_CACHE_API struct ring_items * t2store_cache_aio_items_alloc(int max_buffer)
 CEPH_CACHE_API struct ring_item * t2store_cache_aio_get_item(void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
 CEPH_CACHE_API int t2store_cache_aio_items_add(struct ring_items *items, struct ring_item * item);
 CEPH_CACHE_API void t2store_cache_aio_items_free(struct ring_items* items);
-CEPH_CACHE_API int t2store_cache_aio_items_reset(struct ring_items* items);
+CEPH_CACHE_API void t2store_cache_aio_items_reset(struct ring_items* items);
+CEPH_CACHE_API int t2store_cache_ring_items_get_size(struct ring_items* items);
 CEPH_CACHE_API int t2store_cache_aio_writeback_batch(struct cache_context * ctx, struct ring_items* items);
 CEPH_CACHE_API int t2store_cache_aio_writethrough_batch(struct cache_context * ctx, struct ring_items* items);
 CEPH_CACHE_API int t2store_cache_aio_writearound_batch(struct cache_context * ctx, struct ring_items* items);
