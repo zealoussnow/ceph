@@ -33,6 +33,7 @@ struct ring_item {
     io_completion_fn iou_completion_cb;
     struct keylist *insert_keys;
     struct io_sync_write *sync_io;
+    struct timespec start;
     struct timespec aio_start;
 };
 

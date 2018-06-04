@@ -233,6 +233,12 @@ void CacheDevice::_init_logger()
                  "bluestore cache aio read");
   b.add_time_avg(l_bluestore_cachedevice_flush_lat, "blue_flush",
                  "bluestore cache flush");
+  b.add_time_avg(l_bluestore_cachedevice_write_queue_lat, "blue_write_queue",
+                 "bluestore cache write queue latency");
+  b.add_time_avg(l_cachedevice_cache_write_lat, "cache_write",
+                 "cache write latency");
+  b.add_time_avg(l_cachedevice_cache_read_lat, "cache_read",
+                 "cache read latency");
   b.add_time_avg(l_cachedevice_aio_write_lat, "cache_aio_write",
                  "cache aio write latency");
   b.add_time_avg(l_cachedevice_aio_read_lat, "cache_aio_read",
@@ -818,9 +824,11 @@ void CacheDevice::_aio_thread()
     for (; t; t = t->next) {
       off = t->offset;
       len = t->len;
+      utime_t dur = ceph_clock_now() - t->start;
       switch (t->command) {
         case IOCommand::WRITE_COMMAND:
         {
+          t->device->logger->tinc(l_bluestore_cachedevice_write_queue_lat, dur);
           dout(20) << __func__ << " write command issued " << off << "~" << len << dendl;
           if (cct->_conf->cache_aio_write_batch) {
             item = t2store_cache_aio_get_item(t->write_bl.c_str(), off, len, (void *) io_complete, (void *) t);
