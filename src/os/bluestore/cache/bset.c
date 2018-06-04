@@ -632,6 +632,29 @@ static void make_bfloat(struct bset_tree *t, unsigned j)
   }
 }
 
+void dump_bkey(const char *prefix, struct bkey *b)
+{
+  if ( prefix ) {
+    CACHE_DEBUGLOG(BUILD_TREE, "%s bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
+                   prefix, b, KEY_OFFSET(b)-KEY_SIZE(b), KEY_OFFSET(b), KEY_SIZE(b), 
+                   PTR_OFFSET(b,0), KEY_PTRS(b), KEY_DIRTY(b), KEY_INODE(b));
+  } else {
+    CACHE_DEBUGLOG(BUILD_TREE, "bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
+                   b, KEY_OFFSET(b)-KEY_SIZE(b), KEY_OFFSET(b), KEY_SIZE(b), 
+                   PTR_OFFSET(b,0), KEY_PTRS(b), KEY_DIRTY(b), KEY_INODE(b));
+  }
+}
+void dump_bset_tree(struct bset_tree *tree)
+{
+  struct bset_tree *t = tree;
+  struct bkey *start = t->data->start;
+  CACHE_DEBUGLOG(BUILD_TREE, "keys %u, tree size=%u, t ex=%u\n", t->data->keys, t->size , t->extra);
+  while (bkey_next(start) != bset_bkey_last(t->data)) {
+    dump_bkey(NULL,start);
+    start = bkey_next(start);
+  }
+  dump_bkey("last ", start);
+}
 static void bset_alloc_tree(struct btree_keys *b, struct bset_tree *t)
 {
   if (t != b->set) {
@@ -685,73 +708,50 @@ void bch_bset_init_next(struct btree_keys *b, struct bset *i, uint64_t magic)
 void bch_bset_build_written_tree(struct btree_keys *b)
 {
   struct bset_tree *t = bset_tree_last(b);
-  struct bkey *prev = NULL, *k = t->data->start, *tt;
+  struct bkey *prev = NULL, *k = t->data->start;
   unsigned j, cacheline = 1;
 
   b->last_set_unwritten = 0;
   bset_alloc_tree(b, t);
   t->size = min_t(unsigned, bkey_to_cacheline(t, bset_bkey_last(t->data)),
       b->set->tree + btree_keys_cachelines(b) - t->tree);
-  CACHE_DEBUGLOG(CAT_BSET, "build written tree last_set_unwritten %d size %d \n", b->last_set_unwritten, t->size);
+  CACHE_DEBUGLOG(CAT_BSET, "size %u last_set_unwritten %u \n",t->size,b->last_set_unwritten);
   if (t->size < 2) {
     t->size = 0;
     return;
   }
   // fix bug of to_inorder error
   t->extra = (t->size - rounddown_pow_of_two(t->size - 1)) << 1;
+  CACHE_DEBUGLOG(CAT_BSET, "last bset extra %u \n", t->extra);
+  /*** for debug ***/
+  // dump_bset_tree(t);
 
   /* First we figure out where the first key in each cacheline is */
-  tt = k;
-  CACHE_DEBUGLOG(BUILD_TREE, "keys %u, tree size=%u, t ex=%u\n", t->data->keys, t->size , t->extra);
-  while (bkey_next(tt) != bset_bkey_last(t->data)) {
-    CACHE_DEBUGLOG(BUILD_TREE, "bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                   tt, KEY_OFFSET(tt) - KEY_SIZE(tt),
-                   KEY_OFFSET(tt), KEY_SIZE(tt), PTR_OFFSET(tt,0), KEY_PTRS(tt), KEY_DIRTY(tt), KEY_INODE(tt));
-    tt = bkey_next(tt);
-  }
-  CACHE_DEBUGLOG(BUILD_TREE, "bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                 tt, KEY_OFFSET(tt) - KEY_SIZE(tt),
-                 KEY_OFFSET(tt), KEY_SIZE(tt), PTR_OFFSET(tt,0), KEY_PTRS(tt), KEY_DIRTY(tt), KEY_INODE(tt));
 
-
-  CACHE_DEBUGLOG(BUILD_TREE, "start build\n");
+  CACHE_DEBUGLOG(BUILD_TREE, "inorder build tree node \n");
   for (j = inorder_next(0, t->size); j; j = inorder_next(j, t->size)) {
-    CACHE_DEBUGLOG(BUILD_TREE,"cacheline %u ,j=%u\n", cacheline, j);
+    CACHE_DEBUGLOG(BUILD_TREE,"cacheline %u inorder number j %u\n", cacheline, j);
     while (bkey_to_cacheline(t, k) < cacheline) {
       prev = k, k = bkey_next(k);
     }
     t->prev[j] = bkey_u64s(prev);
     t->tree[j].m = bkey_to_cacheline_offset(t, cacheline++, k);
-
-    CACHE_DEBUGLOG(BUILD_TREE, "bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                   k, KEY_OFFSET(k) - KEY_SIZE(k),
-                   KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k), KEY_INODE(k));
-    CACHE_DEBUGLOG(BUILD_TREE, "bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                   prev, KEY_OFFSET(prev) - KEY_SIZE(prev),
-                   KEY_OFFSET(prev), KEY_SIZE(prev), PTR_OFFSET(prev,0), KEY_PTRS(prev), KEY_DIRTY(prev), KEY_INODE(prev));
-    CACHE_DEBUGLOG(BUILD_TREE, " m = %u \n", t->tree[j].m);
-
+    // dump_bkey("inorder build tree node bkey ", k);
   }
   while (bkey_next(k) != bset_bkey_last(t->data)) {
     k = bkey_next(k);
   }
   t->end = *k;
+  // dump_bkey("inorder build tree node last bkey ", k);
+  
   /* Then we build the tree */
-  CACHE_DEBUGLOG(BUILD_TREE, "---------make_bfloat-----\n");
+  CACHE_DEBUGLOG(BUILD_TREE, "inorder build tree node make_bfloat\n");
   for (j = inorder_next(0, t->size); j; j = inorder_next(j, t->size)) {
-    tt = tree_to_bkey(t, j);
-    CACHE_DEBUGLOG(BUILD_TREE, " j %u to_inorder(j, t) %u t->tree[j].m %u\n", j, to_inorder(j, t), t->tree[j].m);
-    CACHE_DEBUGLOG(BUILD_TREE, "befor make float bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                   tt, KEY_OFFSET(tt) - KEY_SIZE(tt),
-                   KEY_OFFSET(tt), KEY_SIZE(tt), PTR_OFFSET(tt,0), KEY_PTRS(tt), KEY_DIRTY(tt), KEY_INODE(tt));
+    CACHE_DEBUGLOG(BUILD_TREE, "j %u to_inorder(j, t) %u t->tree[j].m %u\n", j, to_inorder(j, t), t->tree[j].m);
+    // dump_bkey("befor make_bfloat bkey ", tree_to_bkey(t, j));
     make_bfloat(t, j);
-    CACHE_DEBUGLOG(BUILD_TREE, "after make float bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                   tt, KEY_OFFSET(tt) - KEY_SIZE(tt),
-                   KEY_OFFSET(tt), KEY_SIZE(tt), PTR_OFFSET(tt,0), KEY_PTRS(tt), KEY_DIRTY(tt), KEY_INODE(tt));
-
+    // dump_bkey("after make_bfloat bkey ", tree_to_bkey(t, j));
   }
-
-  CACHE_DEBUGLOG(BUILD_TREE, "\n--------build tree end---------\n");
 }
 
 /* Insert */

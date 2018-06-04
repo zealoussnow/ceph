@@ -322,6 +322,8 @@ struct bkey *bch_btree_iter_init(struct btree_keys *, struct btree_iter *,
 
 struct bkey *__bch_bset_search(struct btree_keys *, struct bset_tree *,
                                 const struct bkey *);
+void dump_bset_tree(struct bset_tree *tree);
+void dump_bkey(const char *prefix, struct bkey *b);
 
 /*
  * Returns the first key that is strictly greater than search
