@@ -14,6 +14,7 @@
 #include "aio.h"
 #include "BlockDevice.h"
 #include "cache/libcache.h"
+#include "common/perf_counters.h"
 
 enum class IOCommand {
   READ_COMMAND,
@@ -66,6 +67,9 @@ class CacheDevice : public BlockDevice {
   int _aio_start();
   void _aio_stop();
 
+  void _init_logger();
+  void _shutdown_logger();
+
   void _aio_log_start(IOContext *ioc, uint64_t offset, uint64_t length);
   void _aio_log_finish(IOContext *ioc, uint64_t offset, uint64_t length);
 
@@ -90,6 +94,7 @@ public:
   aio_callback_t aio_callback;
   void *aio_callback_priv;
   std::atomic_ulong completed_op_seq, queue_op_seq;
+  PerfCounters *logger = nullptr;
 
   bool supported_cache() override { return true; }
   uint64_t get_size() const override {

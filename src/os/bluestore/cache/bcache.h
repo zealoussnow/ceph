@@ -424,6 +424,7 @@ enum alloc_reserve {
 };
 
 
+typedef void (*logger_callback_fn)(void *ctx, int serial, struct timespec start, struct timespec end);
 
 struct cache {
   struct aio_handler  * handler;
@@ -432,6 +433,7 @@ struct cache {
   const char *bdev_path;
   struct cache_set      *set;
   struct cache_sb               sb;
+  logger_callback_fn logger_cb;
   //struct bio          sb_bio;
   //struct bio_vec              sb_bv[1];
   
@@ -977,6 +979,14 @@ static inline void wake_up_allocators(struct cache_set *c)
   for_each_cache(ca, c, i)
     wake_up_alloc_thread(ca);
 }
+
+static struct timespec cache_clock_now()
+{
+  struct timespec tp;
+  clock_gettime(CLOCK_REALTIME, &tp);
+  return tp;
+}
+
 
 /* Forward declarations */
 
