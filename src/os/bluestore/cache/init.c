@@ -966,10 +966,12 @@ bch_data_insert_keys(struct cache_set *c_set,
   struct bkey *replace_key = NULL;
   int ret;
 
+  struct timespec start = cache_clock_now();
   journal_ref = bch_journal(c_set, insert_keys);
   if (!journal_ref) {
     return -1;
   }
+  c_set->logger_cb(c_set->bluestore_cd, l_bluestore_cachedevice_t2cache_journal_write, start, cache_clock_now());
 
   ret = bch_btree_insert(c_set, insert_keys, journal_ref, replace_key);
 
@@ -1288,9 +1290,9 @@ aio_write_completion(void *cb)
       case CACHE_MODE_WRITEBACK:
         CACHE_DEBUGLOG(CAT_AIO_WRITE,"writeback completion start insert keys \n");
         struct timespec insert_start = cache_clock_now();
-        ca->logger_cb(item->io_arg, l_cachedevice_aio_write_lat, item->aio_start, insert_start);
+        ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
         ret = bch_data_insert_keys(ca->set, item->insert_keys);
-        ca->logger_cb(item->io_arg, l_cachedevice_insert_keys, insert_start, cache_clock_now());
+        ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_insert_keys, insert_start, cache_clock_now());
         bch_writeback_add(ca->set->dc);
         break;
       default:
@@ -1311,7 +1313,7 @@ aio_write_completion(void *cb)
     } else if( item->io_completion_cb ) {
       // choice 2
       // item->io_completion_cb(item->io_arg, ret); 
-      ca->logger_cb(item->io_arg, l_cachedevice_cache_write_lat, item->start, cache_clock_now());
+      ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_write_lat, item->start, cache_clock_now());
       item->io_completion_cb(item->io_arg); 
     } else {
       /*printf("<%s>: No io_completion_cb for IO(star=%lu(0x%lx),len=%lu(0x%lx))\n",*/
@@ -1475,7 +1477,7 @@ int _prep_writeback(struct ring_item * item){
 
   struct timespec start = cache_clock_now();
   ret = bch_alloc_sectors(ca->set, k, (item->o_len >> 9), 0, 0, 1);
-  ca->logger_cb(item->io_arg, l_cachedevice_alloc_sectors, start, cache_clock_now());
+  ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_alloc_sectors, start, cache_clock_now());
 
   SET_KEY_DIRTY(k, true);
   // dump_bkey("aio_en", k);
@@ -1816,7 +1818,7 @@ aio_read_completion(struct ring_item *item)
   struct cache *ca = item->ca_handler;
   /*printf("<%s>: All read complete. \n", __func__);*/
 
-  ca->logger_cb(item->io_arg, l_cachedevice_cache_read_lat, item->start, cache_clock_now());
+  ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_read_lat, item->start, cache_clock_now());
   // call callback function
   if (item->io_completion_cb) {
     item->io_completion_cb(item->io_arg);

@@ -38,13 +38,14 @@ int t2store_cache_register_cache(struct cache_context *ctx)
   ((struct cache *)ctx->cache)->fd=ctx->fd_cache;
   ((struct cache *)ctx->cache)->hdd_fd=ctx->fd_direct;
   ((struct cache *)ctx->cache)->bdev_path = ctx->bdev_path;
-  ((struct cache *)ctx->cache)->logger_cb = ctx->logger_cb;
 
   ret = init(ctx->cache);
   if (ret < 0 ) {
     ctx->registered=false;
     return -1;
   }
+  ((struct cache *)ctx->cache)->set->logger_cb = ctx->logger_cb;
+  ((struct cache *)ctx->cache)->set->bluestore_cd = ctx->bluestore_cd;
 
   ctx->registered=true;
   CACHE_INFOLOG(NULL, "After init: cache(%p), set(%p), registerd(%d) ret(%d)\n", ctx->cache, ((struct cache *)ctx->cache)->set, ctx->registered,ret);
