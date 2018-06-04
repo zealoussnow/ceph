@@ -612,8 +612,8 @@ static void make_bfloat(struct bset_tree *t, unsigned j)
     ? bset_bkey_idx(t->data, t->data->keys - bkey_u64s(&t->end))
     : tree_to_bkey(t, j >> (ffz(j) + 1));
 
-  //BUG_ON(m < l || m > r);
-  //BUG_ON(bkey_next(p) != m);
+  BUG_ON(m < l || m > r);
+  BUG_ON(bkey_next(p) != m);
 
   if (KEY_INODE(l) != KEY_INODE(r)) {
     f->exponent = fls64(KEY_INODE(r) ^ KEY_INODE(l)) + 64;
@@ -644,7 +644,8 @@ void dump_bkey(const char *prefix, struct bkey *b)
                    PTR_OFFSET(b,0), KEY_PTRS(b), KEY_DIRTY(b), KEY_INODE(b));
   }
 }
-void dump_bset_tree(struct bset_tree *tree)
+
+void dump_bset_tree_bkeys(struct bset_tree *tree)
 {
   struct bset_tree *t = tree;
   struct bkey *start = t->data->start;
@@ -655,6 +656,17 @@ void dump_bset_tree(struct bset_tree *tree)
   }
   dump_bkey("last ", start);
 }
+
+void dump_bset_tree_binary_tree(struct bset_tree *tree)
+{
+  struct bset_tree *t = tree;
+  unsigned j;
+  for (j = 1; j < t->size; j++) {
+    CACHE_DEBUGLOG(SEARCH_TREE,"j: %u\n", j);
+    dump_bkey(NULL, tree_to_bkey(t, j));
+  }
+}
+
 static void bset_alloc_tree(struct btree_keys *b, struct bset_tree *t)
 {
   if (t != b->set) {
@@ -715,22 +727,24 @@ void bch_bset_build_written_tree(struct btree_keys *b)
   bset_alloc_tree(b, t);
   t->size = min_t(unsigned, bkey_to_cacheline(t, bset_bkey_last(t->data)),
       b->set->tree + btree_keys_cachelines(b) - t->tree);
-  CACHE_DEBUGLOG(CAT_BSET, "size %u last_set_unwritten %u \n",t->size,b->last_set_unwritten);
+
+  // CACHE_DEBUGLOG(CAT_BSET, "size %u last_set_unwritten %u \n",t->size,b->last_set_unwritten);
+
   if (t->size < 2) {
     t->size = 0;
     return;
   }
   // fix bug of to_inorder error
   t->extra = (t->size - rounddown_pow_of_two(t->size - 1)) << 1;
-  CACHE_DEBUGLOG(CAT_BSET, "last bset extra %u \n", t->extra);
+  // CACHE_DEBUGLOG(CAT_BSET, "last bset extra %u \n", t->extra);
   /*** for debug ***/
-  // dump_bset_tree(t);
+  // dump_bset_tree_bkeys(t);
 
   /* First we figure out where the first key in each cacheline is */
 
-  CACHE_DEBUGLOG(BUILD_TREE, "inorder build tree node \n");
+  // CACHE_DEBUGLOG(BUILD_TREE, "inorder build tree node \n");
   for (j = inorder_next(0, t->size); j; j = inorder_next(j, t->size)) {
-    CACHE_DEBUGLOG(BUILD_TREE,"cacheline %u inorder number j %u\n", cacheline, j);
+    // CACHE_DEBUGLOG(BUILD_TREE,"cacheline %u inorder number j %u\n", cacheline, j);
     while (bkey_to_cacheline(t, k) < cacheline) {
       prev = k, k = bkey_next(k);
     }
@@ -745,9 +759,9 @@ void bch_bset_build_written_tree(struct btree_keys *b)
   // dump_bkey("inorder build tree node last bkey ", k);
   
   /* Then we build the tree */
-  CACHE_DEBUGLOG(BUILD_TREE, "inorder build tree node make_bfloat\n");
+  // CACHE_DEBUGLOG(BUILD_TREE, "inorder build tree node make_bfloat\n");
   for (j = inorder_next(0, t->size); j; j = inorder_next(j, t->size)) {
-    CACHE_DEBUGLOG(BUILD_TREE, "j %u to_inorder(j, t) %u t->tree[j].m %u\n", j, to_inorder(j, t), t->tree[j].m);
+    // CACHE_DEBUGLOG(BUILD_TREE, "j %u to_inorder(j, t) %u t->tree[j].m %u\n", j, to_inorder(j, t), t->tree[j].m);
     // dump_bkey("befor make_bfloat bkey ", tree_to_bkey(t, j));
     make_bfloat(t, j);
     // dump_bkey("after make_bfloat bkey ", tree_to_bkey(t, j));
@@ -950,8 +964,7 @@ bset_search_write_set(struct bset_tree *t, const struct bkey *search)
   }
 
   return (struct bset_search_iter) {
-    table_to_bkey(t, li), ri < t->size ? table_to_bkey(t, ri) : bset_bkey_last(t->data)
-  };
+    table_to_bkey(t, li), ri < t->size ? table_to_bkey(t, ri) : bset_bkey_last(t->data) };
 }
 
 static struct bset_search_iter bset_search_tree(struct bset_tree *t,
@@ -960,13 +973,15 @@ static struct bset_search_iter bset_search_tree(struct bset_tree *t,
   struct bkey *l, *r, *tt;
   struct bkey_float *f;
   unsigned inorder, j, n = 1;
-  for (j = 1; j < t->size; j++){
-    tt = tree_to_bkey(t, j);
-    CACHE_DEBUGLOG(SEARCH_TREE,"j: %u\n", j);
-    CACHE_DEBUGLOG(SEARCH_TREE, "bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                   tt, KEY_OFFSET(tt) - KEY_SIZE(tt),
-                   KEY_OFFSET(tt), KEY_SIZE(tt), PTR_OFFSET(tt,0), KEY_PTRS(tt), KEY_DIRTY(tt), KEY_INODE(tt));
-  }
+  /** for debug **/
+  // dump_bset_tree_binary_tree(t);
+  /*
+  if ( search==NULL) {
+    CACHE_DEBUGLOG(SEARCH_TREE, "search bkey is NULL \n");
+  } else {
+    dump_bkey("search bkey ", search);
+  } */
+
   do {
     unsigned p = n << 4;
     p &= ((int) (p - t->size)) >> 31;
@@ -983,66 +998,54 @@ static struct bset_search_iter bset_search_tree(struct bset_tree *t,
     * We need to subtract 1 from f->mantissa for the sign bit trick
     * to work  - that's done in make_bfloat()
     */
-    CACHE_DEBUGLOG(SEARCH_TREE,"j: %u, exponent: %u\n", j, f->exponent);
+    // CACHE_DEBUGLOG(SEARCH_TREE,"n %u p %u j %u exponent %u \n", 
+      //                          n, p, j, f->exponent);
     if (likely(f->exponent != 127)) {
       n = j * 2 + (((unsigned)
             (f->mantissa -
              bfloat_mantissa(search, f))) >> 31);
-      CACHE_DEBUGLOG(SEARCH_TREE,"likely n: %u\n", n);
+      // CACHE_DEBUGLOG(SEARCH_TREE,"now n %u\n", n);
     } else {
-      tt = tree_to_bkey(t, j);
-      CACHE_DEBUGLOG(SEARCH_TREE,"j: %u\n", j);
-      CACHE_DEBUGLOG(SEARCH_TREE,"bkey %u (start=%lu,of=%lu,len=%lu,inode=%u)\n", j,
-                     (KEY_OFFSET(tt) - KEY_SIZE(tt)),KEY_OFFSET(tt),KEY_SIZE(tt),KEY_INODE(tt));
-      CACHE_DEBUGLOG(SEARCH_TREE,"bkey search (start=%lu,of=%lu,len=%lu,inode=%u)\n",
-                     (KEY_OFFSET(search) - KEY_SIZE(search)),KEY_OFFSET(search),KEY_SIZE(search),KEY_INODE(search));
-
+      // dump_bkey("tree_to_bkey bkey ", tree_to_bkey(t, j));
       n = (bkey_cmp(tree_to_bkey(t, j), search) > 0)
         ? j * 2
         : j * 2 + 1;
-
-      CACHE_DEBUGLOG(SEARCH_TREE,"bkey_cmp n: %u\n", n);
+      // CACHE_DEBUGLOG(SEARCH_TREE,"now n %u\n", n);
     }
   } while (n < t->size);
-  CACHE_DEBUGLOG(SEARCH_TREE,"while done j: %u\n", j);
-  tt = tree_to_bkey(t, j);
-  CACHE_DEBUGLOG(SEARCH_TREE,"bkey(start=%lu,of=%lu,len=%lu)\n",
-                 (KEY_OFFSET(tt) - KEY_SIZE(tt)),KEY_OFFSET(tt),KEY_SIZE(tt));
+
+  // CACHE_DEBUGLOG(SEARCH_TREE,"done now n %u j %u\n", n, j);
+  // dump_bkey("done bkey ", tree_to_bkey(t, j));
 
   inorder = to_inorder(j, t);
-  CACHE_DEBUGLOG(SEARCH_TREE,"inorder %u \n", inorder);
+  // CACHE_DEBUGLOG(SEARCH_TREE,"j(%u) to inorder %u \n", j, inorder);
   /*
    * n would have been the node we recursed to - the low bit tells us if
    * we recursed left or recursed right.
    */
-  if (n & 1) {
+  if (n & 1) { // n is odd, means left child tree
     l = cacheline_to_bkey(t, inorder, f->m);
-    CACHE_DEBUGLOG(SEARCH_TREE,"left bkey(start=%lu,of=%lu,len=%lu)\n",
-                   (KEY_OFFSET(l) - KEY_SIZE(l)),KEY_OFFSET(l),KEY_SIZE(l));
+    // dump_bkey("left bkey ", l);
     if (++inorder != t->size) {
       CACHE_DEBUGLOG(SEARCH_TREE,"get inorder_next(j %u size %u ) inorder %u\n", j, t->size, inorder);
       f = &t->tree[inorder_next(j, t->size)];
       r = cacheline_to_bkey(t, inorder, f->m);
-    } else{
+    } else {
+      CACHE_DEBUGLOG(SEARCH_TREE,"get bset_bkey_last bkey as right bkey\n");
       r = bset_bkey_last(t->data);
     }
-    CACHE_DEBUGLOG(SEARCH_TREE,"rigth bkey(start=%lu,of=%lu,len=%lu)\n",
-                   (KEY_OFFSET(r) - KEY_SIZE(r)),KEY_OFFSET(r),KEY_SIZE(r));
-  } else {
+    // dump_bkey("rigth bkey ", r);
+  } else { // means right child tree
     r = cacheline_to_bkey(t, inorder, f->m);
-    CACHE_DEBUGLOG(SEARCH_TREE,"n %u inorder %u got r\n", n, inorder);
-    CACHE_DEBUGLOG(SEARCH_TREE,"n is odd rigth bkey(start=%lu,of=%lu,len=%lu)\n",
-                   (KEY_OFFSET(r) - KEY_SIZE(r)),KEY_OFFSET(r),KEY_SIZE(r));
+    // dump_bkey("right bkey ", r);
     if (--inorder) {
       f = &t->tree[inorder_prev(j, t->size)];
       l = cacheline_to_bkey(t, inorder, f->m);
-      CACHE_DEBUGLOG(SEARCH_TREE,"n is odd inorder %u got left bkey(start=%lu,of=%lu,len=%lu)\n",
-                     inorder, (KEY_OFFSET(l) - KEY_SIZE(l)),KEY_OFFSET(l),KEY_SIZE(l));
     } else {
       l = t->data->start;
-      CACHE_DEBUGLOG(SEARCH_TREE,"n is odd inorder %u got left bkey from start(start=%lu,of=%lu,len=%lu)\n",
-                     inorder, (KEY_OFFSET(l) - KEY_SIZE(l)),KEY_OFFSET(l),KEY_SIZE(l));
+      CACHE_DEBUGLOG(SEARCH_TREE,"get bset_tree start bkey as left bkey\n");
     }
+    // dump_bkey("left bkey ", l);
   }
 
   return (struct bset_search_iter) {l, r};
@@ -1092,7 +1095,7 @@ struct bkey *__bch_bset_search(struct btree_keys *b, struct bset_tree *t,
     }
     i = bset_search_tree(t, search);
   } else {
-    //BUG_ON(!b->nsets && t->size < bkey_to_cacheline(t, bset_bkey_last(t->data)));
+    BUG_ON(!b->nsets && t->size < bkey_to_cacheline(t, bset_bkey_last(t->data)));
     i = bset_search_write_set(t, search);
   }
   if (btree_keys_expensive_checks(b)) {
@@ -1109,9 +1112,7 @@ struct bkey *__bch_bset_search(struct btree_keys *b, struct bset_tree *t,
   while (likely(i.l != i.r) && bkey_cmp(i.l, search) <= 0) {
     i.l = bkey_next(i.l);
   }
-  CACHE_DEBUGLOG(SEARCH_TREE, " search got left bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                 i.l, KEY_OFFSET(i.l) - KEY_SIZE(i.l),
-                 KEY_OFFSET(i.l), KEY_SIZE(i.l), PTR_OFFSET(i.l,0), KEY_PTRS(i.l), KEY_DIRTY(i.l), KEY_INODE(i.l));
+  // dump_bkey("search got left bkey ", i.l);
   return i.l;
 }
 
@@ -1159,7 +1160,6 @@ __bch_btree_iter_init(struct btree_keys *b,
   iter->b = b;
 #endif
   for (; start <= bset_tree_last(b); start++) {
-    CACHE_DEBUGLOG(SEARCH_TREE,"********* \n");
     ret = bch_bset_search(b, start, search);
     /* 将符合条件的bkey放到iter中 */
     bch_btree_iter_push(iter, ret, bset_bkey_last(start->data));

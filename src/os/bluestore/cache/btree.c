@@ -199,6 +199,14 @@
   _r;                                                                                           \
 })
 
+void dump_btree_node(struct btree *node, bool detail) 
+{
+  printf(" ------- \n");
+  // TODO:
+  // level? keys? written? seq? or other ?
+  // if detail: means dump all btree node content, include btree_keys
+}
+
 static inline struct bset *write_block(struct btree *b)
 {
   /* block_bytes是得到cache_set的超级块中的block的大小 */

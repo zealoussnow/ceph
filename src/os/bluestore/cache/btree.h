@@ -180,6 +180,8 @@ BTREE_FLAG(io_error);
 BTREE_FLAG(dirty);
 BTREE_FLAG(write_idx);
 
+void dump_btree_node(struct btree *node, bool detail);
+
 static inline struct btree_write *btree_current_write(struct btree *b)
 {
   /*
