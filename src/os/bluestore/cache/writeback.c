@@ -250,24 +250,6 @@ static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
   }
 }
 
-#if 0
-static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
-{
-  if (KEY_DIRTY(&w->key)) {
-    int ret;
-    unsigned i;
-    struct keylist keys;
-
-    bch_keylist_init(&keys);
-
-    /*bch_keylist_add(&keys, &KEY(1, KEY_OFFSET(&w->key), KEY_SIZE(&w->key)));*/
-    bch_keylist_add(&keys, &w->key);
-
-    bch_data_insert_keys(dc->c, &keys);
-  }
-}
-#endif
-
 static void dirty_io_write(struct dirty_io *io, struct cached_dev *dc)
 {
   sync_write(dc->c->hdd_fd, io->data, io->len, io->offset);
@@ -302,11 +284,14 @@ static void read_dirty(struct cached_dev *dc)
 
   while (!dc->writeback_should_stop) {
 
-    if (!list_empty(&dc->writeback_keys.list))
-      w = list_first_entry(&dc->writeback_keys.list,
-          struct keybuf_key, list);
-    else
+    pthread_spin_lock(&dc->writeback_keys.lock);
+    if (!bch_keybuf_empty(&dc->writeback_keys)) {
+      w = bch_keybuf_first(&dc->writeback_keys);
+    } else {
+      pthread_spin_unlock(&dc->writeback_keys.lock);
       break;
+    }
+    pthread_spin_unlock(&dc->writeback_keys.lock);
 
     if (KEY_START(&w->key) != dc->last_read ||
         jiffies_to_msecs(delay) > 50)
@@ -334,36 +319,7 @@ static void read_dirty(struct cached_dev *dc)
 
     free(io->data);
     free(io);
-    list_del(&w->list);
-
-
-    /*w = bch_keybuf_next(&dc->writeback_keys);*/
-    /*if (!w)*/
-    /*break;*/
-    /*io = kzalloc(sizeof(struct dirty_io) + sizeof(struct bio_vec)*/
-    /** DIV_ROUND_UP(KEY_SIZE(&w->key), PAGE_SECTORS),*/
-    /*GFP_KERNEL);*/
-    /*if (!io)*/
-    /*goto err;*/
-
-    /*w->private	= io;*/
-    /*io->dc		= dc;*/
-
-    /*dirty_init(w);*/
-    /*bio_set_op_attrs(&io->bio, REQ_OP_READ, 0);*/
-    /*io->bio.bi_iter.bi_sector = PTR_OFFSET(&w->key, 0);*/
-    /*bio_set_dev(&io->bio, PTR_CACHE(dc->disk.c, &w->key, 0)->bdev);*/
-    /*io->bio.bi_end_io	= read_dirty_endio;*/
-
-    /*if (bio_alloc_pages(&io->bio, GFP_KERNEL))*/
-    /*goto err_free;*/
-
-    /*trace_bcache_writeback(&w->key);*/
-
-    /*down(&dc->in_flight);*/
-    /*closure_call(&io->cl, read_dirty_submit, NULL, &cl);*/
-
-    /*delay = writeback_delay(dc, KEY_SIZE(&w->key));*/
+    bch_keybuf_del(&dc->writeback_keys, w);
   }
 
   /*if (0) {*/
@@ -448,17 +404,17 @@ static void refill_full_stripes(struct cached_dev *dc)
     next_stripe = find_next_zero_bit(dc->full_dirty_stripes,
         dc->nr_stripes, stripe);
 
-    buf->last_scanned = KEY(1,
+    buf->last_scanned = KEY(0,
         stripe * dc->stripe_size, 0);
 
     bch_refill_keybuf(dc->c, buf,
-        &KEY(1,
+        &KEY(0,
           next_stripe * dc->stripe_size, 0),
         dirty_pred);
 
     /*if (array_freelist_empty(&buf->freelist))*/
     /*return;*/
-    if (list_empty(&buf->list))
+    if (bch_keybuf_empty(buf))
       return;
 
     stripe = next_stripe;
@@ -479,8 +435,8 @@ next:
 static bool refill_dirty(struct cached_dev *dc)
 {
   struct keybuf *buf = &dc->writeback_keys;
-  struct bkey start = KEY(1, 0, 0);
-  struct bkey end = KEY(1, MAX_KEY_OFFSET, 0);
+  struct bkey start = KEY(0, 0, 0);
+  struct bkey end = KEY(0, MAX_KEY_OFFSET, 0);
   struct bkey start_pos;
 
   /*
@@ -501,7 +457,7 @@ static bool refill_dirty(struct cached_dev *dc)
   // TODO: array_freelist_empty是否与list_empty可互换？
   if (dc->partial_stripes_expensive) {
     refill_full_stripes(dc);
-    if (list_empty(&buf->list))
+    if (bch_keybuf_empty(buf))
       return false;
   }
 
@@ -517,9 +473,6 @@ static bool refill_dirty(struct cached_dev *dc)
    */
   buf->last_scanned = start;
   bch_refill_keybuf(dc->c, buf, &start_pos, dirty_pred);
-
-  if (list_empty(&dc->writeback_keys.list))
-    printf("<%s>: key writeback is null\n", __func__);
 
   return bkey_cmp(&buf->last_scanned, &start_pos) >= 0;
 }
@@ -546,7 +499,7 @@ static int bch_writeback_thread(void *arg)
 
     searched_full_index = refill_dirty(dc);
 
-    if (searched_full_index && list_empty(&dc->writeback_keys.list)) {
+    if (searched_full_index && bch_keybuf_empty(&dc->writeback_keys)) {
       atomic_set(&dc->has_dirty, 0);
       SET_BDEV_STATE(&dc->sb, BDEV_STATE_CLEAN);
       /*bch_write_bdev_super(dc, NULL);*/
@@ -597,7 +550,7 @@ void bch_sectors_dirty_init(struct cached_dev *dc)
   bch_btree_op_init(&op, -1);
   /*op.inode = d->id; [> 这里的inode就是bcache的从设备号 <]*/
 
-  bch_btree_map_keys(&op, dc->c, &KEY(1, 0, 0),
+  bch_btree_map_keys(&op, dc->c, &KEY(0, 0, 0),
       sectors_dirty_init_fn, 0);
 
   dc->sectors_dirty_last = bcache_dev_sectors_dirty(dc);
@@ -611,6 +564,7 @@ void bch_cached_dev_writeback_init(struct cached_dev *dc)
   /*bch_keybuf_init(&dc->writeback_keys);*/
 
   INIT_LIST_HEAD(&dc->writeback_keys.list);
+  bch_keybuf_init(&dc->writeback_keys);
 
   dc->sequential_cutoff           = 4 << 20;
   dc->writeback_metadata		= true;
