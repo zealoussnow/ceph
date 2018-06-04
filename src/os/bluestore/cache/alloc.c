@@ -276,7 +276,7 @@ static void invalidate_buckets_random(struct cache *ca)
 static void invalidate_buckets(struct cache *ca)
 {
   BUG_ON(ca->invalidate_needs_gc);
-
+  CACHE_DEBUGLOG(CAT_ALLOC,"cache replacement %d \n",CACHE_REPLACEMENT(&ca->sb));
   switch (CACHE_REPLACEMENT(&ca->sb)) {
   case CACHE_REPLACEMENT_LRU:
     invalidate_buckets_lru(ca);
@@ -290,36 +290,18 @@ static void invalidate_buckets(struct cache *ca)
   }
 }
 
-#if 0
-#define allocator_wait(ca, cond)					\
-  do {									\
-    while (1) {							\
-      set_current_state(TASK_INTERRUPTIBLE);			\
-      if (cond)						\
-      break;						\
-      \
-      pthread_mutex_unlock(&(ca)->set->bucket_lock);			\
-      if (kthread_should_stop())				\
-      return 0;					\
-      \
-      schedule();						\
-      pthread_mutex_lock(&(ca)->set->bucket_lock);			\
-    }								\
-    __set_current_state(TASK_RUNNING);				\
-  } while (0)
-#endif
-#define allocator_wait(ca, cond)					\
-  do {									\
-    while (1) {							\
-      if (cond)						\
-      break;						\
-      \
-      pthread_mutex_unlock(&ca->set->bucket_lock);            \
-      pthread_mutex_lock(&ca->alloc_mut);                     \
-      pthread_cond_wait(&ca->alloc_cond, &ca->alloc_mut);     \
-      pthread_mutex_unlock(&ca->alloc_mut);                   \
-      pthread_mutex_lock(&ca->set->bucket_lock);              \
-    }								\
+#define allocator_wait(ca, cond)                                \
+  do {                                                          \
+    while (1) {                                                 \
+      if (cond)                                                 \
+        break;                                                  \
+                                                                \
+      pthread_mutex_unlock(&ca->set->bucket_lock);              \
+      pthread_mutex_lock(&ca->alloc_mut);                       \
+      pthread_cond_wait(&ca->alloc_cond, &ca->alloc_mut);       \
+      pthread_mutex_unlock(&ca->alloc_mut);                     \
+      pthread_mutex_lock(&ca->set->bucket_lock);                \
+    }                                                           \
   } while (0)
 
 void wake_up_reserve_cond(struct cache *ca)
@@ -335,97 +317,26 @@ static int bch_allocator_push(struct cache *ca, long bucket)
 
   /* Prios/gens are actually the most important reserve */
   if (fifo_push(&ca->free[RESERVE_PRIO], bucket)) {
+    CACHE_DEBUGLOG(CAT_ALLOC, "fifo_push bucket %ld to free[prio] success,goto wake up\n",
+                bucket);
     ret = true;
     goto wake_up;
   }
 
   for (i = 0; i < RESERVE_NR; i++)
     if (fifo_push(&ca->free[i], bucket)) {
+      CACHE_DEBUGLOG(CAT_ALLOC, "fifo_push bucket %ld to free[%d] success,goto wake up\n",
+                bucket, i);
+
       ret = true;
       goto wake_up;
-    }
+  }
+  CACHE_DEBUGLOG(CAT_ALLOC, "fifo_push bucket %ld failed ret %d\n", ret);
 
 wake_up:
   wake_up_reserve_cond(ca);
   return ret;
 }
-
-#if 0
-static int bch_allocator_thread(void *arg)
-{
-  struct cache *ca = arg;
-
-  pthread_mutex_lock(&ca->set->bucket_lock);
-
-  while (1) {
-    /*
-     * First, we pull buckets off of the unused and free_inc lists,
-     * possibly issue discards to them, then we add the bucket to
-     * the free list:
-     * 如果后备free_inc不为空，fifo_pop(&ca->free_inc, bucket)一个
-     * 后备bucket，调用allocator_wait(ca, bch_allocator_push(ca, bucket));
-     * 加入ca->free中，这样保证分配函数有可用的bucket。然后唤醒由于
-     *  wait alloc而等待的线程。若ca->free已满，则alloc_thread阻塞
-     */
-    while (!fifo_empty(&ca->free_inc)) {
-      long bucket;
-
-      fifo_pop(&ca->free_inc, bucket);
-
-      if (ca->discard) {
-        pthread_mutex_unlock(&ca->set->bucket_lock);
-
-        /* 对磁盘进行trim操作，比如使用blkdiscard命令时 */
-        blkdev_issue_discard(ca->bdev,
-            bucket_to_sector(ca->set, bucket),
-            ca->sb.bucket_size, GFP_KERNEL, 0);
-
-        pthread_mutex_lock(&ca->set->bucket_lock);
-      }
-
-      //allocator_wait(ca, bch_allocator_push(ca, bucket));
-      wake_up(&ca->set->btree_cache_wait);
-      wake_up(&ca->set->bucket_wait);
-    }
-
-    /*
-     * We've run out of free buckets, we need to find some buckets
-     * we can invalidate. First, invalidate them in memory and add
-     * them to the free_inc list:
-     */
-
-retry_invalidate:
-    /* 如果free_inc已经空了，则需要invalidate当前正在使用的bucket
-    */
-    //allocator_wait(ca, ca->set->gc_mark_valid &&
-    //	       !ca->invalidate_needs_gc); /* 等待gc执行或未完成 */
-    invalidate_buckets(ca);
-
-    /*
-     * Now, we write their new gens to disk so we can start writing
-     * new stuff to them:
-     */
-    //allocator_wait(ca, !atomic_read(&ca->set->prio_blocked));
-    if (CACHE_SYNC(&ca->set->sb)) {
-      /*
-       * This could deadlock if an allocation with a btree
-       * node locked ever blocked - having the btree node
-       * locked would block garbage collection, but here we're
-       * waiting on garbage collection before we invalidate
-       * and free anything.
-       *
-       * But this should be safe since the btree code always
-       * uses btree_check_reserve() before allocating now, and
-       * if it fails it blocks without btree nodes locked.
-       */
-      if (!fifo_full(&ca->free_inc))
-        goto retry_invalidate;
-
-      bch_prio_write(ca);
-    }
-  }
-}
-#endif
 
 static int bch_allocator_thread(void *arg)
 {
@@ -433,6 +344,7 @@ static int bch_allocator_thread(void *arg)
 
   pthread_mutex_lock(&ca->set->bucket_lock);
   /*printf(" alloc.c FUN %s: ** start bch_allocator thread **\n",__func__);*/
+  CACHE_INFOLOG(CAT_ALLOC, "** start bch_allocator thread **\n");
 
   while (1) {
     /*
@@ -446,8 +358,8 @@ static int bch_allocator_thread(void *arg)
      */
     while (!fifo_empty(&ca->free_inc)) {
       long bucket;
-
       fifo_pop(&ca->free_inc, bucket);
+      CACHE_DEBUGLOG(CAT_ALLOC,"pop bucket %ld from free_inc \n",bucket);
 
       /*if (ca->discard) {*/
       /*pthread_mutex_unlock(&ca->set->bucket_lock);*/
@@ -477,6 +389,8 @@ static int bch_allocator_thread(void *arg)
 retry_invalidate:
     /* 如果free_inc已经空了，则需要invalidate当前正在使用的bucket
     */
+    CACHE_DEBUGLOG(CAT_ALLOC,"gc_mark_valid %d invalidate_needs_gc %d \n",
+                            ca->set->gc_mark_valid, ca->invalidate_needs_gc);
     allocator_wait(ca, ca->set->gc_mark_valid &&
         !ca->invalidate_needs_gc); /* 等待gc执行或未完成 */
     invalidate_buckets(ca);
@@ -485,8 +399,9 @@ retry_invalidate:
      * Now, we write their new gens to disk so we can start writing
      * new stuff to them:
      */
+    CACHE_DEBUGLOG(CAT_ALLOC,"cache set prio_blocked %d \n",ca->set->prio_blocked);
     allocator_wait(ca, !atomic_read(&ca->set->prio_blocked));
-    /*printf(" alloc.c FUN %s: CACHE_SYNC(&ca->set->sb)=%lu\n",__func__, CACHE_SYNC(&ca->set->sb));*/
+    CACHE_DEBUGLOG(CAT_ALLOC,"cache sync %d \n",CACHE_SYNC(&ca->set->sb));
     if (CACHE_SYNC(&ca->set->sb)) {
       /*
        * This could deadlock if an allocation with a btree
@@ -499,11 +414,10 @@ retry_invalidate:
        * uses btree_check_reserve() before allocating now, and
        * if it fails it blocks without btree nodes locked.
        */
+      CACHE_DEBUGLOG(CAT_ALLOC,"fifo_full(&ca->free_inc) %d \n",fifo_full(&ca->free_inc));
       if (!fifo_full(&ca->free_inc))
         goto retry_invalidate;
-      /*printf(" alloc.c FUN %s: >>>> start bch_prio_write <<<< \n",__func__);*/
       bch_prio_write(ca);
-      /*printf(" alloc.c FUN %s: >>>> end bch_prio_write <<<< \n",__func__);*/
     }
   }
 }
@@ -623,7 +537,7 @@ int __bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
   for (i = 0; i < n; i++) {
     struct cache *ca = c->cache_by_alloc[i];
     long b = bch_bucket_alloc(ca, reserve, wait);
-    CACHE_DEBUGLOG(CAT_BTREE, " alloc bucket %lu \n", b);
+    CACHE_DEBUGLOG(CAT_BTREE, "alloc bucket %ld \n", b);
     if (b == -1) {
       goto err;
     }
@@ -873,27 +787,12 @@ int bch_open_buckets_alloc(struct cache_set *c)
   return 0;
 }
 
-// TODO fixed by me
-#if 0
-int bch_cache_allocator_start(struct cache *ca)
-{
-  struct task_struct *k = kthread_run(bch_allocator_thread,
-      ca, "bcache_allocator");
-  if (IS_ERR(k))
-    return PTR_ERR(k);
-
-  ca->alloc_thread = k;
-  return 0;
-}
-#endif
-
 int bch_cache_allocator_start(struct cache *ca)
 {
   int err;
   err = pthread_create(&ca->alloc_thread, NULL, (void *)bch_allocator_thread, (void *)ca);
-  if (err != 0)
-  {
-    /*printf("can't create thread:%s\n", strerror(err));*/
+  if (err != 0) {
+    CACHE_ERRORLOG(CAT_ALLOC, "can't create thread:%s\n", strerror(err));
     return err;
   }
   return 0;

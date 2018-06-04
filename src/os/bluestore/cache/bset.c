@@ -638,6 +638,8 @@ static void bset_alloc_tree(struct btree_keys *b, struct bset_tree *t)
     unsigned j = roundup(t[-1].size,64 / sizeof(struct bkey_float));
     t->tree = t[-1].tree + j;
     t->prev = t[-1].prev + j;
+    CACHE_DEBUGLOG(CAT_BSET, "btree_keys alloc next bset tree to %p(%p + %d) \n",
+                                t->tree, t[-1].tree, j);
   }
   while (t < b->set + MAX_BSETS) {
     t++->size = 0;
@@ -646,17 +648,21 @@ static void bset_alloc_tree(struct btree_keys *b, struct bset_tree *t)
 
 static void bch_bset_build_unwritten_tree(struct btree_keys *b)
 {
-    struct bset_tree *t = bset_tree_last(b);
-    // b->last_set_unwritten 必须是0，也就是在初始化下一个之前，上一个必须是已经写入的
-    BUG_ON(b->last_set_unwritten);
-    b->last_set_unwritten = 1;
+  struct bset_tree *t = bset_tree_last(b);
 
-    bset_alloc_tree(b, t);
+  BUG_ON(b->last_set_unwritten);
+  b->last_set_unwritten = 1;
+  CACHE_DEBUGLOG(CAT_BSET,"btree_keys(nsets %u) set last bset to unwritten(last_set_unwritten %d) \n", b->nsets, b->last_set_unwritten);
 
-    if (t->tree != b->set->tree + btree_keys_cachelines(b)) {
-            t->prev[0] = bkey_to_cacheline_offset(t, 0, t->data->start);
-            t->size = 1;
-    }
+  bset_alloc_tree(b, t);
+
+  if (t->tree != b->set->tree + btree_keys_cachelines(b)) {
+    t->prev[0] = bkey_to_cacheline_offset(t, 0, t->data->start);
+    t->size = 1;
+  }
+  CACHE_DEBUGLOG(CAT_BSET, "btree_keys last bset tree size %u cachelines %u \n", 
+                                btree_keys_cachelines(b), t->size);
+
 }
 
 void bch_bset_init_next(struct btree_keys *b, struct bset *i, uint64_t magic)
@@ -665,13 +671,10 @@ void bch_bset_init_next(struct btree_keys *b, struct bset *i, uint64_t magic)
   if (i != b->set->data) {
     b->set[++b->nsets].data = i;
     i->seq = b->set->data->seq;
+    CACHE_DEBUGLOG(CAT_BSET,"init btree_keys next bset(new nsets %u seq %lu) \n", b->nsets, i->seq);
   } else {
-    /*
-    * include/linux/random.h
-    * 获取内核随机数
-    */
-    /*i->seq = rand(); // TODO*/
     get_random_bytes(&i->seq, sizeof(uint64_t));
+    CACHE_DEBUGLOG(CAT_BSET,"new alloc btree node init btree_keys, init bset seq(rand) %lu \n", i->seq);
   }
   i->magic	= magic;
   i->version	= 0;
@@ -684,14 +687,12 @@ void bch_bset_build_written_tree(struct btree_keys *b)
   struct bset_tree *t = bset_tree_last(b);
   struct bkey *prev = NULL, *k = t->data->start, *tt;
   unsigned j, cacheline = 1;
-  CACHE_DEBUGLOG(BUILD_TREE, "\n---------build tree start--------\n");
+
   b->last_set_unwritten = 0;
-
   bset_alloc_tree(b, t);
-
   t->size = min_t(unsigned, bkey_to_cacheline(t, bset_bkey_last(t->data)),
       b->set->tree + btree_keys_cachelines(b) - t->tree);
-
+  CACHE_DEBUGLOG(CAT_BSET, "build written tree last_set_unwritten %d size %d \n", b->last_set_unwritten, t->size);
   if (t->size < 2) {
     t->size = 0;
     return;

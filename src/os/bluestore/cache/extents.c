@@ -103,7 +103,6 @@ void bch_extent_to_text(char *buf, size_t size, const struct bkey *k)
 {
   unsigned i = 0;
   char *out = buf, *end = buf + size;
-/*#define p(...)	(out += scnprintf(out, end - out, __VA_ARGS__))*/
 #define p(...)	(out += snprintf(out, end - out, __VA_ARGS__))
   p("%llu:%llu len %llu -> [", KEY_INODE(k), KEY_START(k), KEY_SIZE(k));
   for (i = 0; i < KEY_PTRS(k); i++) {
@@ -149,6 +148,8 @@ bch_bkey_dump(struct btree_keys *keys, const struct bkey *k)
 bool __bch_btree_ptr_invalid(struct cache_set *c, const struct bkey *k)
 {
   char buf[80];
+  CACHE_DEBUGLOG(NULL, "bkey(ptrs %u size %u dirty %u) \n",
+     KEY_PTRS(k), KEY_SIZE(k), KEY_DIRTY(k)); 
   if (!KEY_PTRS(k) || !KEY_SIZE(k) || KEY_DIRTY(k)) {
     goto bad;
   }
@@ -158,7 +159,7 @@ bool __bch_btree_ptr_invalid(struct cache_set *c, const struct bkey *k)
   return false;
 bad:
   bch_extent_to_text(buf, sizeof(buf), k);
-  cache_bug(c, "spotted btree ptr %s: %s", buf, bch_ptr_status(c, k));
+  CACHE_ERRORLOG(NULL, "spotted btree ptr %s: %s \n", buf, bch_ptr_status(c, k));
   return true;
 }
 

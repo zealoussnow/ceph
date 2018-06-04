@@ -34,11 +34,8 @@ static int journal_read_bucket(struct cache *ca, struct list_head *list,
 {
   /*bucket_index = 2;*/
   struct journal_device *ja = &ca->journal;
-  //	/*struct bio *bio = &ja->bio;*/
-  //
   struct journal_replay *i;
   struct jset *j, *data = ca->set->journal.w[0].data;
-  //	struct closure cl;
   unsigned len, left, offset = 0;
   int ret = 0;
   /*printf(" ca->sb.d[%d] = %d. ca->set->bucket_bits = %d \n", bucket_index, ca->sb.d[bucket_index], ca->set->bucket_bits);*/
@@ -46,113 +43,82 @@ static int journal_read_bucket(struct cache *ca, struct list_head *list,
   sector_t bucket = bucket_to_sector(ca->set, ca->sb.d[bucket_index]);
   /*unsigned long bucket = bucket_to_sector(ca->set, ca->sb.d[bucket_index]);*/
   //	//closure_init_stack(&cl);
+  CACHE_INFOLOG(CAT_JOURNAL," read %lu(sb.d[%u]) bucket \n", ca->sb.d[bucket_index],
+                                 bucket_index);
   while (offset < ca->sb.bucket_size) {
-reread:		left = ca->sb.bucket_size - offset;
-                len = min(left, PAGE_SECTORS << JSET_BITS);
+reread:	left = ca->sb.bucket_size - offset;
+        len = min(left, PAGE_SECTORS << JSET_BITS);
+        CACHE_DEBUGLOG(CAT_JOURNAL," left %u len %u offset %u \n",left, len, offset);
+        off_t start = (bucket+offset) << 9;
+        size_t lenght = len << 9;
+        if ( sync_read( ca->fd, data, lenght, start ) == -1 ) {
+          CACHE_ERRORLOG(CAT_JOURNAL," read bucket error \n");
+          exit(1);
+        }
 
-                off_t start = (bucket+offset) << 9;
-                size_t lenght = len << 9;
-                /*printf(" bucket = %d , offset=%d\n", bucket, offset);*/
-                /*printf(" read ca->fd=%d, lenght=%d, start=%d \n", ca->fd, lenght, start);*/
-                /*printf(" lenght=%d, start=%d \n", lenght, start);*/
-                if ( sync_read( ca->fd, data, lenght, start ) == -1 ) {
-                  printf(" read bucket error \n");
-                  exit(1);
-                }
-                //		/*bio_reset(bio);*/
-                //		/*bio->bi_iter.bi_sector	= bucket + offset;*/
-                //		/*bio_set_dev(bio, ca->bdev);*/
-                //		/*bio->bi_iter.bi_size	= len << 9;*/
-                //
-                //		/*bio->bi_end_io	= journal_read_endio;*/
-                //		/*bio->bi_private = &cl;*/
-                //		/*bio_set_op_attrs(bio, REQ_OP_READ, 0);*/
-                //		/*bch_bio_map(bio, data);*/
-                //
-                //		/*closure_bio_submit(bio, &cl);*/
-                //		/*closure_sync(&cl);*/
-                //
-                //		/* This function could be simpler now since we no longer write
-                //		 * journal entries that overlap bucket boundaries; this means
-                //		 * the start of a bucket will always have a valid journal entry
-                //		 * if it has any journal entries at all.
-                //		 */
-                //
-                j = data;
-                while (len) {
-                  struct list_head *where;
-                  size_t blocks, bytes = set_bytes(j);
-                  if (j->magic != jset_magic(&ca->sb)) {
-                    /*pr_debug("%u: bad magic", bucket_index);*/
-                    return ret;
-                  }
+        j = data;
+        while (len) {
+          struct list_head *where;
+          size_t blocks, bytes = set_bytes(j);
+          if (j->magic != jset_magic(&ca->sb)) {
+            CACHE_DEBUGLOG(CAT_JOURNAL, "%u: bad magic \n", bucket_index);
+            return ret;
+          }
+          if (bytes > left << 9 || bytes > PAGE_SIZE << JSET_BITS) {
+            CACHE_INFOLOG(CAT_JOURNAL, "%u: too big, %zu bytes, offset %u \n",
+                                        bucket_index, bytes, offset);
+            return ret;
+          }
+          if (bytes > len << 9) {
+            CACHE_INFOLOG(CAT_JOURNAL," bytes %zu > (len %u << 9), goto reread \n",
+                                        bytes, len);
+            goto reread;
+          }
+          if (j->csum != csum_set(j)) {
+            CACHE_INFOLOG(CAT_JOURNAL, "%u: bad csum, %zu bytes, offset %u\n",
+                                    bucket_index, bytes, offset);
+            return ret;
+          }
+          blocks = set_blocks(j, block_bytes(ca->set));
+          while (!list_empty(list)) {
+            i = list_first_entry(list, struct journal_replay, list);
+            if (i->j.seq >= j->last_seq)
+              break;
+            list_del(&i->list);
+            free(i);
+          }
+          list_for_each_entry_reverse(i, list, list) {
+            CACHE_DEBUGLOG(CAT_JOURNAL," j->seq %lu i->j.seq %lu i->j.last_seq %lu \n",
+                                        j->seq, i->j.seq, i->j.last_seq);
+            if (j->seq == i->j.seq) {
+              goto next_set;
+            }
+            if (j->seq < i->j.last_seq) {
+              goto next_set;
+            }
+            if (j->seq > i->j.seq) {
+              where = &i->list;
+              goto add;
+            }
+          }
 
-                  if (bytes > left << 9 ||
-                      bytes > PAGE_SIZE << JSET_BITS) {
-                    /*pr_info("%u: too big, %zu bytes, offset %u",*/
-                    /*bucket_index, bytes, offset);*/
-                    printf("%u: too big, %zu bytes, offset %u \n",
-                        bucket_index, bytes, offset);
-                    return ret;
-                  }
-
-                  if (bytes > len << 9)
-                  {
-                    printf(" bytes > len<<9, goto reread \n");
-                    goto reread;
-                  }
-
-                  if (j->csum != csum_set(j)) {
-                    /*pr_info("%u: bad csum, %zu bytes, offset %u",*/
-                    /*bucket_index, bytes, offset);*/
-                    printf("%u: bad csum, %zu bytes, offset %u \n",
-                        bucket_index, bytes, offset);
-                    return ret;
-                  }
-
-                  blocks = set_blocks(j, block_bytes(ca->set));
-
-                  while (!list_empty(list)) {
-                    i = list_first_entry(list,
-                        struct journal_replay, list);
-                    if (i->j.seq >= j->last_seq)
-                      break;
-                    list_del(&i->list);
-                    free(i);
-                    /*kfree(i);*/
-                  }
-
-                  list_for_each_entry_reverse(i, list, list) {
-                    if (j->seq == i->j.seq)
-                      goto next_set;
-
-                    if (j->seq < i->j.last_seq)
-                      goto next_set;
-
-                    if (j->seq > i->j.seq) {
-                      where = &i->list;
-                      goto add;
-                    }
-                  }
-
-                  where = list;
+          where = list;
 add:
-                  i = T2Molloc(offsetof(struct journal_replay, j) + bytes);
-                  /*i = kT2Molloc(offsetof(struct journal_replay, j) +*/
-                  /*bytes, GFP_KERNEL);*/
-                  if (!i)
-                    return -ENOMEM;
-                  memcpy(&i->j, j, bytes);
-                  /*printf(" journal.c FUN %s: Add new jset(seq=%ld) to journal list\n",__func__,j->seq);*/
-                  list_add(&i->list, where);
-                  ret = 1;
-
-                  ja->seq[bucket_index] = j->seq;
+          i = T2Molloc(offsetof(struct journal_replay, j) + bytes);
+          if (!i) {
+            return -ENOMEM;
+          }
+          memcpy(&i->j, j, bytes);
+          list_add(&i->list, where);
+          CACHE_INFOLOG(CAT_JOURNAL, "add new jset(seq=%lu) to journal list\n", j->seq);
+          ret = 1;
+          ja->seq[bucket_index] = j->seq;
+          CACHE_INFOLOG(CAT_JOURNAL, "ja->seq[%u] %lu\n", bucket_index, ja->seq[bucket_index]);
 next_set:
-                  offset	+= blocks * ca->sb.block_size;
-                  len	-= blocks * ca->sb.block_size;
-                  j = ((void *) j) + blocks * block_bytes(ca);
-                }
+          offset        += blocks * ca->sb.block_size;
+          len           -= blocks * ca->sb.block_size;
+          j = ((void *) j) + blocks * block_bytes(ca);
+        }
   }
 
   return ret;
@@ -160,13 +126,13 @@ next_set:
 
 int bch_journal_read(struct cache_set *c, struct list_head *list)
 {
-#define read_bucket(b)							\
-  ({								\
-   int ret = journal_read_bucket(ca, list, b);		\
-   __set_bit(b, bitmap);					\
-   if (ret < 0)						\
-   return ret;					\
-   ret;							\
+#define read_bucket(b)                                  \
+  ({                                                    \
+   int ret = journal_read_bucket(ca, list, b);          \
+   __set_bit(b, bitmap);                                \
+   if (ret < 0)	                                        \
+     return ret;                                        \
+   ret;                                                 \
    })
 
   struct cache *ca;
@@ -180,22 +146,19 @@ int bch_journal_read(struct cache_set *c, struct list_head *list)
     uint64_t seq;
 
     bitmap_zero(bitmap, SB_JOURNAL_BUCKETS);
-    /*pr_debug("%u journal buckets", ca->sb.njournal_buckets);*/
-    /*printf("%u journal buckets \n", ca->sb.njournal_buckets);*/
-    //
-    //		/*
-    //		 * http://book.huihoo.com/data-structures-and-algorithms-with-object-oriented-design-patterns-in-c++/html/page214.html
-    //		 *
-    //		 * Read journal buckets ordered by golden ratio hash to quickly
-    //		 * find a sequence of buckets with valid journal entries
-    //		 * 按黄金比率散列顺序读取journal，快速查找一系列有效的journal
-    //		 * 条目的buckets
-    //		 */
+    CACHE_INFOLOG("CAT_JOURNAL", "read %u journal buckets\n", ca->sb.njournal_buckets);
+    /*
+    * http://book.huihoo.com/data-structures-and-algorithms-with-object-oriented-design-patterns-in-c++/html/page214.html
+    *
+    * Read journal buckets ordered by golden ratio hash to quickly
+    * find a sequence of buckets with valid journal entries
+    * 按黄金比率散列顺序读取journal，快速查找一系列有效的journal
+    * 条目的buckets
+    */
     for (i = 0; i < ca->sb.njournal_buckets; i++) {
       l = (i * 2654435769U) % ca->sb.njournal_buckets;
-      if (test_bit(l, bitmap))
-      {
-        /*printf(" test_bit break \n");*/
+      if (test_bit(l, bitmap)) {
+        CACHE_DEBUGLOG(CAT_JOURNAL,"test bit l %u \n");
         break;
       }
       // 1. 如果调用read_bucket 返回 > 0, 则会goto bsearch
@@ -207,20 +170,18 @@ int bch_journal_read(struct cache_set *c, struct list_head *list)
      * If that fails, check all the buckets we haven't checked
      * already
      */
-    /*printf(" journal.c FUN %s: falling back to linear search\n",__func__);*/
+    CACHE_INFOLOG(CAT_JOURNAL,"falling back to linear search \n");
 
     for (l = find_first_zero_bit(bitmap, ca->sb.njournal_buckets);
         l < ca->sb.njournal_buckets;
-        l = find_next_zero_bit(bitmap, ca->sb.njournal_buckets, l + 1))
-    {
+        l = find_next_zero_bit(bitmap, ca->sb.njournal_buckets, l + 1)) {
       if (read_bucket(l))
         goto bsearch;
     }
 
     /* no journal entries on this device? */
-    if (l == ca->sb.njournal_buckets)
-    {
-      /*printf(" journal.c FUN %s: Error: No journal entries on this device\n",__func__);*/
+    if (l == ca->sb.njournal_buckets) {
+      CACHE_ERRORLOG(CAT_JOURNAL,"No journal entries on this device\n");
       exit(1);
       continue;
     }
@@ -230,7 +191,7 @@ bsearch:
     /* Binary search */
     m = l;
     r = find_next_bit(bitmap, ca->sb.njournal_buckets, l + 1);
-    /*printf(" journal.c FUN %s: Starting binary search, l=%u, r=%u\n",__func__, l, r);*/
+    CACHE_INFOLOG(CAT_JOURNAL, "starting binary search, l=%u, r=%u\n",l,r);
 
     while (l + 1 < r) {
       seq = list_entry(list->prev, struct journal_replay,
@@ -269,7 +230,8 @@ bsearch:
 
     seq = 0;
 
-    /*printf(" journal.c FUN %s: before(update cur_idx)cur_idx=%d,last_idx=%d,discard_idx=%d\n",__func__,ja->cur_idx,ja->last_idx,ja->discard_idx);*/
+    CACHE_INFOLOG(CAT_JOURNAL,"before(update cur_idx %u last_idx %u discard_idx %u\n",
+                ja->cur_idx,ja->last_idx,ja->discard_idx);
     for (i = 0; i < ca->sb.njournal_buckets; i++)
       if (ja->seq[i] > seq) {
         seq = ja->seq[i];
@@ -280,17 +242,18 @@ bsearch:
          */
         ja->cur_idx = i;
         ja->last_idx = ja->discard_idx = (i + 1) %
-          ca->sb.njournal_buckets;
+        ca->sb.njournal_buckets;
 
       }
-    /*printf(" journal.c FUN %s: after(update cur_idx)cur_idx=%d,last_idx=%d,discard_idx=%d\n",__func__,ja->cur_idx,ja->last_idx,ja->discard_idx);*/
-  }
+      CACHE_INFOLOG(CAT_JOURNAL,"after(update cur_idx %u last_idx %u discard_idx %u\n",
+                ja->cur_idx,ja->last_idx,ja->discard_idx);
+    }
 
   if (!list_empty(list))
     c->journal.seq = list_entry(list->prev,
         struct journal_replay,
         list)->j.seq;
-  /*printf(" journal.c FUN %s: Now new journal seq=%d \n", __func__, c->journal.seq);*/
+  CACHE_INFOLOG(CAT_JOURNAL,"now new journal seq %lu \n", c->journal.seq);
   return 0;
 #undef read_bucket
 }
@@ -351,7 +314,6 @@ void bch_journal_mark(struct cache_set *c, struct list_head *list)
 ///* 下次打开时对未处理的btree insert做重新提交操作 */
 int bch_journal_replay(struct cache_set *s, struct list_head *list)
 {
-  /*printf(" -------- \n");*/
   int ret = 0, keys = 0, entries = 0;
   struct bkey *k;
   struct journal_replay *i =
@@ -359,7 +321,8 @@ int bch_journal_replay(struct cache_set *s, struct list_head *list)
 
   uint64_t start = i->j.last_seq, end = i->j.seq, n = start;
   struct keylist keylist;
-
+  CACHE_INFOLOG(CAT_JOURNAL,"journal replay start %lu end %lu\n",
+                start, end);
   list_for_each_entry(i, list, list) {
     BUG_ON(i->pin && atomic_read(i->pin) != 1);
 

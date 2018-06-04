@@ -64,6 +64,7 @@ getblocks(int fd)
       exit(EXIT_FAILURE);
   }
   CACHE_DEBUGLOG(NULL,"getblocks %u \n", ret);
+
   return ret;
 }
 
@@ -119,7 +120,7 @@ prio_io(struct cache *ca, uint64_t bucket, int op,
 
 static void prio_read(struct cache *ca, uint64_t bucket)
 {
-  CACHE_INFOLOG(NULL,"prio read \n");
+  CACHE_INFOLOG(NULL,"prio read bucket %lu \n", bucket);
   struct prio_set *p = ca->disk_buckets;
   struct bucket_disk *d = p->data + prios_per_bucket(ca), *end = d;
   struct bucket *b;
@@ -248,12 +249,17 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
   if (sb->keys > SB_JOURNAL_BUCKETS) {
     goto err;
   }
-  /*err = "Bad checksum";*/
-  /*if (s->csum != csum_set(s))*/
-  /*goto err;*/
-  /*err = "Bad UUID";*/
-  /*if (bch_is_zero(sb->uuid, 16))*/
-  /*goto err;*/
+  err = "Bad checksum";
+  if (s->csum != csum_set(s)) {
+    CACHE_ERRORLOG(NULL, "super csum check error read csum %lu  now csum %lu \n", s->csum, csum_set(s));
+    goto err;
+  }
+
+  err = "Bad UUID";
+  if (bch_is_zero(sb->uuid, 16)) {
+    CACHE_ERRORLOG(NULL, "super check uuid is zero \n");
+    goto err;
+  }
   sb->block_size	= s->block_size;
   /*err = "Superblock block size smaller than device block size";*/
   /*if (sb->block_size << 9 < bdev_logical_block_size(bdev))*/
@@ -535,6 +541,8 @@ uuid_io(struct cache_set *c, int op, unsigned long op_flags,
   off_t start = PTR_OFFSET(k, 0) << 9; // bucket_number * bucket_size
   size_t len = KEY_SIZE(k) << 9;
   // buf = c->uuids
+  CACHE_DEBUGLOG(NULL,"uuid io op %d ( fd %d start %lu len %lu \n",
+                        op, c->fd, start, len);
   if ( op == REQ_OP_WRITE ) {
     if ( sync_write(c->fd, c->uuids, len , start) == -1 ) {
       CACHE_ERRORLOG(CAT_WRITE,"write uuid error \n");
@@ -542,7 +550,6 @@ uuid_io(struct cache_set *c, int op, unsigned long op_flags,
     }
   }
   if ( op == REQ_OP_READ ) {
-    /*printf(" main.c FUN %s: Read fd=%d,start=0x%x,len=%d\n",__func__,c->fd,start,len);*/
     if ( sync_read(c->fd, c->uuids, len , start) == -1 ) {
       CACHE_ERRORLOG(CAT_WRITE,"read uuid error \n");
       exit(-1);
@@ -550,11 +557,9 @@ uuid_io(struct cache_set *c, int op, unsigned long op_flags,
   }
   //BUG_ON(!parent);
   /*down(&c->uuid_write_mutex);*/
-  /*closure_init(cl, parent);*/
   bch_extent_to_text(buf, sizeof(buf), k);
-  /*pr_debug("%s UUIDs at %s", op == REQ_OP_WRITE ? "wrote" : "read", buf);*/
-  /*printf("%s UUIDs at %s \n", op == REQ_OP_WRITE ? "wrote" : "read", buf);*/
-  /*printf(" c->nr_uuids = %d \n", c->nr_uuids);*/
+  CACHE_DEBUGLOG(NULL, "%s UUIDs at %s (nr_uuids %u) \n", 
+        op == REQ_OP_WRITE ? "wrote" : "read", buf, c->nr_uuids);
   for (u = c->uuids; u < c->uuids + c->nr_uuids; u++) {
     if (!bch_is_zero(u->uuid, 16)) {
       CACHE_INFOLOG(NULL, "uuid io Slot %zi: %pU: %s: 1st: %u last: %u inv: %u \n",
@@ -562,10 +567,9 @@ uuid_io(struct cache_set *c, int op, unsigned long op_flags,
                                  u->first_reg, u->last_reg, u->invalidated);
     }
   }
-  /*closure_return_with_destructor(cl, uuid_io_unlock);*/
 }
 
-static char *uuid_read(struct cache_set *c, struct jset *j)//, struct closure *cl)
+static char *uuid_read(struct cache_set *c, struct jset *j)
 {
   struct bkey *k = &j->uuid_bucket;
   if (__bch_btree_ptr_invalid(c, k)) {
@@ -654,10 +658,10 @@ run_cache_set(struct cache_set *c)
     struct bkey *k;
     struct jset *j;
     unsigned iter;
-    for_each_cache(ca, c, iter) {
-      struct journal_device *ja = &ca->journal;
+    /*for_each_cache(ca, c, iter) {*/
+      /*struct journal_device *ja = &ca->journal;*/
       /*memset(ja->seq, 0, ca->sb.njournal_buckets * sizeof(uint64_t));*/
-    }
+    /*}*/
     err = "cannot allocate memory for journal";
     CACHE_INFOLOG(NULL,"journal read \n");
     if (bch_journal_read(c, &journal)) {
@@ -692,8 +696,7 @@ run_cache_set(struct cache_set *c)
     /* 将节点从链表中移除，并重新初始化该节点的next和prev指针 */
     list_del_init(&c->root->list);
     rw_unlock(true, c->root);
-    /*pthread_rwlock_unlock(&c->root->lock);*/
-    err = uuid_read(c, j);//, &cl);
+    err = uuid_read(c, j);
     if (err) {
       goto err;
     }
@@ -703,8 +706,7 @@ run_cache_set(struct cache_set *c)
     }
     bch_journal_mark(c, &journal);
     bch_initial_gc_finish(c);
-    /*pr_debug("btree_check() done");*/
-    /*printf("btree_check() done \n");*/
+    CACHE_DEBUGLOG(NULL, "btree_check() done");
 
     /*
      * bcache_journal_next() can't happen sooner, or
@@ -730,8 +732,10 @@ run_cache_set(struct cache_set *c)
      * before the next journal entry is written:
      */
     /*printf(" j->verison = %d \n", j->version);*/
+    CACHE_INFOLOG(NULL, "j->verison  %u BCACHE_JSET_VERSION_UUID %d \n", 
+                        j->version, BCACHE_JSET_VERSION_UUID);
     if (j->version < BCACHE_JSET_VERSION_UUID) {
-            __uuid_write(c);
+      __uuid_write(c);
     }
 
     bch_journal_replay(c, &journal);
@@ -740,8 +744,11 @@ run_cache_set(struct cache_set *c)
     for_each_cache(ca, c, i) {
       unsigned j;
       ca->sb.keys = clamp_t(int, ca->sb.nbuckets >> 7, 2, SB_JOURNAL_BUCKETS);
+      CACHE_INFOLOG(NULL,"journal keys %u first_bucket %u  \n", 
+                ca->sb.keys, ca->sb.first_bucket);
       for (j = 0; j < ca->sb.keys; j++) {
         ca->sb.d[j] = ca->sb.first_bucket + j;
+        CACHE_DEBUGLOG(NULL,"ca->sb.d[%u] %lu \n",j,ca->sb.d[j]);
       }
     }
     bch_initial_gc_finish(c);
@@ -898,8 +905,7 @@ err:
 
 static int _register_cache(struct cache_sb *sb, struct cache *ca)
 {
-  /*char name[BDEVNAME_SIZE];*/
-  const char *err = NULL; /* must be set for any error case */
+  const char *err = NULL; 
   int ret = 0;
 
   memcpy(&ca->sb, sb, sizeof(struct cache_sb));
@@ -1971,8 +1977,8 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
     sb.nr_in_set		= 1;
     sb.first_bucket		= (23 / sb.bucket_size) + 1;
     if (sb.nbuckets < 1 << 7) {
-      fprintf(stderr, "Not enough buckets: %ju, need %u\n",
-          sb.nbuckets, 1 << 7);
+      CACHE_ERRORLOG(NULL, "Not enough buckets: %ju, need %u\n",
+                                sb.nbuckets, 1 << 7);
       exit(EXIT_FAILURE);
     }
     SET_CACHE_DISCARD(&sb, discard);
@@ -1998,12 +2004,12 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
   sb.csum = csum_set(&sb);
   /* Zero start of disk */
   if (pwrite(fd, zeroes, SB_START, 0) != SB_START) {
-    perror("write error\n");
+    CACHE_ERRORLOG(NULL, "write zeroes super from SB_START %u error \n", SB_START);
     exit(EXIT_FAILURE);
   }
   /* Write superblock */
   if (pwrite(fd, &sb, sizeof(sb), SB_START) != sizeof(sb)) {
-    perror("write error\n");
+    CACHE_ERRORLOG(NULL, "write super from SB_START %u error \n", SB_START);
     exit(EXIT_FAILURE);
   }
 

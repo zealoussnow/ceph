@@ -335,34 +335,19 @@ static void btree_node_read_endio(struct bio *bio)
 
 static void bch_btree_node_read(struct btree *b)
 {
-  time_t now;
-  time(&now);
-  uint64_t start_time = now;
-  /*printf(" start bch_btree_node_read \n");*/
+  CACHE_DEBUGLOG(CAT_BTREE,"read btree node(level %u)\n",b->level);
+  /*time_t now;*/
+  /*time(&now);*/
+  /*uint64_t start_time = now;*/
   /*uint64_t start_time = local_clock();*/
-  //struct closure cl;
-  /*struct bio *bio;*/
-  //trace_bcache_btree_read(b);
 
-  //closure_init_stack(&cl);
   size_t len = KEY_SIZE(&b->key) << 9;
   off_t start = PTR_OFFSET_to_bytes(&b->key, 0);
-  printf(" btree.c FUN %s: Read Btree Node: fd=%d,start=0x%x,len=%d\n",__func__, b->c->fd,start,len);
-  if ( sync_read(b->c->fd, b->keys.set[0].data, len, start) == -1 ){
-    printf(" btree_node_read error \n");
+  CACHE_DEBUGLOG(CAT_BTREE,"read btree node fd %d,start 0x%x,len %lu\n",b->c->fd,start,len);
+  if ( sync_read(b->c->fd, b->keys.set[0].data, len, start) == -1 ) {
+    CACHE_ERRORLOG(CAT_BTREE,"read btree node error \n");
     exit(1);
   }
-  /*bio = bch_bbio_alloc(b->c);*/
-  /*bio->bi_iter.bi_size = KEY_SIZE(&b->key) << 9;*/
-  //bio->bi_end_io	= btree_node_read_endio;
-  /*bio->bi_private	= &cl;*/
-  /*bio->bi_opf = REQ_OP_READ | REQ_META;*/
-
-  /*bch_bio_map(bio, b->keys.set[0].data);*/
-
-  /*bch_submit_bbio(bio, b->c, &b->key, 0);*/
-  /*closure_sync(&cl);*/
-
   /*if (bio->bi_status)*/
   /*set_btree_node_io_error(b);*/
 
@@ -374,16 +359,15 @@ static void bch_btree_node_read(struct btree *b)
   bch_btree_node_read_done(b);
 
   /*bch_time_stats_update(&b->c->btree_read_time, start_time);*/
-
   return;
-  /*err:*/
+/*err:*/
   /*bch_cache_set_error(b->c, "io error reading bucket %zu",*/
   /*PTR_BUCKET_NR(b->c, &b->key, 0));*/
 }
 
 static void btree_complete_write(struct btree *b, struct btree_write *w)
 {
-  /*printf(" w->prio_blocked = %d \n", w->prio_blocked);*/
+  CACHE_DEBUGLOG(CAT_BTREE, "prio_blocked %d \n", w->prio_blocked);
   if (w->prio_blocked &&
       !atomic_sub_return(w->prio_blocked, &b->c->prio_blocked)) {
     wake_up_allocators(b->c);
@@ -543,10 +527,14 @@ void __bch_btree_node_write(struct btree *b)//, struct closure *parent)
 void bch_btree_node_write(struct btree *b) // , struct closure *parent)
 {
   unsigned nsets = b->keys.nsets;
-  /*printf(" btree.c FUN %s: Btree Node Write: btree->keys.nsets=%d\n",__func__, nsets);*/
+  CACHE_DEBUGLOG(CAT_BTREE,"write btree node(level %u inode %u of %lu size %lu ptr_of %lu written %u) nsets %u\n",
+                         b->level, KEY_INODE(&b->key), KEY_OFFSET(&b->key), 
+                         KEY_SIZE(&b->key), PTR_OFFSET(&b->key, 0), nsets, b->written);
   //lockdep_assert_held(&b->lock);
   __bch_btree_node_write(b);
-
+  CACHE_DEBUGLOG(CAT_BTREE,"after write btree node(level %u inode %u of %lu size %lu ptr_of %lu written %u) nsets %u\n",
+                         b->level, KEY_INODE(&b->key), KEY_OFFSET(&b->key), 
+                         KEY_SIZE(&b->key), PTR_OFFSET(&b->key, 0), b->written, nsets);
   // ******** for debug
   /*
    * do verify if there was more than one set initially (i.e. we did a
@@ -1073,7 +1061,8 @@ struct btree *bch_btree_node_get(struct cache_set *c, struct btree_op *op,
   int i = 0;
   struct btree *b;
   BUG_ON(level < 0);
-
+  CACHE_DEBUGLOG(CAT_BTREE," get btree node(level %u) write %d parent %p \n",
+                        level, write, parent);
 retry:
   b = mca_find(c, k);
   if (!b) {
@@ -1081,18 +1070,18 @@ retry:
     b = mca_alloc(c, op, k, level);
     pthread_mutex_unlock(&c->bucket_lock);
     if (!b) {
-      /*printf(" btree.c FUN %s: mca_alloc Faild,goto retry\n",__func__);*/
+      CACHE_ERRORLOG(CAT_BTREE, "mca_alloc btree node faild, goto retry\n");
       goto retry;
     }
     if (IS_ERR(b)) {
-      printf(" btree.c FUN %s: mca_alloc btree is ERR, return b\n",__func__);
+      CACHE_ERRORLOG(CAT_BTREE, "mca_alloc btree node is error \n");
       return b;
     }
-    printf(" btree.c FUN %s: Start read btree node \n",__func__);
     bch_btree_node_read(b);
-    printf(" btree.c FUN %s: End read btree node \n",__func__);
-    if (!write)
+    if (!write) {
+      CACHE_DEBUGLOG(CAT_BTREE,"unlock btree node \n");
       pthread_rwlock_unlock(&b->lock);
+    }
     //	downgrade_write(&b->lock);
   } else {
     rw_lock(write, b, level);
@@ -1172,12 +1161,14 @@ retry:
   SET_KEY_SIZE(&k.key, c->btree_pages * PAGE_SECTORS);
 
   b = mca_alloc(c, op, &k.key, level);
-  /*printf("--- KEY_SIZE(&b->key) = %d \n", KEY_SIZE(&b->key));*/
+  CACHE_DEBUGLOG(CAT_BTREE, "alloc new btree node(level %u inode %u of %lu size %lu ptr_of %lu)\n",
+                        b->level, KEY_INODE(&b->key), KEY_OFFSET(&b->key), KEY_SIZE(&b->key), 
+                        PTR_OFFSET(&b->key, 0));
   if (IS_ERR(b)) {
     goto err_free;
   }
   if (!b) {
-    cache_bug(c,"Tried to allocate bucket that was in btree cache");
+    CACHE_DEBUGLOG(CAT_BTREE,"retry to allocate bucket that was in btree cache\n");
     goto retry;
   }
   b->accessed = 1;
@@ -2407,6 +2398,10 @@ void bch_btree_set_root(struct btree *b)
   list_del_init(&b->list);
   pthread_mutex_unlock(&b->c->bucket_lock);
   b->c->root = b; /* 将btree与cache_set关联了 */
+  CACHE_DEBUGLOG(CAT_BTREE,"set root node(level %u inode %u of %lu size %lu ptr_of %lu)\n",
+                       b->level, KEY_INODE(&b->key), KEY_OFFSET(&b->key), 
+                       KEY_SIZE(&b->key), PTR_OFFSET(&b->key, 0));
+
   // 进行journal的写入
   /*printf(" btree.c FUN %s: Set new root and start journale meta \n",__func__);*/
   bch_journal_meta(b->c);
