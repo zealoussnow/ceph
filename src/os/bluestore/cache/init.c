@@ -1221,7 +1221,8 @@ int item_write_next(struct ring_item *item, bool dirty)
     SET_KEY_DIRTY(k, true);
   }
 
-  uint64_t left = item->o_len - item->io.len;
+  item->io.pos = item->io.pos + item->io.len;
+  uint64_t left = item->o_len - (item->io.pos - item->data);
   ret = bch_alloc_sectors(ca->set, k,(left >> 9), 0, 0, 1);
   if ( ret < 0 ) {
     CACHE_ERRORLOG(NULL, "alloc bucket/sectors failed\n");
@@ -1229,7 +1230,6 @@ int item_write_next(struct ring_item *item, bool dirty)
   }
   //dump_bkey("aio_en", k);
   //CACHE_DEBUGLOG("aio_en", "o_off=%lu, o_len=%lu \n", item->o_offset/512, item->o_len/ 512);
-  item->io.pos = item->io.pos + item->io.len;
   item->io.offset = (PTR_OFFSET(k, 0) << 9);
   item->io.len = (KEY_SIZE(k)<<9);
 
