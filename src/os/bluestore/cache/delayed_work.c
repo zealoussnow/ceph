@@ -1,14 +1,10 @@
 #include "delayed_work.h"
 #include "log.h"
 
-void delayed_work_add(struct event *ev, unsigned int seconds)
+void delayed_work_add(struct event *ev, struct timeval *tv)
 {
-  struct timeval tv;
-
   CACHE_DEBUGLOG(CAT_EVENT, "add delay event\n");
-  evutil_timerclear(&tv);
-  tv.tv_sec = seconds;
-  event_add(ev, &tv);
+  event_add(ev, tv);
 }
 
 void delayed_work_del(struct event *ev)

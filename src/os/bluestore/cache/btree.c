@@ -470,7 +470,10 @@ static void bch_btree_leaf_dirty(struct btree *b, atomic_t *journal_ref)
 
   dump_btree_node("leaf dirty",b,false);
   if (!btree_node_dirty(b)) {
-    delayed_work_add(&b->ev_node_write, BTREE_NODE_WRITE_DELAY_SECONDS);
+    struct timeval tv;
+    evutil_timerclear(&tv);
+    tv.tv_sec = BTREE_NODE_WRITE_DELAY_SECONDS;
+    delayed_work_add(&b->ev_node_write, &tv);
   }
   set_btree_node_dirty(b);
   if (journal_ref) {
