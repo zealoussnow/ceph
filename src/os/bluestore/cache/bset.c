@@ -17,6 +17,7 @@
 #include "bcache.h"
 #include "util.h"
 #include "bset.h"
+#include "prefetch.h"
 
 #ifdef CONFIG_BCACHE_DEBUG
 
@@ -955,8 +956,7 @@ static struct bset_search_iter bset_search_tree(struct bset_tree *t,
   do {
     unsigned p = n << 4;
     p &= ((int) (p - t->size)) >> 31;
-    // TODO
-    // prefetch(&t->tree[p]);
+    prefetch(&t->tree[p]);
     j = n;
     f = &t->tree[j];
 
