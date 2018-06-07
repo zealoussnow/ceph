@@ -132,64 +132,20 @@ static void read_moving(struct cache_set *c)
   off_t offset = 0;
   uint64_t len = 0;
   int j;
-  /*struct moving_io *io;*/
-  /*struct bio *bio;*/
-  /*struct closure cl;*/
-
-  /*closure_init_stack(&cl);*/
-
-  /* XXX: if we error, background writeback could stall indefinitely */
-
-  bch_refill_keybuf(c, &c->moving_gc_keys, &MAX_KEY, moving_pred);
 
   while (!test_bit(CACHE_SET_STOPPING, &c->flags)) {
     /*
      * 填充moving_gc_keys
      * 循环调用bch_keybuf_next_rescan，每次从红黑树返回一个keybuf_key
      */
-    /*w = bch_keybuf_next_rescan(c, &c->moving_gc_keys,*/
-    /*&MAX_KEY, moving_pred);*/
-    pthread_spin_lock(&c->moving_gc_keys.lock);
-    if (!bch_keybuf_empty(&c->moving_gc_keys)) {
-      w = bch_keybuf_first(&c->moving_gc_keys);
-    } else {
-      pthread_spin_unlock(&c->moving_gc_keys.lock);
+    w = bch_keybuf_next_rescan(c, &c->moving_gc_keys, &MAX_KEY, moving_pred);
+    if (!w)
       break;
-    }
-    pthread_spin_unlock(&c->moving_gc_keys.lock);
-
 
     if (ptr_stale(c, &w->key, 0)) {
       bch_keybuf_del(&c->moving_gc_keys, w);
       continue;
     }
-
-    /*io = kzalloc(sizeof(struct moving_io) + sizeof(struct bio_vec)*/
-    /** DIV_ROUND_UP(KEY_SIZE(&w->key), PAGE_SECTORS),*/
-    /*GFP_KERNEL);*/
-    /*if (!io)*/
-    /*goto err;*/
-
-    /*w->private	= io;*/
-    /*io->w		= w;*/
-    /*io->op.inode	= KEY_INODE(&w->key);*/
-    /*io->op.c	= c;*/
-    /*io->op.wq	= c->moving_gc_wq;*/
-
-    /* 根据io生成&io->bio.bio */
-    /*moving_init(io);*/
-    /*bio = &io->bio.bio;*/
-
-    /*bio_set_op_attrs(bio, REQ_OP_READ, 0);*/
-    /*bio->bi_end_io	= read_moving_endio;*/
-
-    /*if (bio_alloc_pages(bio, GFP_KERNEL))*/
-    /*goto err;*/
-
-    /*trace_bcache_gc_copy(&w->key);*/
-
-    /*down(&c->moving_in_flight);*/
-    /*closure_call(&io->cl, read_moving_submit, NULL, &cl);*/
 
     len = KEY_SIZE(&w->key) << 9;
     offset = PTR_OFFSET(&w->key, 0) << 9;
@@ -310,7 +266,6 @@ void bch_moving_gc(struct cache_set *c)
 
 void bch_moving_init_cache_set(struct cache_set *c)
 {
-  INIT_LIST_HEAD(&c->moving_gc_keys.list);
   bch_keybuf_init(&c->moving_gc_keys);
   /*sema_init(&c->moving_in_flight, 64);*/
 }

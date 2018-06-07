@@ -16,6 +16,7 @@ set(libcache_srcs
   movinggc.c
   log.c
   delayed_work.c
+  rbtree.c
   )
 
 if (USE_SPDK_AIO)

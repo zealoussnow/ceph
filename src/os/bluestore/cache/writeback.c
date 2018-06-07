@@ -83,12 +83,12 @@ static void update_writeback_rate(void *arg)
 
   pthread_setname_np(pthread_self(), "writeback_rate_update");
   while (!dc->writeback_should_stop) {
-    /*down_read(&dc->writeback_lock);*/
+    pthread_rwlock_rdlock(&dc->writeback_lock);
     if (atomic_read(&dc->has_dirty) &&
         dc->writeback_percent)
       __update_writeback_rate(dc);
 
-    /*up_read(&dc->writeback_lock);*/
+    pthread_rwlock_unlock(&dc->writeback_lock);
 
     /*schedule_delayed_work(&dc->writeback_rate_update,*/
     /*dc->writeback_rate_update_seconds * HZ);*/
@@ -284,14 +284,9 @@ static void read_dirty(struct cached_dev *dc)
 
   while (!dc->writeback_should_stop) {
 
-    pthread_spin_lock(&dc->writeback_keys.lock);
-    if (!bch_keybuf_empty(&dc->writeback_keys)) {
-      w = bch_keybuf_first(&dc->writeback_keys);
-    } else {
-      pthread_spin_unlock(&dc->writeback_keys.lock);
+    w = bch_keybuf_next(&dc->writeback_keys);
+    if (!w)
       break;
-    }
-    pthread_spin_unlock(&dc->writeback_keys.lock);
 
     if (KEY_START(&w->key) != dc->last_read ||
         jiffies_to_msecs(delay) > 50)
@@ -412,9 +407,7 @@ static void refill_full_stripes(struct cached_dev *dc)
           next_stripe * dc->stripe_size, 0),
         dirty_pred);
 
-    /*if (array_freelist_empty(&buf->freelist))*/
-    /*return;*/
-    if (bch_keybuf_empty(buf))
+    if (array_freelist_empty(&buf->freelist))
       return;
 
     stripe = next_stripe;
@@ -448,16 +441,9 @@ static bool refill_dirty(struct cached_dev *dc)
       bkey_cmp(&buf->last_scanned, &end) > 0)
     buf->last_scanned = start;
 
-  /*if (dc->partial_stripes_expensive) {*/
-  /*refill_full_stripes(dc);*/
-  /*if (array_freelist_empty(&buf->freelist))*/
-  /*return false;*/
-  /*}*/
-
-  // TODO: array_freelist_empty是否与list_empty可互换？
   if (dc->partial_stripes_expensive) {
     refill_full_stripes(dc);
-    if (bch_keybuf_empty(buf))
+    if (array_freelist_empty(&buf->freelist))
       return false;
   }
 
@@ -486,10 +472,11 @@ static int bch_writeback_thread(void *arg)
   pthread_setname_np(pthread_self(), "writeback_thread");
   while (!dc->writeback_should_stop) {
     /*printf("<%s>: start writeback\n", __func__);*/
-    /*down_write(&dc->writeback_lock);*/
+    pthread_rwlock_wrlock(&dc->writeback_lock);
 
     /* 如果不为dirty或者writeback机制未运行时，该线程让出CPU控制权 */
     if (!atomic_read(&dc->has_dirty)) {
+      pthread_rwlock_unlock(&dc->writeback_lock);
       pthread_mutex_lock(&dc->writeback_mut);
       pthread_cond_wait(&dc->writeback_cond, &dc->writeback_mut);
       pthread_mutex_unlock(&dc->writeback_mut);
@@ -499,11 +486,13 @@ static int bch_writeback_thread(void *arg)
 
     searched_full_index = refill_dirty(dc);
 
-    if (searched_full_index && bch_keybuf_empty(&dc->writeback_keys)) {
+    if (searched_full_index && RB_EMPTY_ROOT(&dc->writeback_keys.keys)) {
       atomic_set(&dc->has_dirty, 0);
       SET_BDEV_STATE(&dc->sb, BDEV_STATE_CLEAN);
       /*bch_write_bdev_super(dc, NULL);*/
     }
+
+    pthread_rwlock_unlock(&dc->writeback_lock);
 
     ///*up_write(&dc->writeback_lock);*/
 
@@ -561,9 +550,7 @@ void bch_cached_dev_writeback_init(struct cached_dev *dc)
 {
   /*sema_init(&dc->in_flight, 64);*/
   /*init_rwsem(&dc->writeback_lock);*/
-  /*bch_keybuf_init(&dc->writeback_keys);*/
-
-  INIT_LIST_HEAD(&dc->writeback_keys.list);
+  pthread_rwlock_init(&dc->writeback_lock, NULL);
   bch_keybuf_init(&dc->writeback_keys);
 
   dc->sequential_cutoff           = 4 << 20;

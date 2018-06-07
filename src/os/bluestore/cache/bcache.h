@@ -199,6 +199,8 @@
 #include "closure.h"
 #include "aio.h"
 #include "log.h"
+#include "rbtree.h"
+#include "rbtree_augmented.h"
 
 struct bucket {
   atomic_t      pin;
@@ -255,17 +257,21 @@ struct keybuf;
 //};
 
 struct keybuf_key {
-  struct list_head        list;
-  //struct bkey             key;
+  struct rb_node          node;
   BKEY_PADDED(key);
+  bool                    private;
 };
 
 struct keybuf {
-  pthread_spinlock_t      lock;
-  struct list_head        list;
   struct bkey             last_scanned;
-  struct bkey           start;
-  struct bkey           end;
+  pthread_spinlock_t      lock;
+  struct bkey             start;
+  struct bkey             end;
+
+  struct rb_root          keys;
+
+#define KEYBUF_NR               500
+  DECLARE_ARRAY_ALLOCATOR(struct keybuf_key, freelist, KEYBUF_NR);
 };
 
 struct bcache_device {
@@ -351,6 +357,7 @@ struct cached_dev {
   * data to refill the rb tree requires an exclusive lock.
   */
   //struct rw_semaphore writeback_lock;
+  pthread_rwlock_t writeback_lock;
   
   /*
   * Nonzero, and writeback has a refcount (d->count), iff there is dirty
@@ -387,7 +394,8 @@ struct cached_dev {
   struct io             io[RECENT_IO]; /* 记录顺序读写信息？*/
   struct hlist_head     io_hash[RECENT_IO + 1];
   struct list_head      io_lru;
-  struct list_head        io_thread;
+  struct list_head      io_thread;
+  pthread_spinlock_t    io_lock;
   //spinlock_t          io_lock;
   
   //struct cache_accounting     accounting;
