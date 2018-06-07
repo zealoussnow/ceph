@@ -160,6 +160,7 @@ bool __bch_btree_ptr_invalid(struct cache_set *c, const struct bkey *k)
 bad:
   bch_extent_to_text(buf, sizeof(buf), k);
   CACHE_ERRORLOG(NULL, "spotted btree ptr %s: %s \n", buf, bch_ptr_status(c, k));
+  assert("btree ptr invalid got bad bkey " == 0);
   return true;
 }
 
@@ -518,9 +519,8 @@ bool __bch_extent_invalid(struct cache_set *c, const struct bkey *k)
   return false;
 bad:
   bch_extent_to_text(buf, sizeof(buf), k);
-  cache_bug(c, "spotted extent %s: %s", buf, bch_ptr_status(c, k));
   CACHE_ERRORLOG("spotted extent %s: %s \n", buf, bch_ptr_status(c, k));
-  assert(" got bad bkey " == 0);
+  assert("extent invalid got bad bkey " == 0);
   return true;
 }
 

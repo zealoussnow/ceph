@@ -394,10 +394,7 @@ static inline void bkey_init(struct bkey *k)
 static __always_inline int64_t bkey_cmp(const struct bkey *l,
 					const struct bkey *r)
 {
-  // TODO delete unlikely
-  return (KEY_INODE(l) != KEY_INODE(r))
-    ? (int64_t) KEY_INODE(l) - (int64_t) KEY_INODE(r)
-    : (int64_t) KEY_OFFSET(l) - (int64_t) KEY_OFFSET(r);
+  return (int64_t) KEY_OFFSET(l) - (int64_t) KEY_OFFSET(r);
 }
 
 void bch_bkey_copy_single_ptr(struct bkey *, const struct bkey *,

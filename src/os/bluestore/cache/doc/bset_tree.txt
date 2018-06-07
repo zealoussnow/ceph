@@ -1,0 +1,38 @@
+
+
+1、btree_keys辅助二叉树设计模型：
+
+bkeys       |------|------|------|------|------|------|------|------|
+cachline           0      1      2      3      4      5      6      7
+last_bkey                                                       |-|
+
+last_bkey落在第7个cacheline，因此，得到的tree->size是7
+即tree[7]
+对于tree[0]不存放数据数据，因此，至少从tree[1]开始,如果以中序遍历的方式来访问这个数组，
+则访问顺序是: 4，2，5，1，6，3，7 (树如下：）
+        1
+     2     3
+    4 5   6 7
+tree数组存放的是每个cacheline切割位置的bkey等等一些关键信息，并不是存放的cacheline号，
+最终的对应关系如下：
+tree[4] = value(1)
+tree[2] = value(2)
+tree[5] = value(3)
+tree[1] = value(4)
+tree[6] = value(5)
+tree[3] = value(6)
+tree[7] = value(7)
+
+在构建的流程中，我们会发现tree数组里面并没有记录跟cacheline号相关的信息，那么如何根据数组的索引
+得到它锁对应的cacheline号呢？
+比如：tree[5]存放的是哪个cacheline的value信息呢？
+通过to_inorder接口cachline_num = to_inorder(tree_index, bset_tree);
+bset_tree：用到size和extra的信息，根据这两个信息倒推出它所对应的cacheline号
+因此，在构建迭代器搜索的时候，先通过每个cacheline记录的权重信息value(cl)跟要搜索的bkey直接快速的
+匹配，匹配成功之后，再找到它所在的cacheline区间，之后截取出符合要求的bkey区间。
+搜索的时候，对树的遍历是从根节点开始的，即从tree[1]开始，根据匹配情况选择左／右子数进行递归遍历即可
+
+
+
+
+

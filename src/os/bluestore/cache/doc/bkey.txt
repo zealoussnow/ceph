@@ -1,0 +1,217 @@
+
+
+
+
+
+一、bkey基础操作
+bkey的数据结构
+struct bkey {
+	__u64	high;
+	__u64	low;
+	__u64	ptr[];
+};
+
+位分布图如下：
+
+63  60  58 56  55        37  36         20         0
+|---|---|---|--|----------|--|----------|----------|            bkey->high
+  |   |   |  |             |      |             |
+  |   |   |  |             |      |             |
+  |   |   |  |             |      |           KEY_INODE
+  |   |   |  |             |    KEY_SIZE
+  |   |   |  |            KEY_DIRTY
+  |   |   |  |
+  |   |   | KEY_PINNED
+  |   | KEY_CSUM
+  | HEADER_SIZE
+KEY_PTRS
+
+63                                                 0
+|--------------------------------------------------|            bkey->low
+                        |
+                        |
+                      KEY_OFFSET
+63    51                            8              0
+|------|----------------------------|--------------|            bkey->ptr[i]
+   |                    |                 |
+   |                    |                PTR_GEN
+   |                    PTR_OFFSET
+ PTR_DEV
+
+1、bkey的位操作接口
+KEY_PTRS        bkey绑定的后端ssd设别的数量，目前只支持一对一，因此最多只有一个
+HEADER_SIZE     暂时没有用到
+KEY_CSUM        计算bkey绑定数据的校验和，保证数据的安全性(放到后期实现）
+KEY_PINNED      暂时没有用到
+KEY_DIRTY       给writeback决策用的，如果数据回刷到hdd以后，会置位成0，否则置位成1
+KEY_SIZE        bkey所绑定的数据的大小
+KEY_INODE       hdd的设备号，目前统一为0
+
+hdd空间
+KEY_OFFSET      bkey所绑定的数据在hdd设备上的结束位置
+
+ssd空间
+PTR_DEV         ssd的设备号，目前统一为0
+PTR_OFFSET      bkey所绑定的数据在ssd设备上的起始位置
+PTR_GEN         迭代次数，给gc用的
+
+ZERO_KEY        KEY(0, 0, 0)    初始化一个bkey
+MAX_KEY_INODE   (~(~0 << 20))
+MAX_KEY_OFFSET  (~0ULL >> 1)
+构建一个bkey，不涉及ptr字段
+#define KEY(inode, offset, size)					\
+((struct bkey) {							\
+	.high = (1ULL << 63) | ((__u64) (size) << 20) | (inode),	\
+	.low = (offset)							\
+})
+构建一个ptr字段
+#define PTR(gen, offset, dev)						\
+	((((__u64) dev) << 51) | ((__u64) offset) << 8 | gen)
+
+
+KEY_START(k)    (KEY_OFFSET(k) - KEY_SIZE(k))   计算bkey在hdd设备的起始位置
+START_KEY(k)    KEY(KEY_INODE(k), KEY_START(k), 0)  将bkey在hdd设备上的起始位置构造成一个bkey，
+                                                    这个bkey的size是0，这种bkey是用来搜索和比较用的，
+                                                    不会被插入到树中
+
+2、bkey的inode号
+统一成0
+
+
+3、bkey的比较
+bkey_cmp
+static __always_inline int64_t bkey_cmp(const struct bkey *l,
+					const struct bkey *r)
+{
+  return (int64_t) KEY_OFFSET(l) - (int64_t) KEY_OFFSET(r);
+}
+删除inode号的比较
+
+
+4、bkey的merge
+接口：
+static void  btree_mergesort(struct btree_keys *b, struct bset *out,struct btree_iter *iter,
+                bool fixup, bool remove_stale)
+  fixup:
+    true：调用sort_fixup回调（对于叶节点有用，对于非叶节点没有相应的回调实现）
+    false: 不调用sort_fixup
+
+  remove_stale：
+    true 启用bch_ptr_bad过滤
+    false 启用bch_ptr_invalid过滤
+
+  key_merge:
+    对于叶节点来说，尝试将两个bkey合并成一个bkey，对于非叶节点来说，没有实现相应的接口
+
+  在ssd的区间
+  区间不连续              left   right
+                         |-----| |-----|
+  bucket号不一样           l(b1)    r(b2)
+                          |------| |------|
+
+  hdd区间：
+  1. 如果两个bkey的大小超过了USHAR_MAX
+     这时候把后面的bkey截取补齐到USHAR_MAX，也就是合并一点，剩余的作为一个
+     单独的bkey存在，使用的接口是bch_cut_front
+  2. 合并下csum，之后把右边的bkey直接合并到左边的bkey中去
+
+  bkey_merge:
+  那些bkey会被merge掉
+  1. bad bkey跳过
+  2. 尝试进行前后重叠的merge
+
+
+
+merge结果
+  merge受sort控制，依据sort的逻辑，可以将所有的bset merge到bset[0]
+  也可以指定merge的到哪个bset
+
+
+sort逻辑
+  1、对于非叶节点并且存在多个bset（nset>1)
+  sort到bset[0]
+  2、其他的场景
+  根据阈值sort到对应的bset
+
+  何时会进行sort？
+  btree节点写入磁盘成功后，会进行一次btree_init_next，此时先进行sort，
+  再判断是否有可用空间，以决定是否初始化下一个bset
+
+
+
+5、bkey的切割
+cut_front
+cut_back
+
+6、bkey的bad和invalida判断
+6.1 key_invalid
+  叶节点：
+    1. size=0
+    2. size > offset
+    3. ptr所在的bucket号不合法 
+       3.1 (first_bucket, nr_buckets]
+       3.2 size + r（该bucket剩余的空间大小）> bucket_size
+  非叶节点：
+    1. ptrs=0
+    2. size=0（节点的bkey的size是btree node的存储空间)
+    3. key是dirty的(注意）
+    4. ptr所在的bucket号不合法 
+       4.1 (first_bucket, nr_buckets]
+       4.2 size + r（该bucket剩余的空间大小）> bucket_size
+6.2 key_bad:
+  叶节点：
+    1. ptrs = 0
+    2. key_invalid is true
+    3. ptr不合法
+    4. ptr_stale
+  非叶节点：
+    1. bkey是zero key
+    2. ptrs=0
+    3. ptr是invalide
+    4. !ptr_avalidate
+    5. expensive check
+
+7、将bkey占用空间计算
+7.1 按u64个数来算，因为ptr是可变数组，但是按目前的架构涉及来看，
+    只有一个ssd设备,因此KEY_PTRS(k)最多为1,整体结果是[2,3]
+static inline unsigned long bkey_u64s(const struct bkey *k)
+{
+  return (sizeof(struct bkey) / sizeof(__u64)) + KEY_PTRS(k);
+}
+
+7.2 按字节数来算
+static inline unsigned long bkey_bytes(const struct bkey *k)
+{
+  return bkey_u64s(k) * sizeof(__u64);
+}
+
+
+8、bkey拷贝
+8.1 全拷贝
+#define bkey_copy(_dest, _src)	memcpy(_dest, _src, bkey_bytes(_src))
+
+8.2 半拷贝 半拷贝只拷贝inode和offset
+static inline void bkey_copy_key(struct bkey *dest, const struct bkey *src)
+{
+  SET_KEY_INODE(dest, KEY_INODE(src));
+  SET_KEY_OFFSET(dest, KEY_OFFSET(src));
+}
+
+
+9、bkey遍历
+遍历要结合bset来说，原理上因为多个bkey是连续存放的，因此，下一个bkey
+的起始位置就是上一个bkey的结束位置，在通过bset控制end bkey，就可以达到遍历
+真个bset里面的bkey的效果
+static inline struct bkey *bkey_next(const struct bkey *k)
+{
+  __u64 *d = (void *) k;
+  return (struct bkey *) (d + bkey_u64s(k));
+}
+
+10、bkey删除
+注意bkey空间的释放
+
+
+11、目前bkey的种类
+数据bkey、节点bkey、prio bkey、super bkey、journal bkey
+

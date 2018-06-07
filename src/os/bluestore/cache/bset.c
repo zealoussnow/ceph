@@ -18,11 +18,6 @@
 #include "util.h"
 #include "bset.h"
 
-//#include <linux/console.h>
-//#include <linux/sched/clock.h>
-//#include <linux/random.h>
-//#include <linux/prefetch.h>
-
 #ifdef CONFIG_BCACHE_DEBUG
 
 void bch_dump_bset(struct btree_keys *b, struct bset *i, unsigned set)
@@ -322,53 +317,28 @@ static inline size_t bset_prev_bytes(struct btree_keys *b)
 void bch_btree_keys_free(struct btree_keys *b)
 {
   struct bset_tree *t = b->set;
-
-  free(t->prev);
-  /*if (bset_prev_bytes(b) < PAGE_SIZE)*/
-    /*free(t->prev);*/
-  /*else*/
-    /*free_pages((unsigned long) t->prev,*/   
-                 /*get_order(bset_prev_bytes(b)));*/
-  free(t->tree);
-  /*if (bset_tree_bytes(b) < PAGE_SIZE)*/
-    /*free(t->tree);*/
-  /*else*/
-    /*free_pages((unsigned long) t->tree,*/
-                           /*get_order(bset_tree_bytes(b)));*/
-
-  free(t->data);
-  /*free_pages((unsigned long) t->data, b->page_order);*/
-  t->prev = NULL;
-  t->tree = NULL;
-  t->data = NULL;
+  T2Free(t->prev);
+  T2Free(t->tree);
+  T2Free(t->data);
 }
 
 // TODO
 int bch_btree_keys_alloc(struct btree_keys *b, unsigned page_order)
 {
   struct bset_tree *t = b->set;
-  //BUG_ON(t->data);
+  BUG_ON(t->data);
   b->page_order = page_order;
 
-  //t->data = (void *) __get_free_pages(gfp, b->page_order);
-  // 2 << b->page_order
-  /*printf(" bset.c FUN %s: page_order=%d,btree_keys_bytes(b)=%d\n",__func__,page_order,btree_keys_bytes(b));*/
   t->data = (void *)T2Molloc(btree_keys_bytes(b));
   if (!t->data) {
     goto err;
   }
 
   t->tree = T2Molloc(bset_tree_bytes(b));
-  //t->tree = bset_tree_bytes(b) < PAGE_SIZE
-  //	? kT2Molloc(bset_tree_bytes(b), gfp)
-  //	: (void *) __get_free_pages(gfp, get_order(bset_tree_bytes(b)));
   if (!t->tree) {
     goto err;
   }
   t->prev = T2Molloc(bset_prev_bytes(b));
-  //t->prev = bset_prev_bytes(b) < PAGE_SIZE
-  //	? kT2Molloc(bset_prev_bytes(b), gfp)
-  //	: (void *) __get_free_pages(gfp, get_order(bset_prev_bytes(b)));
   if (!t->prev) {
     goto err;
   }
@@ -736,7 +706,7 @@ void bch_bset_build_written_tree(struct btree_keys *b)
   }
   // fix bug of to_inorder error
   t->extra = (t->size - rounddown_pow_of_two(t->size - 1)) << 1;
-  // CACHE_DEBUGLOG(CAT_BSET, "last bset extra %u \n", t->extra);
+  CACHE_DEBUGLOG(CAT_BSET, "last bset size %u extra %u \n", t->size, t->extra);
   /*** for debug ***/
   // dump_bset_tree_bkeys(t);
 
@@ -1135,11 +1105,6 @@ static inline bool btree_iter_end(struct btree_iter *iter)
 void bch_btree_iter_push(struct btree_iter *iter, struct bkey *k,
 			 struct bkey *end)
 {
-  /*if (k != end)*/
-          /*if(!heap_add(iter,*/
-                    /*((struct btree_iter_set) { k, end }),*/
-                    /*btree_iter_cmp))*/
-                  /*;*/     
   if (k != end) {
     BUG_ON(!heap_add(iter,((struct btree_iter_set) { k, end }),
           btree_iter_cmp));
@@ -1148,9 +1113,9 @@ void bch_btree_iter_push(struct btree_iter *iter, struct bkey *k,
 
 static struct bkey *
 __bch_btree_iter_init(struct btree_keys *b,
-					  struct btree_iter *iter,
-					  struct bkey *search,
-					  struct bset_tree *start)
+                      struct btree_iter *iter,
+                      struct bkey *search,
+                      struct bset_tree *start)
 {
   struct bkey *ret = NULL;
   iter->size = ARRAY_SIZE(iter->data);
@@ -1161,7 +1126,6 @@ __bch_btree_iter_init(struct btree_keys *b,
 #endif
   for (; start <= bset_tree_last(b); start++) {
     ret = bch_bset_search(b, start, search);
-    /* 将符合条件的bkey放到iter中 */
     bch_btree_iter_push(iter, ret, bset_bkey_last(start->data));
   }
 
@@ -1279,24 +1243,14 @@ btree_mergesort(struct btree_keys *b, struct bset *out,struct btree_iter *iter,
 }
 
 static void __btree_sort(struct btree_keys *b, struct btree_iter *iter,
-			 unsigned start, unsigned order, bool fixup,
-			 struct bset_sort_state *state)
+                        unsigned start, unsigned order, bool fixup,
+                        struct bset_sort_state *state)
 {
   clock_t start_time;
-
-  //bool used_mempool = false;
-  //struct bset *out = (void *) __get_free_pages(__GFP_NOWARN|GFP_NOWAIT,order);
- /*printf(" btree_sort order = %d  PAGE_SIZE << order = %d \n", order, (PAGE_SIZE << order));*/
   struct bset *out = (void *)T2Molloc(PAGE_SIZE << order);
-  /*struct bset *out = (void *)T2Molloc(2 << order);*/
   if (!out) {
-    printf("alloc memory failed\n");
-    //struct page *outp; 
-    //BUG_ON(order > state->page_order);
-    //outp = mempool_alloc(state->pool, GFP_NOIO);
-    //out = page_address(outp);
-    //used_mempool = true;
-    //order = state->page_order;
+    CACHE_ERRORLOG(CAT_BTREE,"alloc memory faild, will not sort btree\n");
+    return ;
   }
   start_time = clock();
 
@@ -1321,12 +1275,7 @@ static void __btree_sort(struct btree_keys *b, struct btree_iter *iter,
         (void *) bset_bkey_last(out) - (void *) out->start);
   }
   
-  free(out);
-  //if (used_mempool)
-  //	mempool_free(virt_to_page(out), state->pool);
-  //else
-  //	free_pages((unsigned long) out, order);
-
+  T2Free(out);
   bch_bset_build_written_tree(b);
 
   if (!start)
