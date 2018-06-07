@@ -161,15 +161,16 @@
 /*{*/
   /*struct keybuf_key *w;*/
 
-  /*pthread_spin_lock(&buf->lock);*/
   /*CACHE_DEBUGLOG(CAT_LIST, "\n ************** start ********** \n");*/
-  /*w = bch_keybuf_first(buf);*/
-  /*while(&w->list != &buf->list) { */
+  /*pthread_spin_lock(&buf->lock);*/
+  /*w = RB_FIRST(&buf->keys, struct keybuf_key, node);*/
+
+  /*while (w) {*/
     /*CACHE_DEBUGLOG(CAT_LIST, "keybuf_key addr ====== %p\n", w);*/
-    /*w = bch_keybuf_next(buf, w);*/
+    /*w = RB_NEXT(w, node);*/
   /*}*/
-  /*CACHE_DEBUGLOG(CAT_LIST, " ************** end ********** \n");*/
   /*pthread_spin_unlock(&buf->lock);*/
+  /*CACHE_DEBUGLOG(CAT_LIST, " ************** end ********** \n");*/
 /*}*/
 
 static inline struct bset *write_block(struct btree *b)
