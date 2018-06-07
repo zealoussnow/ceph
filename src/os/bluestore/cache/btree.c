@@ -30,6 +30,7 @@
 #include "btree.h"
 #include "debug.h"
 #include "extents.h"
+#include "prefetch.h"
 
 //#include <linux/slab.h>
 //#include <linux/bitops.h>
@@ -1118,13 +1119,13 @@ retry:
   b->parent = parent;
   b->accessed = 1;
 
-  //for (; i <= b->keys.nsets && b->keys.set[i].size; i++) {
-  //	prefetch(b->keys.set[i].tree);
-  //	prefetch(b->keys.set[i].data);
-  //}
+  for (; i <= b->keys.nsets && b->keys.set[i].size; i++) {
+    prefetch(b->keys.set[i].tree);
+    prefetch(b->keys.set[i].data);
+  }
 
-  //for (; i <= b->keys.nsets; i++)
-  //	prefetch(b->keys.set[i].data); /* include/linux/prefetch.h */
+  for (; i <= b->keys.nsets; i++)
+    prefetch(b->keys.set[i].data);
 
   /*if (btree_node_io_error(b)) {*/
   //rw_unlock(write, b);
