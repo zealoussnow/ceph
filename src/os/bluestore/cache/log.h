@@ -23,6 +23,7 @@ extern void cache_zlog(const char *cat_type, const char *file,
 #define CAT_WRITE "write"
 #define CAT_ALLOC "alloc"
 #define CAT_LIST "list"
+#define CAT_EVENT "event"
 #define BUILD_TREE "build_tree"
 #define SEARCH_TREE "search_tree"
 

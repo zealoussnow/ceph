@@ -115,18 +115,23 @@ void do_writeback_test(struct cache *ca)
   sleep(1);
   // write 512
   int i = 1;
-  for ( i; i<1000; i++ ) {
+  for ( i = 1; i<1000; i++ ) {
     cache_aio_write(ca, data, offset+1024*i, len*1024, NULL, NULL);
   }
   /*printf(" ----- \n");*/
   /*sleep(10);*/
-  /*traverse_btree(ca);*/
-  /*sleep(4);*/
+  traverse_btree(ca);
+  sleep(2);
   // read 512
-  /*cache_aio_read(ca, read_data, offset, len, read_complete_cb, NULL);*/
+  cache_aio_read(ca, read_data, offset + 1024 * 2, len * 1024, read_complete_cb, NULL);
   // wait writeback
   /*sleep(4);*/
-  /*traverse_btree(ca);*/
+  printf(" read result =%s \n", read_data);
+  for ( i = 1000; i<2000; i++ ) {
+    cache_aio_write(ca, data, offset+1024*i, len*1024, NULL, NULL);
+  }
+
+  traverse_btree(ca);
   // print read result
   /*printf(" read result =%s \n", read_data);*/
 }
@@ -266,9 +271,10 @@ err:
 
 void * bch_data_insert(struct cache *ca)
 {
-  struct keylist insert_keys;
-  bch_keylist_init(&insert_keys);
-  bch_data_insert_start(ca, &insert_keys);
+  struct keylist *insert_keys;
+  insert_keys = calloc(1, sizeof(*insert_keys));
+  bch_keylist_init(insert_keys);
+  bch_data_insert_start(ca, insert_keys);
 }
 
 static unsigned 
@@ -305,6 +311,7 @@ int main()
 {
   struct cache *ca = T2Molloc(sizeof(struct cache));
   /*const char *cache_dev = "/dev/sdc";*/
+  /*const char *hdd_dev = "/dev/sdd";*/
   /*ca->bdev_path="/etc/ceph/bdev.conf.in";*/
   const char *log_path = "/var/log/ceph";
   const char *whoami = "0";
@@ -317,12 +324,15 @@ int main()
   int fd = open(cache_dev, O_RDWR);
   ca->fd = fd;
 
+  /*int hdd_fd = open(hdd_dev, O_RDWR);*/
+  /*ca->hdd_fd = hdd_fd;*/
+
   init(ca);
 
   /*do_write_split_test(ca);*/
 
   /*bch_data_insert(ca);*/
-  /*do_writeback_test(ca);*/
+  do_writeback_test(ca);
 
   /*do_invalidate_region_test(ca);*/
 

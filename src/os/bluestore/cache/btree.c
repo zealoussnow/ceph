@@ -584,15 +584,17 @@ static void bch_btree_node_write_sync(struct btree *b)
   //closure_sync(&cl);
 }
 
-/*static void btree_node_write_work(struct work_struct *w)*/
-/*{*/
-//struct btree *b = container_of(to_delayed_work(w), struct btree, work);
+static void btree_node_write_work(evutil_socket_t fd, short events, void *arg)
+{
+  struct btree *b = arg;
 
-//pthread_mutex_lock(&b->write_lock);
-//if (btree_node_dirty(b))
-//	__bch_btree_node_write(b, NULL);
-//pthread_mutex_unlock(&b->write_lock);
-/*}*/
+
+  CACHE_DEBUGLOG(CAT_EVENT," btree node write delayed work b->bkey off = %lu\n", KEY_OFFSET(&b->key));
+  pthread_mutex_lock(&b->write_lock);
+  if (btree_node_dirty(b))
+    __bch_btree_node_write(b);
+  pthread_mutex_unlock(&b->write_lock);
+}
 
 static void bch_btree_leaf_dirty(struct btree *b, atomic_t *journal_ref)
 {
@@ -602,8 +604,9 @@ static void bch_btree_leaf_dirty(struct btree *b, atomic_t *journal_ref)
   BUG_ON(!b->written);
   BUG_ON(!i->keys);
 
-  if (!btree_node_dirty(b))
-    ;
+  if (!btree_node_dirty(b)) {
+    delayed_work_add(&b->ev_node_write, BTREE_NODE_WRITE_DELAY_SECONDS);
+  }
   //schedule_delayed_work(&b->work, 30 * HZ);
   /*
    * static inline void set_btree_node_dirty(struct btree *b) {
@@ -614,18 +617,19 @@ static void bch_btree_leaf_dirty(struct btree *b, atomic_t *journal_ref)
   if (journal_ref) {
     if (w->journal &&
         journal_pin_cmp(b->c, w->journal, journal_ref)) {
-      //atomic_dec_bug(w->journal);
+      atomic_dec_bug(w->journal);
       w->journal = NULL;
     }
     if (!w->journal) {
       w->journal = journal_ref;
-      //atomic_inc(w->journal);
+      atomic_inc(w->journal);
     }
   }
   /* Force write if set is too big */
-  //if (set_bytes(i) > PAGE_SIZE - 48 &&
-  //  !current->bio_list)
-  //  bch_btree_node_write(b); //, NULL);
+  /*if (set_bytes(i) > PAGE_SIZE - 48 &&*/
+    /*!current->bio_list)*/
+  if (set_bytes(i) > PAGE_SIZE - 48)
+    bch_btree_node_write(b); //, NULL);
 }
 
 /*
@@ -688,6 +692,7 @@ static struct btree *mca_bucket_alloc(struct cache_set *c, struct bkey *k)
   pthread_mutex_init(&b->write_lock, NULL);	
   //lockdep_set_novalidate_class(&b->write_lock);
   INIT_LIST_HEAD(&b->list);
+  delayed_work_assign(&b->ev_node_write, c->ev_base, btree_node_write_work, (void*)b);
   //INIT_DELAYED_WORK(&b->work, btree_node_write_work);
   b->c = c; /* XXX 将这个btree与cache_set关联 */
   //sema_init(&b->io_mutex, 1);
@@ -1161,8 +1166,9 @@ static void btree_node_free(struct btree *b)
     btree_complete_write(b, btree_current_write(b));
   }
   // TODO remember implemente
-  //clear_bit(BTREE_NODE_dirty, &b->flags);
+  clear_bit(BTREE_NODE_dirty, &b->flags);
   pthread_mutex_unlock(&b->write_lock);
+  delayed_work_del(&b->ev_node_write);
   //cancel_delayed_work(&b->work);
   //pthread_mutex_lock(&b->c->bucket_lock);
   bch_bucket_free(b->c, &b->key);
@@ -2265,13 +2271,11 @@ bch_btree_insert_node(struct btree *b, struct btree_op *op,
   CACHE_DEBUGLOG(NULL," direct insert keys \n");
   if (bch_btree_insert_keys(b, op, insert_keys, replace_key)) {
     // 不考虑异常情况，后期测试性能数据可以先不同步写
-    bch_btree_node_write(b);
-    /*
+    /*bch_btree_node_write(b);*/
     if (!b->level) 
       bch_btree_leaf_dirty(b, journal_ref);
     else 
       bch_btree_node_write(b); //, &cl);
-    */
   }
   pthread_mutex_unlock(&b->write_lock);
   /*
