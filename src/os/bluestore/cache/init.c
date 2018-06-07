@@ -1711,7 +1711,6 @@ int get_cache_strategy(struct cache *ca, struct ring_item *item)
   bch_keybuf_check_overlapping(&dc->c->moving_gc_keys, &start, &end);
 
   pthread_rwlock_rdlock(&dc->writeback_lock);
-  return CACHE_MODE_WRITEBACK;
 
   if (bch_keybuf_check_overlapping(&dc->writeback_keys, &start, &end))
     return CACHE_MODE_WRITEBACK;
