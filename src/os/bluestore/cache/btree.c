@@ -218,7 +218,6 @@ void show_list(struct keybuf *buf)
 
 void dump_btree_node(struct btree *node, bool detail) 
 {
-  printf(" ------- \n");
   // TODO:
   // level? keys? written? seq? or other ?
   // if detail: means dump all btree node content, include btree_keys
@@ -1160,7 +1159,7 @@ static void btree_node_prefetch(struct btree *parent, struct bkey *k)
 static void btree_node_free(struct btree *b)
 {
   //trace_bcache_btree_node_free(b);
-  //BUG_ON(b == b->c->root);
+  BUG_ON(b == b->c->root);
   pthread_mutex_lock(&b->write_lock);
   if (btree_node_dirty(b)) {
     btree_complete_write(b, btree_current_write(b));
@@ -2372,8 +2371,8 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   BUG_ON(bch_keylist_empty(keys));
 
   /* op.op.lock mean choose lock level in btree node
-  * 0 means op only lock leaf node
-  * SHRT_MAX means op lock from root
+  * 0: means op only lock leaf node
+  * SHRT_MAX: means op lock from root
   */
   /*bch_btree_op_init(&op.op, 0); */
   /* we don't have rw_sem, so lock from root, this is
@@ -2394,7 +2393,7 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
 
   if (ret) {
     struct bkey *k;
-    CACHE_ERRORLOG(NULL,"Insert keylist to Btree Faild ret=%i\n", ret);
+    CACHE_ERRORLOG(NULL,"recurse insert keylist faild ret %d\n", ret);
     while ((k = bch_keylist_pop(keys))){
       bkey_put(c, k);
     }
@@ -2438,7 +2437,8 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op,
 {
   int ret = MAP_CONTINUE;
   struct btree_insert_op *i_op = container_of(op, struct btree_insert_op, op);
-
+  dump_btree_node(b,false);
+  dump_bkey("map nodes recurse ", from);
   if (b->level) {
     struct bkey *k;
     struct btree_iter iter;
@@ -2464,7 +2464,7 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op,
 }
 
 int __bch_btree_map_nodes(struct btree_op *op, struct cache_set *c,
-    struct bkey *from, btree_map_nodes_fn *fn, int flags)
+               struct bkey *from, btree_map_nodes_fn *fn, int flags)
 {
   return btree_root(map_nodes_recurse, c, op, from, fn, flags);
 }

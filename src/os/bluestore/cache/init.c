@@ -973,7 +973,7 @@ bch_data_insert_keys(struct cache_set *c_set,
   ret = bch_btree_insert(c_set, insert_keys, NULL, replace_key);
 
   if (ret != 0) {
-    CACHE_ERRORLOG(CAT_BTREE,"Keylist Insert error ret=%d\n", ret);
+    CACHE_ERRORLOG(CAT_BTREE,"insert keylist error ret %d\n", ret);
     /*
      * for test, we assert every io should be sucessfull 
      * insert to btree, however, one io error should not

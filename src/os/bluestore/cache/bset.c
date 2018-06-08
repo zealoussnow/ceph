@@ -605,14 +605,13 @@ static void make_bfloat(struct bset_tree *t, unsigned j)
 
 void dump_bkey(const char *prefix, struct bkey *b)
 {
-  if ( prefix ) {
-    CACHE_DEBUGLOG(BUILD_TREE, "%s bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                   prefix, b, KEY_OFFSET(b)-KEY_SIZE(b), KEY_OFFSET(b), KEY_SIZE(b), 
-                   PTR_OFFSET(b,0), KEY_PTRS(b), KEY_DIRTY(b), KEY_INODE(b));
+  if ( b == NULL) {
+      CACHE_DEBUGLOG(BUILD_TREE,"%s bkey is NULL \n", prefix);
   } else {
-    CACHE_DEBUGLOG(BUILD_TREE, "bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
-                   b, KEY_OFFSET(b)-KEY_SIZE(b), KEY_OFFSET(b), KEY_SIZE(b), 
-                   PTR_OFFSET(b,0), KEY_PTRS(b), KEY_DIRTY(b), KEY_INODE(b));
+      CACHE_DEBUGLOG(BUILD_TREE, "%s bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
+                     prefix, b, KEY_OFFSET(b)-KEY_SIZE(b), KEY_OFFSET(b), KEY_SIZE(b), 
+                     PTR_OFFSET(b,0), KEY_PTRS(b), KEY_DIRTY(b), KEY_INODE(b));
+
   }
 }
 

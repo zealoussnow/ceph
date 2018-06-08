@@ -313,18 +313,18 @@ typedef int (btree_map_nodes_fn)(struct btree_op *, struct btree *);
 int __bch_btree_map_nodes(struct btree_op *, struct cache_set *,
 			  struct bkey *, btree_map_nodes_fn *, int);
 
-static inline int bch_btree_map_nodes(struct btree_op *op, struct cache_set *c,
-				      struct bkey *from, btree_map_nodes_fn *fn)
+static inline int 
+bch_btree_map_nodes(struct btree_op *op, struct cache_set *c,
+                        struct bkey *from, btree_map_nodes_fn *fn)
 {
-	return __bch_btree_map_nodes(op, c, from, fn, MAP_ALL_NODES);
+  return __bch_btree_map_nodes(op, c, from, fn, MAP_ALL_NODES);
 }
 
-static inline int bch_btree_map_leaf_nodes(struct btree_op *op,
-					   struct cache_set *c,
-					   struct bkey *from,
-					   btree_map_nodes_fn *fn)
+static inline int 
+bch_btree_map_leaf_nodes(struct btree_op *op, struct cache_set *c,
+                        struct bkey *from, btree_map_nodes_fn *fn)
 {
-	return __bch_btree_map_nodes(op, c, from, fn, MAP_LEAF_NODES);
+  return __bch_btree_map_nodes(op, c, from, fn, MAP_LEAF_NODES);
 }
 
 typedef int (btree_map_keys_fn)(struct btree_op *, struct btree *,

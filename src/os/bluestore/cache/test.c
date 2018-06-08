@@ -82,7 +82,7 @@ void do_write_split_test(struct cache *ca)
   /*cache_aio_write(ca, data, offset + 2*len, len, NULL, NULL);*/
   // write 512
   int i = 0;
-  for (i; i<1000; i++ ) {
+  for (i; i<10; i++ ) {
     cache_aio_write(ca, data, offset+2*i, len, NULL, NULL);
     offset=offset+2*len;
   }
@@ -118,12 +118,11 @@ void do_writeback_test(struct cache *ca)
   for ( i = 1; i<1000; i++ ) {
     cache_aio_write(ca, data, offset+1024*i, len*1024, NULL, NULL);
   }
-  /*printf(" ----- \n");*/
   /*sleep(10);*/
   traverse_btree(ca);
   sleep(2);
   // read 512
-  cache_aio_read(ca, read_data, offset + 1024 * 2, len * 1024, read_complete_cb, NULL);
+  cache_aio_read(ca, read_data, offset + 1024 * 2, len, read_complete_cb, NULL);
   // wait writeback
   /*sleep(4);*/
   printf(" read result =%s \n", read_data);
@@ -312,7 +311,7 @@ int main()
   struct cache *ca = T2Molloc(sizeof(struct cache));
   /*const char *cache_dev = "/dev/sdc";*/
   /*const char *hdd_dev = "/dev/sdd";*/
-  /*ca->bdev_path="/etc/ceph/bdev.conf.in";*/
+  /*ca->bdev_path="/home/lb/bdev.conf.in";*/
   const char *log_path = "/var/log/ceph";
   const char *whoami = "0";
 
@@ -332,7 +331,7 @@ int main()
   /*do_write_split_test(ca);*/
 
   /*bch_data_insert(ca);*/
-  do_writeback_test(ca);
+  /*do_writeback_test(ca);*/
 
   /*do_invalidate_region_test(ca);*/
 
