@@ -1297,7 +1297,7 @@ void bch_btree_sort_partial(struct btree_keys *b, unsigned start,
   int oldsize = bch_count_data(b);
 
   __bch_btree_iter_init(b, &iter, NULL, &b->set[start]);
-  CACHE_DEBUGLOG("sort from %u bset_tree \n", start);
+  CACHE_DEBUGLOG(CAT_BTREE, "sort from %u bset_tree \n", start);
   if (start) {
     unsigned i;
     for (i = start; i <= b->nsets; i++) {
