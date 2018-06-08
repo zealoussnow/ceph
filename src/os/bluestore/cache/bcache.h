@@ -989,14 +989,6 @@ static inline void wake_up_allocators(struct cache_set *c)
     wake_up_alloc_thread(ca);
 }
 
-static struct timespec cache_clock_now()
-{
-  struct timespec tp;
-  clock_gettime(CLOCK_REALTIME, &tp);
-  return tp;
-}
-
-
 /* Forward declarations */
 
 //void bch_count_io_errors(struct cache *, blk_status_t, const char *);
