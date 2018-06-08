@@ -216,11 +216,21 @@ void show_list(struct keybuf *buf)
 }
 
 
-void dump_btree_node(struct btree *node, bool detail) 
+void dump_btree_node(const char* prefix, struct btree *b, bool detail) 
 {
   // TODO:
   // level? keys? written? seq? or other ?
   // if detail: means dump all btree node content, include btree_keys
+  if ( b == NULL ) {
+    CACHE_DEBUGLOG(CAT_BTREE, "%s \n",
+                   prefix);
+  } else {
+    CACHE_DEBUGLOG(CAT_BTREE, "%s node %p(level %u written %u tree(nsets %u last_set_unwritten %u ) bkey(off %lu size %lu ptrs %u ptr_offset %u dirty %d inode %u))\n",
+                   prefix, b, b->level, b->written, b->keys.nsets,b->keys.last_set_unwritten,
+                   KEY_OFFSET(&b->key), KEY_SIZE(&b->key), 
+                   KEY_PTRS(&b->key), PTR_OFFSET(&b->key,0),
+                   KEY_DIRTY(&b->key), KEY_INODE(&b->key));
+  }
 }
 
 static inline struct bset *write_block(struct btree *b)
@@ -231,8 +241,7 @@ static inline struct bset *write_block(struct btree *b)
 
 static void bch_btree_init_next(struct btree *b)
 {
-  CACHE_DEBUGLOG(CAT_BTREE,"btree init next (level %u nsets %u) \n",
-                        b->level, b->keys.nsets);
+  dump_btree_node("init next", b, false);
   if (b->level && b->keys.nsets) {
     bch_btree_sort(&b->keys, &b->c->sort);
   } else {
@@ -2254,8 +2263,11 @@ bch_btree_insert_node(struct btree *b, struct btree_op *op,
   // 如果这个位置不是last_bset_tree的位置，说明last_bset_tree有可能还没有写入
   // 因此，如果磁盘发现last_set_unwritten=1，说明last_bset没有写入，则进入init_next
   // init_next会对btree_keys进行排序合并之后写入磁盘，之后，会对last_bset_tree构建tree
+  dump_btree_node("insert node", b, false);
   if (write_block(b) != btree_bset_last(b) && b->keys.last_set_unwritten) {
-    bch_btree_init_next(b); /* just wrote a set */
+    CACHE_DEBUGLOG(CAT_BTREE,"write_block(b) %lu != btree_bset_last(b) %lu btree init next\n",
+                   write_block(b), btree_bset_last(b));
+    bch_btree_init_next(b); 
   }
 
   /*printf( " \033[1m\033[45;33m btree.c FUN %s: Insert Node insert nkeys=%d,remaining keys=%d \033[0m\n", __func__,bch_keylist_nkeys(insert_keys),insert_u64s_remaining(b));*/
@@ -2343,7 +2355,6 @@ out:
 
 static int btree_insert_fn(struct btree_op *b_op, struct btree *b)
 {
-  CACHE_DEBUGLOG(NULL," insert fn \n");
   struct btree_insert_op *op = container_of(b_op, struct btree_insert_op, op);
 
   int ret = bch_btree_insert_node(b, &op->op, op->keys, op->journal_ref, 
@@ -2389,6 +2400,8 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
     op.op.lock = SHRT_MAX;
     ret = bch_btree_map_leaf_nodes(&op.op, c, &START_KEY(keys->keys),
         btree_insert_fn);
+    CACHE_DEBUGLOG(CAT_BTREE,"remap leaf nodes again(ret %d keylist empty %d\n",
+                        ret, bch_keylist_empty(keys));
   }
 
   if (ret) {
@@ -2437,7 +2450,7 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op,
 {
   int ret = MAP_CONTINUE;
   struct btree_insert_op *i_op = container_of(op, struct btree_insert_op, op);
-  dump_btree_node(b,false);
+  dump_btree_node("map nodes recurse",b,false);
   dump_bkey("map nodes recurse ", from);
   if (b->level) {
     struct bkey *k;
@@ -2449,10 +2462,13 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op,
       /*from = NULL;*/
       if ( from != NULL ) {
         SET_KEY_OFFSET(from, KEY_START(i_op->keys->keys));
+        dump_bkey("update bkey",from);
       }
       // if has uninsert bkey, we should map_continue
-      if (ret != MAP_CONTINUE)
+      if (ret != MAP_CONTINUE) {
+        CACHE_DEBUGLOG(CAT_BTREE,"map nodes recurse done ret %d\n", ret);
         return ret;
+      }
     }
   }
   // level=0: means leaf node

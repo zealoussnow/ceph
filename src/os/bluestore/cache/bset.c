@@ -608,25 +608,26 @@ void dump_bkey(const char *prefix, struct bkey *b)
   if ( b == NULL) {
       CACHE_DEBUGLOG(BUILD_TREE,"%s bkey is NULL \n", prefix);
   } else {
-      CACHE_DEBUGLOG(BUILD_TREE, "%s bkey(p=%p,start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u,inode=%u) \n",
+      CACHE_DEBUGLOG(BUILD_TREE, "%s bkey %p(start %lu off %lu size %lu ptr_offset %u ptrs %u dirty %u inode %u) \n",
                      prefix, b, KEY_OFFSET(b)-KEY_SIZE(b), KEY_OFFSET(b), KEY_SIZE(b), 
                      PTR_OFFSET(b,0), KEY_PTRS(b), KEY_DIRTY(b), KEY_INODE(b));
-
   }
 }
 
-void dump_bset_tree_bkeys(struct bset_tree *tree)
+void dump_bset_tree_bkeys(const char *prefix, struct bset_tree *t)
 {
-  struct bset_tree *t = tree;
-  struct bkey *start = t->data->start;
-  CACHE_DEBUGLOG(BUILD_TREE, "keys %u, tree size=%u, t ex=%u\n", t->data->keys, t->size , t->extra);
-  while (bkey_next(start) != bset_bkey_last(t->data)) {
-    dump_bkey(NULL,start);
-    start = bkey_next(start);
+  if (t == NULL) {
+    CACHE_DEBUGLOG(BUILD_TREE, "%s bset_tree is NULL \n", prefix);
+  } else {
+    struct bkey *start = t->data->start;
+    CACHE_DEBUGLOG(BUILD_TREE, "%s keys %u, tree size=%u, t ex=%u\n", prefix, t->data->keys, t->size , t->extra);
+    while (bkey_next(start) != bset_bkey_last(t->data)) {
+      dump_bkey(NULL,start);
+      start = bkey_next(start);
+    }
+    dump_bkey("last ", start);
   }
-  dump_bkey("last ", start);
 }
-
 void dump_bset_tree_binary_tree(struct bset_tree *tree)
 {
   struct bset_tree *t = tree;
@@ -708,7 +709,7 @@ void bch_bset_build_written_tree(struct btree_keys *b)
   t->extra = (t->size - rounddown_pow_of_two(t->size - 1)) << 1;
   CACHE_DEBUGLOG(CAT_BSET, "last bset size %u extra %u \n", t->size, t->extra);
   /*** for debug ***/
-  // dump_bset_tree_bkeys(t);
+  // dump_bset_tree_bkeys("build written tree",t);
 
   /* First we figure out where the first key in each cacheline is */
 
@@ -1123,6 +1124,11 @@ __bch_btree_iter_init(struct btree_keys *b,
 #ifdef CONFIG_BCACHE_DEBUG
   iter->b = b;
 #endif
+  if ( search ) {
+    dump_bkey("iter init from", search);
+  } else {
+    dump_bkey("iter init from", NULL);
+  }
   for (; start <= bset_tree_last(b); start++) {
     ret = bch_bset_search(b, start, search);
     bch_btree_iter_push(iter, ret, bset_bkey_last(start->data));
@@ -1226,7 +1232,9 @@ btree_mergesort(struct btree_keys *b, struct bset *out,struct btree_iter *iter,
     if (!k) {
       k = __bch_btree_iter_next(iter, b->ops->sort_cmp);
     }
+    dump_bkey("merge sort",k);
     if (bad(b, k)) {
+      dump_bkey("bad",k);
       continue;
     }
     if (!last) {
@@ -1289,10 +1297,11 @@ void bch_btree_sort_partial(struct btree_keys *b, unsigned start,
   int oldsize = bch_count_data(b);
 
   __bch_btree_iter_init(b, &iter, NULL, &b->set[start]);
-
+  CACHE_DEBUGLOG("sort from %u bset_tree \n", start);
   if (start) {
     unsigned i;
     for (i = start; i <= b->nsets; i++) {
+      // dump_bset_tree_bkeys("btree sort", &b->set[i]);
       keys += b->set[i].data->keys;
     }
     order = get_order(__set_bytes(b->set->data, keys));

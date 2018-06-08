@@ -322,7 +322,7 @@ struct bkey *bch_btree_iter_init(struct btree_keys *, struct btree_iter *,
 
 struct bkey *__bch_bset_search(struct btree_keys *, struct bset_tree *,
                                 const struct bkey *);
-void dump_bset_tree_bkeys(struct bset_tree *tree);
+void dump_bset_tree_bkeys(const char * prefix, struct bset_tree *t);
 void dump_bset_tree_binary_tree(struct bset_tree *tree);
 void dump_bkey(const char *prefix, struct bkey *b);
 

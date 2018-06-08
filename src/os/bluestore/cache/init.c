@@ -1248,20 +1248,19 @@ aio_write_completion(void *cb)
   }
 
   if (( item->data + item->o_len ) == ( item->io.pos + item->io.len )) {
-    /*printf("<%s> AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n", */
-                /*__func__, item->o_offset/512, item->o_offset, item->o_len/512,*/
-                /*item->o_len, item->io.success);*/
     CACHE_DEBUGLOG(CAT_AIO_WRITE,"AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n", 
                 item->o_offset/512, item->o_offset, item->o_len/512,
                 item->o_len, item->io.success);
     switch (item->strategy) {
       case CACHE_MODE_WRITEAROUND:
+        CACHE_DEBUGLOG(CAT_AIO_WRITE,"writearound completion start insert keys \n");
         ret = bch_data_insert_keys(ca->set, item->insert_keys);
         break;
       case CACHE_MODE_WRITETHROUGH:
         // write through 写完hhd之后，开始写ssd
         // 如果是write through写ssd完成，则插入btree
         if ( !item->write_through_done) {
+          CACHE_DEBUGLOG(CAT_AIO_WRITE,"writethrough completion start write to cache device \n");
           // 将io_u重制到初始化状态
           item->write_through_done = true;
           item->io.pos = item->data;
@@ -1277,10 +1276,12 @@ aio_write_completion(void *cb)
           }
           return ;
         } else {
+          CACHE_DEBUGLOG(CAT_AIO_WRITE,"writethrough completion start insert keys \n");
           ret = bch_data_insert_keys(ca->set, item->insert_keys);
           break;
         }
       case CACHE_MODE_WRITEBACK:
+        CACHE_DEBUGLOG(CAT_AIO_WRITE,"writeback completion start insert keys \n");
         ret = bch_data_insert_keys(ca->set, item->insert_keys);
         bch_writeback_add(ca->set->dc);
         break;
