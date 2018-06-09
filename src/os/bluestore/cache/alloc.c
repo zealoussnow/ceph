@@ -558,6 +558,7 @@ struct open_bucket {
   unsigned              last_write_point;
   unsigned              sectors_free;
   BKEY_PADDED(key); /* union { struct bkey key; __u64 key_pad[8]; }; */
+  bool wait;
 };
 
 /*
@@ -606,12 +607,20 @@ pick_data_bucket(struct cache_set *c, const struct bkey *search,
 
   if (*last){
     ret = *last;
+    if (ret->sectors_free) {
+      CACHE_ERRORLOG(CAT_ALLOC, "alloc for no empty open bucket(%p) sectors_free=%u\n",
+                     ret, ret->sectors_free);
+      assert("alloc for no empty open bucket" == 0);
+    }
     goto found;
   }
 
   min_bkt = list_last_entry(&c->data_buckets, struct open_bucket, list);
 
   list_for_each_entry_reverse(ret, &c->data_buckets, list){
+    if (ret->wait){
+      continue;
+    }
     if (!bkey_cmp(&ret->key, search) && ret->sectors_free > sectors) {
       goto found;
     } else {
@@ -648,8 +657,10 @@ found:
     ret->sectors_free = c->sb.bucket_size;
     bkey_copy(&ret->key, alloc);
     bkey_init(alloc);
+    ret->wait = false;
   }
   if (!ret->sectors_free) {
+    ret->wait = true;
     *last =  ret;
     ret = NULL;
   }
@@ -794,8 +805,7 @@ int bch_open_buckets_alloc(struct cache_set *c)
   //spin_lock_init(&c->data_bucket_lock);
   pthread_spin_init(&c->data_bucket_lock, 0);
   for (i = 0; i < MAX_OPEN_BUCKETS; i++) {
-    struct open_bucket *b = malloc(sizeof(*b));
-    memset(b, 0, sizeof(*b));
+    struct open_bucket *b = calloc(1, sizeof(*b));
     if (!b) {
       return -ENOMEM;
     }

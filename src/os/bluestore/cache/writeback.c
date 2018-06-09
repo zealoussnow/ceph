@@ -283,8 +283,8 @@ static void dirty_io_write(struct dirty_item *d){
   item->io.type = CACHE_IO_TYPE_WRITE;
   item->iou_completion_cb = write_completion;
 
-  CACHE_DEBUGLOG(WRITEBACK, "Item(%p) io offset=%lu, len=%lu, pos=%p\n",
-                 item, item->io.offset, item->io.len, item->io.pos);
+  CACHE_DEBUGLOG(WRITEBACK, "Item(%p) o_offset=%lu, o_len=%lu, data=%p, io offset=%lu, len=%lu, pos=%p\n",
+                 item, item->o_offset, item->o_len, item->data, item->io.offset, item->io.len, item->io.pos);
   ret = aio_enqueue(CACHE_THREAD_BACKEND, dc->c->cache[0]->handler, item);
   if (ret < 0) {
     for (i = 0; i < d->nk; i++)
@@ -326,13 +326,14 @@ static void dirty_io_read(struct keybuf_key *w, struct dirty_item *d)
   item->iou_completion_cb = read_completion;
   item->iou_arg = d;
   item->io.type=CACHE_IO_TYPE_READ;
-  item->io.pos = item->data + (KEY_OFFSET(&w->key) - item->o_offset);
-  item->io.offset = KEY_OFFSET(&w->key);
-  item->io.len = KEY_SIZE(&w->key);
+  item->io.pos = item->data + ((KEY_START(&w->key) << 9) - item->o_offset);
+  item->io.offset = PTR_OFFSET(&w->key, 0) << 9;
+  item->io.len = KEY_SIZE(&w->key) << 9;
   atomic_inc(&item->seq);
 
-  CACHE_DEBUGLOG(WRITEBACK, "Item(%p) io offset=%lu, len=%lu, pos=%p\n",
-                 item, item->io.offset, item->io.len, item->io.pos);
+  CACHE_DEBUGLOG(WRITEBACK, "Item(%p) o_offset=%lu, o_len=%lu, data=%p, io offset=%lu, len=%lu, pos=%p\n",
+                 item, item->o_offset, item->o_len, item->data, item->io.offset, item->io.len, item->io.pos);
+  pdump_bkey(WRITEBACK, __func__, &w->key);
   ret = aio_enqueue(CACHE_THREAD_CACHE, dc->c->cache[0]->handler, item);
   if (ret < 0) {
     for (i = 0; i < d->nk; i++)
@@ -356,7 +357,11 @@ static void read_dirty(struct cached_dev *dc)
   while (!dc->writeback_should_stop && next) {
     size = 0;
     nk = 0;
-    d = malloc(sizeof(struct dirty_item));
+    d = calloc(1, sizeof(struct dirty_item));
+    if (!d){
+      CACHE_ERRORLOG(WRITEBACK, "Memory error for dirty_item \n");
+      assert("Memory error for dirty_item" == 0);
+    }
 
     do {
 
@@ -396,8 +401,12 @@ static void read_dirty(struct cached_dev *dc)
 
     CACHE_DEBUGLOG(WRITEBACK, "Try to writeback %d next(%p) sleep=%d\n", nk, next, delay);
 
-    data = malloc(size);
-    item = get_ring_item(data, KEY_START(&d->keys[0]->key) << 9, size);
+    data = calloc(1, size << 9);
+    if (!data){
+      CACHE_ERRORLOG(WRITEBACK, "Memory error for data \n");
+      assert("Memory error for data" == 0);
+    }
+    item = get_ring_item(data, KEY_START(&d->keys[0]->key) << 9, size << 9);
     atomic_set(&item->seq, 1);
     d->item = item;
 
