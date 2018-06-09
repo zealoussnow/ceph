@@ -268,7 +268,7 @@ bch_extent_sort_cmp(struct btree_iter_set l,struct btree_iter_set r)
 static struct bkey *
 bch_extent_sort_fixup(struct btree_iter *iter,struct bkey *tmp)
 {
-
+  CACHE_DEBUGLOG(CAT_BKEY,"sort fixup size %u\n", iter->size);
   while (iter->used > 1) {
     struct btree_iter_set *top = iter->data, *i = top + 1;
 
@@ -332,16 +332,14 @@ bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
 
   BUG_ON(!KEY_OFFSET(insert));
   BUG_ON(!KEY_SIZE(insert));
-  CACHE_DEBUGLOG(NULL,"Extent node insert fixup: insert bkey(of=%lu,len=%lu)\n",
-                               KEY_OFFSET(insert),KEY_SIZE(insert));
+
+  dump_bkey("fixup insert", insert);
   while (1) {
     struct bkey *k = bch_btree_iter_next(iter);
+    dump_bkey("fixup iter",k);
     if (!k) {
-      CACHE_DEBUGLOG(NULL,"Extent node insert fixup: iter next bkey is NULL, break \n");
       break;
     }
-    CACHE_DEBUGLOG(NULL,"Extent node insert fixup: iter next bkey(of=%lu,len=%lu) \n"
-        ,KEY_OFFSET(k),KEY_SIZE(k));
     /************************
     *            |--insert--|
     *  |--k1--|                |--k--|
@@ -375,8 +373,8 @@ bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
     * inserting. But we don't want to check them for replace
     * operations.
     */
+    dump_bkey("fixup replace key", replace_key);
     if (replace_key && KEY_SIZE(k)) {
-      CACHE_DEBUGLOG(NULL,"Extent node insert fixup: replace_key is not NULL\n");
       /*
       * k might have been split since we inserted/found the
       * key we're replacing
@@ -433,12 +431,14 @@ bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
         * here.
         */
         top = bch_bset_search(b, bset_tree_last(b),insert);
+        dump_bkey("fixup written got top", top);
         bch_bset_insert(b, top, k);
       } else {
         BKEY_PADDED(key) temp;
         bkey_copy(&temp.key, k);
         bch_bset_insert(b, k, &temp.key);
         top = bkey_next(k);
+        dump_bkey("fixup after insert temp got top",top);
       }
       bch_cut_front(insert, top);
       bch_cut_back(&START_KEY(insert), k);

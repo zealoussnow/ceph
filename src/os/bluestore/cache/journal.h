@@ -120,9 +120,9 @@
  * during cache_registration
  */
 struct journal_replay {
-	struct list_head	list;
-	atomic_t		*pin;
-	struct jset		j;
+  struct list_head      list;
+  atomic_t              *pin;
+  struct jset           j;
 };
 
 /*
@@ -130,33 +130,22 @@ struct journal_replay {
  * journal that are being staged or in flight.
  */
 struct journal_write {
-	struct jset		*data;
-#define JSET_BITS		3
-
-	struct cache_set	*c;
-	//struct closure_waitlist	wait;
-	bool			dirty;
-	bool			need_write;
+  struct jset           *data;
+#define JSET_BITS       3
+  struct cache_set      *c;
+  bool                  dirty;
+  bool                  need_write;
 };
 
 /* Embedded in struct cache_set */
 struct journal {
-        //spinlock_t		lock;
-        pthread_spinlock_t		lock;
-	/* used when waiting because the journal was full */
-	//struct closure_waitlist	wait;
-	//struct closure		io;
-	int			io_in_flight;
-	//struct delayed_work	work;
-
-	/* Number of blocks free in the bucket(s) we're currently writing to */
-	unsigned		blocks_free;
-	uint64_t		seq;
-	DECLARE_FIFO(atomic_t, pin); /* struct { size_t front, back, size, mask; atomic_t *data; } pin; */
-
-	BKEY_PADDED(key);
-
-	struct journal_write	w[2], *cur;
+  pthread_spinlock_t            lock;
+  int                           io_in_flight;
+  unsigned                      blocks_free;
+  uint64_t                      seq;
+  DECLARE_FIFO(atomic_t, pin); /* struct { size_t front, back, size, mask; atomic_t *data; } pin; */
+  BKEY_PADDED(key);
+  struct journal_write	w[2], *cur;
 };
 
 /*
@@ -164,59 +153,46 @@ struct journal {
  * buckets, in cache_sb.
  */
 struct journal_device {
-	/*
-	 * For each journal bucket, contains the max sequence number of the
-	 * journal writes it contains - so we know when a bucket can be reused.
-	 */
-	uint64_t		seq[SB_JOURNAL_BUCKETS];
+  /*
+   * For each journal bucket, contains the max sequence number of the
+   * journal writes it contains - so we know when a bucket can be reused.
+   */
+  uint64_t              seq[SB_JOURNAL_BUCKETS];
+  /* Journal bucket we're currently writing to */
+  unsigned              cur_idx;
+  /* Last journal bucket that still contains an open journal entry */
+  unsigned              last_idx;
+  /* Next journal bucket to be discarded */
+  unsigned              discard_idx;
 
-	/* Journal bucket we're currently writing to */
-	unsigned		cur_idx;
+#define DISCARD_READY	        0
+#define DISCARD_IN_FLIGHT       1
+#define DISCARD_DONE            2
+  /* 1 - discard in flight, -1 - discard completed */
+  atomic_t              discard_in_flight;
 
-	/* Last journal bucket that still contains an open journal entry */
-	unsigned		last_idx;
+  //struct work_struct	discard_work;
+  //struct bio          discard_bio;
+  //struct bio_vec      discard_bv;
 
-	/* Next journal bucket to be discarded */
-	unsigned		discard_idx;
-
-#define DISCARD_READY		0
-#define DISCARD_IN_FLIGHT	1
-#define DISCARD_DONE		2
-	/* 1 - discard in flight, -1 - discard completed */
-	atomic_t		discard_in_flight;
-
-	//struct work_struct	discard_work;
-	//struct bio		discard_bio;
-	//struct bio_vec		discard_bv;
-
-	/* Bio for journal reads/writes to this device */
-	//struct bio		bio;
-	//struct bio_vec		bv[8];
+  /* Bio for journal reads/writes to this device */
 };
 
-#define journal_pin_cmp(c, l, r)				\
-	(fifo_idx(&(c)->journal.pin, (l)) > fifo_idx(&(c)->journal.pin, (r)))
+#define journal_pin_cmp(c, l, r)                                        \
+  (fifo_idx(&(c)->journal.pin, (l)) > fifo_idx(&(c)->journal.pin, (r)))
 
-#define JOURNAL_PIN	20000
+#define JOURNAL_PIN     20000
 
-#define journal_full(j)						\
-	(!(j)->blocks_free || fifo_free(&(j)->pin) <= 1)
+#define journal_full(j)                                                 \
+        (!(j)->blocks_free || fifo_free(&(j)->pin) <= 1)
 
-//struct closure;
 struct cache_set;
 struct btree_op;
 struct keylist;
 
 atomic_t *bch_journal(struct cache_set *, struct keylist *);
-//atomic_t *bch_journal(struct cache_set *, struct keylist *, struct closure *);
 void bch_journal_next(struct journal *);
-//void bch_journal_mark(struct cache_set *, struct list_head *);
-//void bch_journal_meta(struct cache_set *, struct closure *);
 void bch_journal_meta(struct cache_set *);
-//int bch_journal_read(struct cache_set *, struct list_head *);
-//int bch_journal_replay(struct cache_set *, struct list_head *);
-//
-//void bch_journal_free(struct cache_set *);
 int bch_journal_alloc(struct cache_set *);
 
 #endif /* _BCACHE_JOURNAL_H */

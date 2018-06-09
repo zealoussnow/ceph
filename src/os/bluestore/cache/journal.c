@@ -29,8 +29,8 @@
 //	closure_put(cl);
 //}
 //
-static int journal_read_bucket(struct cache *ca, struct list_head *list,
-    unsigned bucket_index)
+static int 
+journal_read_bucket(struct cache *ca, struct list_head *list, unsigned bucket_index)
 {
   /*bucket_index = 2;*/
   struct journal_device *ja = &ca->journal;
@@ -709,7 +709,6 @@ static void journal_write_unlocked(struct cache_set *c)
 //}
 //
 static void journal_try_write(struct cache_set *c)
-  /*__releases(c->journal.lock)*/
 {
   /*struct closure *cl = &c->journal.io;*/
   struct journal_write *w = c->journal.cur;
@@ -727,8 +726,8 @@ static void journal_try_write(struct cache_set *c)
   /*}*/
 }
 
-struct journal_write *journal_wait_for_write(struct cache_set *c,
-    unsigned nkeys)
+struct journal_write *
+journal_wait_for_write(struct cache_set *c, unsigned nkeys)
 {
   size_t sectors;
   /*struct closure cl;*/
@@ -815,8 +814,7 @@ struct journal_write *journal_wait_for_write(struct cache_set *c,
 /*atomic_t *bch_journal(struct cache_set *c,*/
 /*struct keylist *keys,*/
 /*struct closure *parent)*/
-atomic_t *bch_journal(struct cache_set *c,
-    struct keylist *keys)
+atomic_t *bch_journal(struct cache_set *c, struct keylist *keys)
 {
   struct journal_write *w = NULL;
   atomic_t *ret;
@@ -855,7 +853,6 @@ atomic_t *bch_journal(struct cache_set *c,
   return ret;
 }
 
-/*void bch_journal_meta(struct cache_set *c, struct closure *cl)*/
 void bch_journal_meta(struct cache_set *c)
 {
   CACHE_DEBUGLOG(CAT_JOURNAL, "journal meta\n");

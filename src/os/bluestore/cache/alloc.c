@@ -70,11 +70,6 @@
 #include <errno.h>
 #include <stdlib.h>
 
-//#include <linux/blkdev.h>
-//#include <linux/kthread.h>
-//#include <linux/random.h>
-//#include <trace/events/bcache.h>
-
 #define MAX_OPEN_BUCKETS 128
 
 /* Bucket heap / gen */
@@ -139,10 +134,8 @@ bool bch_can_invalidate_bucket(struct cache *ca, struct bucket *b)
 {
   BUG_ON(!ca->set->gc_mark_valid);
 
-  return (!GC_MARK(b) ||
-      GC_MARK(b) == GC_MARK_RECLAIMABLE) &&
-    !atomic_read(&b->pin) &&
-    can_inc_bucket_gen(b);
+  return (!GC_MARK(b) || GC_MARK(b) == GC_MARK_RECLAIMABLE) &&
+        !atomic_read(&b->pin) && can_inc_bucket_gen(b);
 }
 
 //TODO
@@ -174,15 +167,15 @@ static void bch_invalidate_one_bucket(struct cache *ca, struct bucket *b)
  * prio is worth 1/8th of what INITIAL_PRIO is worth.
  */
 
-#define bucket_prio(b)							\
-  ({									\
-   unsigned min_prio = (INITIAL_PRIO - ca->set->min_prio) / 8;	\
-   \
-   (b->prio - ca->set->min_prio + min_prio) * GC_SECTORS_USED(b);	\
+#define bucket_prio(b)                                                  \
+  ({                                                                    \
+   unsigned min_prio = (INITIAL_PRIO - ca->set->min_prio) / 8;          \
+                                                                        \
+   (b->prio - ca->set->min_prio + min_prio) * GC_SECTORS_USED(b);       \
    })
 
-#define bucket_max_cmp(l, r)	(bucket_prio(l) < bucket_prio(r))
-#define bucket_min_cmp(l, r)	(bucket_prio(l) > bucket_prio(r))
+#define bucket_max_cmp(l, r)    (bucket_prio(l) < bucket_prio(r))
+#define bucket_min_cmp(l, r)    (bucket_prio(l) > bucket_prio(r))
 
 static void invalidate_buckets_lru(struct cache *ca)
 {
@@ -249,12 +242,9 @@ static void invalidate_buckets_random(struct cache *ca)
 {
   struct bucket *b;
   size_t checked = 0;
-  /*int ret=0;*/
 
   while (!fifo_full(&ca->free_inc)) {
     size_t n;
-    /*n = 0xdeadbeaf;*/
-    /*ret=get_random_bytes(&n, sizeof(n)); // TODO*/
     get_random_bytes(&n, sizeof(n)); // TODO
 
     n %= (size_t) (ca->sb.nbuckets - ca->sb.first_bucket);
@@ -322,7 +312,6 @@ static int bch_allocator_push(struct cache *ca, long bucket)
     ret = true;
     goto wake_up;
   }
-
   for (i = 0; i < RESERVE_NR; i++)
     if (fifo_push(&ca->free[i], bucket)) {
       CACHE_DEBUGLOG(CAT_ALLOC, "fifo_push bucket %ld to free[%d] success,goto wake up\n",
@@ -332,7 +321,6 @@ static int bch_allocator_push(struct cache *ca, long bucket)
       goto wake_up;
   }
   CACHE_DEBUGLOG(CAT_ALLOC, "fifo_push bucket %ld failed ret %d\n", ret);
-
 wake_up:
   wake_up_reserve_cond(ca);
   return ret;
@@ -343,8 +331,7 @@ static int bch_allocator_thread(void *arg)
   struct cache *ca = arg;
 
   pthread_mutex_lock(&ca->set->bucket_lock);
-  /*printf(" alloc.c FUN %s: ** start bch_allocator thread **\n",__func__);*/
-  CACHE_INFOLOG(CAT_ALLOC, "** start bch_allocator thread **\n");
+  CACHE_INFOLOG(CAT_ALLOC, "start bucket alloc thread %p\n", pthread_self());
 
   while (1) {
     /*
@@ -431,7 +418,6 @@ retry_invalidate:
 long bch_bucket_alloc(struct cache *ca, unsigned reserve, bool wait)
 {
   //DEFINE_WAIT(w);
-
   struct bucket *b;
   long r;
 
@@ -454,15 +440,10 @@ long bch_bucket_alloc(struct cache *ca, unsigned reserve, bool wait)
     //prepare_to_wait(&ca->set->bucket_wait, &w,
     //		TASK_UNINTERRUPTIBLE);
 
-    //pthread_mutex_unlock(&ca->set->bucket_lock);
-    //schedule();
-    //pthread_mutex_lock(&ca->set->bucket_lock);
     pthread_mutex_unlock(&ca->set->bucket_lock);
-
     pthread_mutex_lock(&ca->set->bucket_wait_mut);
     pthread_cond_wait(&ca->set->bucket_wait_cond, &ca->set->bucket_wait_mut);
     pthread_mutex_unlock(&ca->set->bucket_wait_mut);
-
     pthread_mutex_lock(&ca->set->bucket_lock);
   } while (!fifo_pop(&ca->free[RESERVE_NONE], r) &&
       !fifo_pop(&ca->free[reserve], r));
@@ -527,7 +508,7 @@ void bch_bucket_free(struct cache_set *c, struct bkey *k)
 }
 
 int __bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
-    struct bkey *k, int n, bool wait)
+                          struct bkey *k, int n, bool wait)
 {
   int i;
   //lockdep_assert_held(&c->bucket_lock);
@@ -561,7 +542,7 @@ err:
 }
 
 int bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
-    struct bkey *k, int n, bool wait)
+                        struct bkey *k, int n, bool wait)
 {
   int ret;
   pthread_mutex_lock(&c->bucket_lock);
@@ -573,9 +554,9 @@ int bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
 /* Sector allocator */
 
 struct open_bucket {
-  struct list_head	list;
-  unsigned		last_write_point;
-  unsigned		sectors_free;
+  struct list_head      list;
+  unsigned              last_write_point;
+  unsigned              sectors_free;
   BKEY_PADDED(key); /* union { struct bkey key; __u64 key_pad[8]; }; */
 };
 
@@ -607,10 +588,9 @@ struct open_bucket {
  * should be a sane heuristic.
  * 这两个任务都会做相当多的随机IO，因此不能依赖检测顺序IO来将它们的数据分开。
  */
-static struct open_bucket *pick_data_bucket(struct cache_set *c,
-    const struct bkey *search,
-    unsigned write_point,
-    struct bkey *alloc)
+static struct open_bucket *
+pick_data_bucket(struct cache_set *c, const struct bkey *search, unsigned write_point,
+                struct bkey *alloc)
 {
   struct open_bucket *ret, *ret_task = NULL;
 
@@ -622,9 +602,7 @@ static struct open_bucket *pick_data_bucket(struct cache_set *c,
     else if (ret->last_write_point == write_point)
       ret_task = ret;
 
-  /* ret = ret_task ? ret_task : list_first_entry(...); */
-  ret = ret_task ?: list_first_entry(&c->data_buckets,
-      struct open_bucket, list);
+  ret = ret_task ?: list_first_entry(&c->data_buckets, struct open_bucket, list);
 found:
   /* 找到的bucket中没有可用的扇区？*/
   if (!ret->sectors_free && KEY_PTRS(alloc)) {
@@ -632,12 +610,9 @@ found:
     bkey_copy(&ret->key, alloc);
     bkey_init(alloc);
   }
-
-  if (!ret->sectors_free)
-  {
+  if (!ret->sectors_free) {
     ret = NULL;
   }
-
   return ret;
 }
 
@@ -655,10 +630,10 @@ found:
  * If s->writeback is true, will not fail.
  */
 bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
-    unsigned write_point, unsigned write_prio, bool wait)
+                      unsigned write_point, unsigned write_prio, bool wait)
 {
   struct open_bucket *b;
-  BKEY_PADDED(key) alloc; /* union { struct bkey key; __u64 key_pad[8]; } alloc */
+  BKEY_PADDED(key) alloc; 
   unsigned i;
 
   /*
@@ -753,7 +728,6 @@ bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
 }
 
 /* Init */
-
 void bch_open_buckets_free(struct cache_set *c)
 {
   struct open_bucket *b;
@@ -762,25 +736,21 @@ void bch_open_buckets_free(struct cache_set *c)
     b = list_first_entry(&c->data_buckets,
         struct open_bucket, list);
     list_del(&b->list);
-    //kfree(b);
-    free(b);
+    T2Free(b);
   }
 }
 
 int bch_open_buckets_alloc(struct cache_set *c)
 {
   int i;
-
   //spin_lock_init(&c->data_bucket_lock);
   pthread_spin_init(&c->data_bucket_lock, 0);
-  /*printf(" alloc.c FUN %s: open_bucket nr=%d. add open_bucket to cache data_buckets list\n",__func__,MAX_OPEN_BUCKETS);*/
   for (i = 0; i < MAX_OPEN_BUCKETS; i++) {
-    //struct open_bucket *b = kzalloc(sizeof(*b), GFP_KERNEL);
     struct open_bucket *b = malloc(sizeof(*b));
     memset(b, 0, sizeof(*b));
-    if (!b)
+    if (!b) {
       return -ENOMEM;
-
+    }
     list_add(&b->list, &c->data_buckets);
   }
 
