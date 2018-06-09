@@ -2345,7 +2345,7 @@ static void __bch_keybuf_del(struct keybuf *buf, struct keybuf_key *w)
   array_free(&buf->freelist, w);
 }
 
-static void bch_keybuf_free(struct keybuf *buf, struct keybuf_key *w)
+void bch_keybuf_free(struct keybuf *buf, struct keybuf_key *w)
 {
   pthread_spin_lock(&buf->lock);
   array_free(&buf->freelist, w);
