@@ -297,6 +297,18 @@ static void dirty_io_write(struct dirty_item *d){
 static void *read_completion(void *arg){
   struct dirty_item *d = (struct dirty_item *)arg;
   struct ring_item *item = d->item;
+  struct keybuf_key *w;
+
+  if (d->nk == 1) {
+    w = d->keys[0];
+    if (!KEY_DIRTY(&w->key)) {
+      bch_keybuf_free(&d->dc->writeback_keys, w);
+      free(item->data);
+      free(item);
+      free(d);
+      return;
+    }
+  }
 
   atomic_dec(&item->seq);
   if (!atomic_read(&item->seq)){
