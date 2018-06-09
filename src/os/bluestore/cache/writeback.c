@@ -250,7 +250,7 @@ static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
       atomic_inc(&PTR_BUCKET(dc->c, &w->key, i)->pin);
 
     // TODO why replace key???
-    ret = bch_btree_insert(dc->c, &keys, NULL, NULL);
+    ret = bch_btree_insert(dc->c, &keys, NULL, &w->key);
   }
 }
 
@@ -298,19 +298,6 @@ static void *read_completion(void *arg){
   struct dirty_item *d = (struct dirty_item *)arg;
   struct ring_item *item = d->item;
   struct keybuf_key *w;
-
-  // 有覆盖写的时候，需要停止当前回刷，避免无效的写hdd动作
-  if (d->nk == 1) {
-    w = d->keys[0];
-    if (!KEY_DIRTY(&w->key)) {
-      // 在check_overlapping的时候已经从红黑树中摘除了，所以这里只需要释放即可
-      bch_keybuf_free(&d->dc->writeback_keys, w);
-      free(item->data);
-      free(item);
-      free(d);
-      return;
-    }
-  }
 
   atomic_dec(&item->seq);
   if (!atomic_read(&item->seq)){

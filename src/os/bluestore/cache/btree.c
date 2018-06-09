@@ -1842,7 +1842,7 @@ bch_btree_insert_keys(struct btree *b, struct btree_op *op, struct keylist *inse
       break;
     }
   }
-  if (!ret) {
+  if (!ret && !replace_key) {
     CACHE_ERRORLOG(CAT_BSET,"inserting keys got error ret %d \n",ret);
     assert("inserting keys got error"==0);
     op->insert_collision = true;
@@ -2123,7 +2123,7 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
     while ((k = bch_keylist_pop(keys))){
       bkey_put(c, k);
     }
-  } else if (op.op.insert_collision) {
+  } else if (op.op.insert_collision && !replace_key) {
     assert("recurse insert keylist faild" == 0);
     ret = -ESRCH;
   }
@@ -2334,11 +2334,6 @@ void bch_refill_keybuf(struct cache_set *c, struct keybuf *buf,
   pthread_spin_unlock(&buf->lock);
 }
 
-static void __bch_keybuf_remove(struct keybuf *buf, struct keybuf_key *w)
-{
-  rb_erase(&w->node, &buf->keys);
-}
-
 static void __bch_keybuf_del(struct keybuf *buf, struct keybuf_key *w)
 {
   rb_erase(&w->node, &buf->keys);
@@ -2378,8 +2373,6 @@ bool bch_keybuf_check_overlapping(struct keybuf *buf, struct bkey *start,
     w = RB_NEXT(w, node);
 
     if (p->private) {
-      SET_KEY_DIRTY(&p->key, false);
-      __bch_keybuf_remove(buf, p);
       ret = true;
     } else {
       __bch_keybuf_del(buf, p);
