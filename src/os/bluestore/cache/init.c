@@ -1727,17 +1727,24 @@ int get_cache_strategy(struct cache *ca, struct ring_item *item)
   bool bypass = false;
   bool writeback = false;
 
+  // 判断io是否可以绕过cache，
+  // 条件：
+  // 1. cache盘的使用量达到阈值CUTOFF_CACHE_ADD
+  // 2. cache模式是none或者around
+  // 3. io在同一个线程内的一段时间内是否连续
   bypass = check_should_bypass(dc, item);
 
   bch_keybuf_check_overlapping(&dc->c->moving_gc_keys, &start, &end);
 
   pthread_rwlock_rdlock(&dc->writeback_lock);
 
+  // 如果与正在回刷的bkey有重叠部分，需要使用writeback模式
   if (bch_keybuf_check_overlapping(&dc->writeback_keys, &start, &end)) {
     bypass = false;
     writeback = true;
   }
 
+  // 如果cache使用量没超过回刷的水位线并且模式是writeback模式的情况，返回true
   if (should_writeback(dc, mode, bypass)) {
     bypass = false;
     writeback = true;
