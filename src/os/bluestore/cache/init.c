@@ -1894,6 +1894,7 @@ int _write_cache_miss(struct ring_item *item)
   item->io.type=CACHE_IO_TYPE_WRITE;
   item->start = cache_clock_now();
 
+  // 读热点数据需要写入到缓存中，如需replace_key，需要在writeback回调中修改
   if (_prep_writeback(item) < 0) {
     CACHE_ERRORLOG(NULL,"prep cache miss error %d\n", ret);
     assert( " prep_cache_miss error  " == 0);
