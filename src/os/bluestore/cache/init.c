@@ -1885,13 +1885,41 @@ set_item_io(struct ring_item *item, const struct bkey *k) {
   return ret;
 }
 
+int _write_cache_miss(struct ring_item *item)
+{
+  int ret = 0;
+  struct cache *ca = item->ca_handler;
+
+  item->strategy = CACHE_MODE_WRITEBACK;
+  item->io.type=CACHE_IO_TYPE_WRITE;
+  item->start = cache_clock_now();
+
+  if (_prep_writeback(item) < 0) {
+    CACHE_ERRORLOG(NULL,"prep cache miss error %d\n", ret);
+    assert( " prep_cache_miss error  " == 0);
+  }
+
+  ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
+  if (ret < 0) {
+    CACHE_ERRORLOG(NULL,"write hits sync error %d\n", ret);
+    assert("Write hits sync error" == 0);
+  }
+
+  return ret;
+}
+
 void 
 aio_read_completion(struct ring_item *item)
 {
   struct cache *ca = item->ca_handler;
   /*printf("<%s>: All read complete. \n", __func__);*/
 
-  ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_read_lat, item->start, cache_clock_now());
+  if (atomic_read(&item->need_write_cache)) {
+    _write_cache_miss(item);
+    return;
+  }
+
+  /*ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_read_lat, item->start, cache_clock_now());*/
   // call callback function
   if (item->io_completion_cb) {
     item->io_completion_cb(item->io_arg);
@@ -1904,23 +1932,7 @@ aio_read_completion(struct ring_item *item)
   // 1. we should consider of user desire or business
   // 2. take care of when read complete, need sync write, no async, this
   //    will drop perf downk
-  /*if (atomic_read(&item->need_write_cache)) {*/
-    // 这里需要有一个回调来确认读出来的数据正确的写入到SSD,暂时设置成NULL
-    /*cache_aio_write(ca, item->data, item->o_offset, item->o_len, NULL, NULL);*/
-  /*}*/
   free(item);
-}
-
-void 
-read_cache_look_done(struct ring_item *item) {
-  /*printf("<%s>: MAP_DONE \n", __func__);*/
-  // set a tag for read aio push complete.
-  atomic_dec(&item->seq);
-  /*printf("<%s>: All data complete. seq=%d \n",*/
-              /*__func__, atomic_read(&item->seq));*/
-  if (atomic_read(&item->seq) == 0 ) {
-    aio_read_completion(item);
-  }
 }
 
 int 
@@ -1942,7 +1954,6 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
    }
    // bkey is after of data
    else if (KEY_OFFSET(key) - KEY_SIZE(key) > end) {
-     read_cache_look_done(item);
      return MAP_DONE;
    }
    // todo: set a flag to switch read DIRTY
@@ -1960,7 +1971,6 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
        assert( "test aio_enqueue error  " == 0);
      }
      if (is_end) {
-       read_cache_look_done(item);
        return MAP_DONE;
      }
    }
@@ -1996,6 +2006,12 @@ aio_read_backend_completion(void *cb)
                         /*__func__, item->o_offset, item->o_len );*/
   bch_btree_map_keys(&s.op, ca->set, &KEY(0,(s.item->o_offset >> 9),0),
                         read_cache_lookup_fn, MAP_END_KEY);
+
+  atomic_dec(&item->seq);
+  if (atomic_read(&item->seq) == 0 ) {
+    aio_read_completion(item);
+  }
+
 }
 
 
@@ -2017,6 +2033,12 @@ cache_aio_read_backend(struct ring_item *item)
   if (ret < 0) {
     assert( "test aio_enqueue error  " == 0);
   }
+}
+
+static bool cache_read_hits(item)
+{
+  // TODO 判断是否需要缓存
+  return true;
 }
 
 int 
@@ -2043,14 +2065,14 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
   else if (cache_start > item->io.offset) {
     // hdd
     CACHE_DEBUGLOG(CAT_READ,"Read: not all data in cache, goto read backend \n");
-    atomic_inc(&item->need_write_cache);
+    if (cache_read_hits(item))
+      atomic_inc(&item->need_write_cache);
     cache_aio_read_backend(item);
     return MAP_DONE;
   }
   // bkey in data
   else if (KEY_SIZE(key) && KEY_PTRS(key)) {
     //pos
-    int is_dirty = KEY_DIRTY(key);
     item->io.offset += cache_len - (item->io.offset - cache_start);
     if (item->io.offset >= item->o_offset + item->o_len) {
       // all in ssd
