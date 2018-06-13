@@ -1890,7 +1890,6 @@ int _write_cache_miss(struct ring_item *item)
   int ret = 0;
   struct cache *ca = item->ca_handler;
 
-  item->strategy = CACHE_MODE_WRITEBACK;
   item->io.type=CACHE_IO_TYPE_WRITE;
   item->start = cache_clock_now();
   struct bkey start = KEY(0, item->o_offset >> 9, 0);
@@ -1901,9 +1900,9 @@ int _write_cache_miss(struct ring_item *item)
   // 1. when write readed data, we should also check_overlapping with gc and wb
   // 2. we should handle writeback_lock read lock when write complete it
   // will unlock, if not it will cause wb thread write lock hung
-  bch_keybuf_check_overlapping(&ca->set->dc->c->moving_gc_keys, &start, &end);
-  pthread_rwlock_rdlock(&ca->set->dc->writeback_lock);
-  bch_keybuf_check_overlapping(&ca->set->dc->writeback_keys, &start, &end);
+  if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
+    wake_up_gc(ca->set);
+
   if (_prep_writeback(item) < 0) {
     CACHE_ERRORLOG(NULL,"prep cache miss error %d\n", ret);
     assert( " prep_cache_miss error  " == 0);
@@ -1925,8 +1924,13 @@ aio_read_completion(struct ring_item *item)
   /*printf("<%s>: All read complete. \n", __func__);*/
 
   if (atomic_read(&item->need_write_cache)) {
-    _write_cache_miss(item);
-    return;
+    item->strategy = get_cache_strategy(ca, item);
+    if (item->strategy == CACHE_MODE_WRITEBACK) {
+      _write_cache_miss(item);
+      return;
+    } else {
+      pthread_rwlock_unlock(&ca->set->dc->writeback_lock);
+    }
   }
 
   /*ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_read_lat, item->start, cache_clock_now());*/
