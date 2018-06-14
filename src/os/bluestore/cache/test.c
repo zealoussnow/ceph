@@ -41,6 +41,7 @@
 void
 read_complete_cb(void *arg){
   printf("<%s>: I got the data!\n",__func__);
+  printf(" read result =%s \n", arg);
 }
 
 void 
@@ -133,6 +134,48 @@ void do_writeback_test(struct cache *ca)
   traverse_btree(ca);
   // print read result
   /*printf(" read result =%s \n", read_data);*/
+}
+
+void do_writeback_batch_test(struct cache *ca)
+{
+  printf(" ********* start writeback test *********** \n");
+  void *data = NULL;
+  void *read_data = NULL;
+  uint64_t len = 512;
+  uint64_t offset = 8192;
+
+  aio_thread_init(ca);
+  struct ring_items *items = ring_items_alloc();
+  struct ring_item *item;
+
+  posix_memalign((void **)&data, 512, len);
+  posix_memalign((void **)&read_data, 512, len);
+  memset(data, 'b', len);
+  memset(read_data, '0', len);
+
+  sleep(1);
+  // write 512
+  int i = 1;
+  for ( i = 1; i<100; i++ ) {
+    //cache_aio_write(ca, data, offset+1024*i, len*1024, NULL, NULL);
+    item = get_ring_item(data, offset+1024*i, len);
+      ring_items_add(items, item);
+  }
+  cache_aio_writeback_batch(ca, items);
+  ring_items_free(items);
+  /*sleep(10);*/
+  traverse_btree(ca);
+  sleep(2);
+  // read 512
+  cache_aio_read(ca, read_data, offset + 1024 * 2, len, read_complete_cb, read_data);
+  // wait writeback
+  sleep(4);
+  // printf(" read result =%s \n", read_data);
+}
+
+void *start_do_writeback_batch(void *arg){
+  struct cache *ca = arg;
+  do_writeback_batch_test(ca);
 }
 
 
@@ -332,6 +375,10 @@ int main()
 
   /*bch_data_insert(ca);*/
   /*do_writeback_test(ca);*/
+  //do_writeback_batch_test(ca);
+  //pthread_t pp,tt;
+  //pp = pthread_create(&pp, NULL, start_do_writeback_batch, ca);
+  //tt = pthread_create(&tt, NULL, start_do_writeback_batch, ca);
 
   /*do_invalidate_region_test(ca);*/
 

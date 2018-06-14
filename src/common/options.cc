@@ -3094,6 +3094,14 @@ std::vector<Option> get_global_options() {
     .set_default(-1)
     .set_description(""),
 
+    Option("cache_aio_write_batch", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
+    .set_default(true)
+    .set_description(""),
+
+    Option("cache_aio_write_batch_max_size", Option::TYPE_INT, Option::LEVEL_ADVANCED)
+    .set_default(256)
+    .set_description(""),
+
     Option("bluefs_alloc_size", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
     .set_default(1048576)
     .set_description(""),

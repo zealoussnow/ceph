@@ -36,9 +36,60 @@
 #define dout_subsys ceph_subsys_bdev
 #undef dout_prefix
 #define dout_prefix *_dout << "bdev(" << this << " " << path << ") "
+#define BITS_PER_HEX 4
 
 static constexpr uint32_t data_buffer_size = 8192;
 static constexpr uint16_t inline_segment_num = 32;
+
+static int xdigit2val(unsigned char c) {
+  int val;
+
+  if (isdigit(c))
+    val = c - '0';
+  else if (isupper(c))
+    val = c - 'A' + 10;
+  else
+    val = c - 'a' + 10;
+  return val;
+}
+
+static int str2cpuset(const char *coremask, cpu_set_t *mask) {
+  unsigned int cpu_nums = sysconf(_SC_NPROCESSORS_CONF);
+  char c;
+  int i;
+  unsigned int j, val, idx = 0;
+  CPU_ZERO(mask);
+
+  if (coremask == NULL)
+    return -1;
+  while (isblank(*coremask))
+    coremask++;
+  if (coremask[0] == '0' && ((coremask[1] == 'x')
+                             || (coremask[1] == 'X')))
+    coremask += 2;
+  i = strlen(coremask);
+  while ((i > 0) && isblank(coremask[i - 1]))
+    i--;
+  if (i == 0)
+    return -1;
+  for (i = i - 1; i >= 0 && idx < cpu_nums; i--) {
+    c = coremask[i];
+    if (isxdigit(c) == 0) {
+      /* invalid characters */
+      return -1;
+    }
+    val = xdigit2val(c);
+    for (j = 0; j < BITS_PER_HEX && idx < __CPU_SETSIZE; j++, idx++) {
+      if (idx >= cpu_nums){
+        return -1;
+      }
+      if ((1 << j) & val) {
+        CPU_SET(idx, mask);
+      }
+    }
+  }
+  return 0;
+}
 
 struct IORequest {
   uint16_t cur_seg_idx = 0;
@@ -111,13 +162,11 @@ CacheDevice::CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv)
     debug_lock("CacheDevice::debug_lock"),
         queue_lock("CacheDevice::queue_lock"),
         queue_op_seq(0),
-        queue_empty(false),
         completed_op_seq(0),
     aio_queue(cct->_conf->bdev_aio_max_queue_depth),
     aio_callback(cb),
     aio_callback_priv(cbpriv),
     aio_stop(false),
-    aio_thread(this),
     injecting_crash(0)
 {
   cache_ctx.registered=false;
@@ -138,7 +187,7 @@ int CacheDevice::_lock()
 int CacheDevice::cache_init(const std::string& path)
 {
   int r = 0;
-  string bdev_path = path + "/bdev.conf.in";
+  bdev_path = path + "/bdev.conf.in";
   cache_ctx.fd_cache=fd_cache;
   cache_ctx.fd_direct=fd_direct;
   cache_ctx.fd_buffered=fd_buffered;
@@ -151,7 +200,11 @@ int CacheDevice::cache_init(const std::string& path)
   if (cache_ctx.registered)
     return r;
 
-  r = t2store_cache_register_cache(&cache_ctx);
+  if(t2store_cache_register_cache(&cache_ctx))
+    return r;
+
+  if(_aio_start())
+    return r;
 
   return r;
 }
@@ -272,10 +325,6 @@ int CacheDevice::open(const string& p, const string& c_path)
     }
   }
 
-  r = _aio_start();
-  if (r < 0) {
-    goto out_fail;
-  }
   fs = FS::create_by_fd(fd_direct);
   assert(fs);
 
@@ -392,11 +441,6 @@ int CacheDevice::open(const string& p)
       dout(20) << __func__ << " devname " << devname << dendl;
       rotational = block_device_is_rotational(devname);
     }
-  }
-
-  r = _aio_start();
-  if (r < 0) {
-    goto out_fail;
   }
 
   fs = FS::create_by_fd(fd_direct);
@@ -565,15 +609,33 @@ int CacheDevice::_aio_start()
     if (r < 0) {
       if (r == -EAGAIN) {
         derr << __func__ << " io_setup(2) failed with EAGAIN; "
-                << "try increasing /proc/sys/fs/aio-max-nr" << dendl;
+             << "try increasing /proc/sys/fs/aio-max-nr" << dendl;
       } else {
         derr << __func__ << " io_setup(2) failed: " << cpp_strerror(r) << dendl;
       }
-        return r;
+      return r;
     }
-    aio_thread.create("bstore_aio");
+
+    cpu_set_t mask;
+    const char *coremask = cct->_conf->t2store_core_mask.c_str();
+    if (str2cpuset(coremask, &mask)) {
+      derr << __func__ << " str2cpuset failed: " << cct->_conf->t2store_core_mask << dendl;
+      ceph_abort();
+    }
+
+    unsigned cpu_nums = sysconf(_SC_NPROCESSORS_CONF);
+    for (unsigned i = 0; i < cpu_nums; i++) {
+      if (CPU_ISSET(i, &mask)) {
+        char *thread_name = (char*)calloc(17, sizeof(char));
+        sprintf(thread_name, "caio_%d", i);
+        AioCompletionThread *aio_thread = new AioCompletionThread(this);
+        aio_thread->create(thread_name);
+        aio_thread->set_affinity(i);
+        aio_threads.push_back(aio_thread);
+      }
+    }
   }
-  
+
   return 0;
 }
 
@@ -587,7 +649,10 @@ void CacheDevice::_aio_stop()
       aio_stop = true;
       queue_cond.Signal();
     }
-    aio_thread.join();
+    vector<AioCompletionThread *>::iterator it;
+    for (it = aio_threads.begin(); it != aio_threads.end(); it++) {
+      (*it)->join();
+    }
     aio_stop = false;
   }
 
@@ -640,10 +705,21 @@ void CacheDevice::_aio_thread()
   Task *t = nullptr;
   uint64_t off, len;
   int r = 0;
+  int max_buffer = cct->_conf->cache_aio_write_batch_max_size;
+  bool write_immediately;
+  r = t2store_cache_aio_thread_init(&cache_ctx);
+  if (r < 0) {
+    derr << __func__ << " failed to do thread init" << dendl;
+    ceph_abort();
+  }
+  struct ring_items *items = t2store_cache_aio_items_alloc();
+  struct ring_item *item;
+  unsigned count = 0;
 
   dout(10) << __func__ << " linbing " << dendl;
   while (true) {
-    bool inflight = queue_op_seq.load() - completed_op_seq.load();
+    printf("--------------\n");
+    //bool inflight = queue_op_seq.load() - completed_op_seq.load();
     for (; t; t = t->next) {
       off = t->offset;
       len = t->len;
@@ -651,16 +727,46 @@ void CacheDevice::_aio_thread()
         case IOCommand::WRITE_COMMAND:
         {
           dout(20) << __func__ << " write command issued " << off << "~" << len << dendl;
-          r = t2store_cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
-          if (r < 0) {
-            derr << __func__ << " failed to do write command" << dendl;
-            delete t;
-            ceph_abort();
+          //r = t2store_cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
+
+          write_immediately = true;
+          if (cct->_conf->cache_aio_write_batch) {
+            item = t2store_cache_aio_get_item(t->write_bl.c_str(), off, len, (void *) io_complete, (void *) t);
+            if (t2store_cache_aio_get_cache_strategy(&cache_ctx, item) == CACHE_MODE_WRITEBACK) {
+              t2store_cache_aio_items_add(items, item);
+              count++;
+              write_immediately = false;
+              if (count >= max_buffer) {
+                t2store_cache_aio_writeback_batch(&cache_ctx, items);
+                t2store_cache_aio_items_reset(items);
+                count = 0;
+              }
+            } else {
+              free(item);
+            }
+          }
+
+          if (write_immediately) {
+            r = t2store_cache_aio_writeback_batch(&cache_ctx, items);
+            //t2store_cache_aio_write(handler, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
+            if (r < 0) {
+              dout(10) << __func__ << " failed to do write command" << dendl;
+              delete t;
+              ceph_abort();
+            }
+            t2store_cache_aio_items_reset(items);
+            count = 0;
           }
           break;
         }
         case IOCommand::READ_COMMAND:
         {
+          // write first
+          if (count) {
+            t2store_cache_aio_writeback_batch(&cache_ctx, items);
+            t2store_cache_aio_items_reset(items);
+            count = 0;
+          }
           dout(20) << __func__ << " read command issued " << off << "~" << len << dendl;
           r = t2store_cache_aio_read(&cache_ctx, t->read_ptr.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
@@ -678,27 +784,23 @@ void CacheDevice::_aio_thread()
         }
       }
     }
-          
-    if (!queue_empty.load()) {
+
+    {
       Mutex::Locker l(queue_lock);
       if (!task_queue.empty()) {
         t = task_queue.front();
         task_queue.pop();
-      }
-
-      if (!t) {
-        queue_empty = true;
-      }
-    } else {
-      // task queue is empty
-      if (!inflight) {
-        Mutex::Locker l(queue_lock);
-        if (queue_empty.load()) {
-          if (aio_stop) {
-            break;
-          }
-        queue_cond.Wait(queue_lock);
+      } else {
+        if (count) {
+          t2store_cache_aio_writeback_batch(&cache_ctx, items);
+          t2store_cache_aio_items_reset(items);
+          count = 0;
         }
+        if (aio_stop) {
+          t2store_cache_aio_items_free(items);
+          break;
+        }
+        queue_cond.Wait(queue_lock);
       }
     }
   }
@@ -837,10 +939,7 @@ void CacheDevice::queue_task(Task *t, uint64_t ops)
   queue_op_seq += ops;
   Mutex::Locker l(queue_lock);
   task_queue.push(t);
-  if (queue_empty.load()) {
-    queue_empty = false;
-    queue_cond.Signal();
-  }
+  queue_cond.Signal();
 }
 
 int CacheDevice::aio_write(

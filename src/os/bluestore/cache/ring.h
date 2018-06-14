@@ -35,6 +35,19 @@ struct ring_item {
     struct io_sync_write *sync_io;
 };
 
+struct ring_items {
+  struct ring_item **items;
+  unsigned count;
+  unsigned buf_size;
+};
+
+struct ring_items *ring_items_alloc();
+
+int ring_items_add(struct ring_items *items, struct ring_item *item);
+
+void ring_items_free(struct ring_items *items);
+int ring_items_reset(struct ring_items *items);
+
 
 struct ring_item *get_ring_item(void *data, uint64_t offset, uint64_t len);
 

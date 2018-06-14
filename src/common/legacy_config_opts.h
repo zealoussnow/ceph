@@ -973,6 +973,10 @@ OPTION(bdev_debug_aio_suicide_timeout, OPT_FLOAT)
 OPTION(bdev_nvme_unbind_from_kernel, OPT_BOOL)
 OPTION(bdev_nvme_retry_count, OPT_INT) // -1 means by default which is 4
 
+OPTION(cache_aio_write_batch_max_size, OPT_INT)
+OPTION(cache_aio_write_batch, OPT_BOOL)
+
+
 OPTION(objectstore_blackhole, OPT_BOOL)
 
 OPTION(bluefs_alloc_size, OPT_U64)

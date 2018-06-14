@@ -31,6 +31,7 @@ class CacheDevice : public BlockDevice {
   std::string cache_path;
   FS *fs;
   bool aio, dio;
+  string bdev_path;
 
   Mutex debug_lock;
   interval_set<uint64_t> debug_inflight;
@@ -48,13 +49,12 @@ class CacheDevice : public BlockDevice {
       bdev->_aio_thread();
       return NULL;
     }
-  } aio_thread;
+  };
 
   std::atomic_int injecting_crash;
 
   Mutex queue_lock;
   std::queue<Task*> task_queue;
-  std::atomic_bool queue_empty;
   Cond queue_cond;
   void queue_task(Task *t, uint64_t ops = 1);
   vector<AioCompletionThread*> aio_threads;

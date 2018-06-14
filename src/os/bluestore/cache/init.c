@@ -35,6 +35,7 @@
 
 #include "aio.h"
 #include "log.h"
+#include "libcache.h"
 
 /*struct cache_set bch_cache_sets;*/
 T2_LIST_HEAD(bch_cache_sets);
@@ -1207,6 +1208,7 @@ int item_write_next(struct ring_item *item, bool dirty)
   struct bkey *k = NULL;
   k = get_init_bkey(item->insert_keys, (item->o_offset + item->io.len), ca);
   if ( !k ) {
+    CACHE_DEBUGLOG("aio_en", "keylist is not enough, need realloc \n");
     goto free_keylist;
     assert ( " keylist is not enough, need realloc " == 0);
   }
@@ -1218,8 +1220,11 @@ int item_write_next(struct ring_item *item, bool dirty)
   uint64_t left = item->o_len - item->io.len;
   ret = bch_alloc_sectors(ca->set, k,(left >> 9), 0, 0, 1);
   if ( ret < 0 ) {
+    CACHE_DEBUGLOG("aio_en", "alloc sectors faild \n");
     assert(" alloc sectors faild " == 0);
   }
+  //dump_bkey("aio_en", k);
+  //CACHE_DEBUGLOG("aio_en", "o_off=%lu, o_len=%lu \n", item->o_offset/512, item->o_len/ 512);
   item->io.pos = item->io.pos + item->io.len;
   item->io.offset = (PTR_OFFSET(k, 0) << 9);
   item->io.len = (KEY_SIZE(k)<<9);
@@ -1248,7 +1253,7 @@ aio_write_completion(void *cb)
   }
 
   if (( item->data + item->o_len ) == ( item->io.pos + item->io.len )) {
-    CACHE_DEBUGLOG(CAT_AIO_WRITE,"AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n", 
+    CACHE_DEBUGLOG(CAT_AIO_WRITE,"AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n",
                 item->o_offset/512, item->o_offset, item->o_len/512,
                 item->o_len, item->io.success);
     switch (item->strategy) {
@@ -1446,6 +1451,65 @@ do_write_writeback(struct ring_item * item)
   item->insert_keys = insert_keys;
 
   ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
+
+  if (ret < 0) {
+    assert( "test aio_enqueue error  " == 0);
+  }
+
+  return ret;
+free_keylist:
+  free(insert_keys);
+err:
+  return -1;
+}
+
+int
+cache_aio_writeback_batch(struct cache *ca, struct ring_items * items)
+{
+  int i, ret = 0;
+  struct keylist *insert_keys = NULL;
+  struct bkey *k = NULL;
+  struct ring_item *item;
+  struct aio_handler *handler = ca->handler;
+
+  for (i = 0; i < items->count; i++){
+    item = items->items[i];
+
+    //CACHE_DEBUGLOG("aio_en", "----------------------------\n");
+    //CACHE_DEBUGLOG("aio_en", "offset = %lu, len=%lu\n", item->o_offset/512, item->o_len/512);
+    item->strategy = CACHE_MODE_WRITEBACK;
+    item->io.type=CACHE_IO_TYPE_WRITE;
+    item->ca_handler = ca;
+    insert_keys = calloc(1, sizeof(*insert_keys));
+    if ( !insert_keys ) {
+      goto err;
+    }
+    bch_keylist_init(insert_keys);
+
+    k = get_init_bkey(insert_keys, item->o_offset, ca);
+    if ( !k ) {
+      goto free_keylist;
+      /*assert(" keylist is not enough, need realloc " == 0);*/
+    }
+
+    ret = bch_alloc_sectors(ca->set, k, (item->o_len >> 9), 0, 0, 1);
+
+    SET_KEY_DIRTY(k, true);
+    // dump_bkey("aio_en", k);
+    item->io.pos = item->data;
+    item->io.offset = (PTR_OFFSET(k, 0) << 9);
+    item->io.len = (KEY_SIZE(k)<<9);
+    item->iou_arg = item;
+    item->iou_completion_cb = aio_write_completion;
+
+    bch_keylist_push(insert_keys);
+    item->insert_keys = insert_keys;
+    if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
+      wake_up_gc(ca->set);
+  }
+
+
+  ret = aio_enqueue_batch(CACHE_THREAD_CACHE, ca->handler, items);
 
   if (ret < 0) {
     assert( "test aio_enqueue error  " == 0);
