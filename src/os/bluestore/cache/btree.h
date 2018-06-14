@@ -345,6 +345,8 @@ struct keybuf_key *bch_keybuf_next(struct keybuf *);
 struct keybuf_key *bch_keybuf_next_rescan(struct cache_set *, struct keybuf *,
 					  struct bkey *, keybuf_pred_fn *);
 
+void bch_update_bucket_in_use(struct cache_set *c, struct gc_stat *stats);
+
 struct btree_insert_op {
   struct btree_op       op;
   struct keylist        *keys;
