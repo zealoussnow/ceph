@@ -59,6 +59,9 @@ class CacheDevice : public BlockDevice {
   void queue_task(Task *t, uint64_t ops = 1);
   vector<AioCompletionThread*> aio_threads;
 
+  void _aio_writeback(struct ring_items *items);
+  void _aio_writearound(struct ring_items *items);
+  void _aio_writethrough(struct ring_items *items);
   void _aio_thread();
   int _aio_start();
   void _aio_stop();

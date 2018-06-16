@@ -1372,7 +1372,7 @@ err:
 }
 
 int
-do_write_writearound(struct ring_item * item)
+_prep_writearound(struct ring_item * item)
 {
   int ret = 0;
   struct cache *ca = (struct cache *) item->ca_handler;
@@ -1405,12 +1405,6 @@ do_write_writearound(struct ring_item * item)
   bch_keylist_push(insert_keys);
   item->insert_keys = insert_keys;
 
-  ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
-
-  if (ret < 0) {
-    assert( "test aio_enqueue error  " == 0);
-  }
-
   return ret;
 free_keylist:
   free(insert_keys);
@@ -1418,13 +1412,49 @@ err:
   return -1;
 }
 
-int 
-do_write_writeback(struct ring_item * item)
+int
+do_write_writearound(struct ring_item * item)
 {
-  int ret = 0;
   struct cache *ca = (struct cache *) item->ca_handler;
+
+  if(_prep_writearound(item) < 0){
+    assert( " prep writearound error  " == 0);
+  }
+
+  if (aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item) < 0){
+    assert( "writearound aio_enqueue error  " == 0);
+  }
+
+  return 0;
+}
+
+int
+cache_aio_writearound_batch(struct cache *ca, struct ring_items * items)
+{
+  int i;
+  struct ring_item * item;
+  for (i = 0; i < items->count; i++){
+    item = items->items[i];
+    item->ca_handler = ca;
+    item->io.type=CACHE_IO_TYPE_WRITE;
+    if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
+        wake_up_gc(ca->set);
+
+    if (_prep_writearound(item) < 0) {
+      assert( " prep writearound error  " == 0);
+    }
+  }
+  if (aio_enqueue_batch(CACHE_THREAD_CACHE, ca->handler, items) < 0) {
+    assert( "writearound aio_enqueue error  " == 0);
+  }
+  return 0;
+}
+
+int _prep_writeback(struct ring_item * item){
   struct keylist *insert_keys = NULL;
   struct bkey *k = NULL;
+  struct cache *ca = (struct cache *) item->ca_handler;
+  int ret = 0;
 
   insert_keys = calloc(1, sizeof(*insert_keys));
   if ( !insert_keys ) {
@@ -1441,6 +1471,7 @@ do_write_writeback(struct ring_item * item)
   ret = bch_alloc_sectors(ca->set, k, (item->o_len >> 9), 0, 0, 1);
 
   SET_KEY_DIRTY(k, true);
+  // dump_bkey("aio_en", k);
   item->io.pos = item->data;
   item->io.offset = (PTR_OFFSET(k, 0) << 9);
   item->io.len = (KEY_SIZE(k)<<9);
@@ -1450,71 +1481,6 @@ do_write_writeback(struct ring_item * item)
   bch_keylist_push(insert_keys);
   item->insert_keys = insert_keys;
 
-  ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
-
-  if (ret < 0) {
-    assert( "test aio_enqueue error  " == 0);
-  }
-
-  return ret;
-free_keylist:
-  free(insert_keys);
-err:
-  return -1;
-}
-
-int
-cache_aio_writeback_batch(struct cache *ca, struct ring_items * items)
-{
-  int i, ret = 0;
-  struct keylist *insert_keys = NULL;
-  struct bkey *k = NULL;
-  struct ring_item *item;
-  struct aio_handler *handler = ca->handler;
-
-  for (i = 0; i < items->count; i++){
-    item = items->items[i];
-
-    //CACHE_DEBUGLOG("aio_en", "----------------------------\n");
-    //CACHE_DEBUGLOG("aio_en", "offset = %lu, len=%lu\n", item->o_offset/512, item->o_len/512);
-    item->strategy = CACHE_MODE_WRITEBACK;
-    item->io.type=CACHE_IO_TYPE_WRITE;
-    item->ca_handler = ca;
-    insert_keys = calloc(1, sizeof(*insert_keys));
-    if ( !insert_keys ) {
-      goto err;
-    }
-    bch_keylist_init(insert_keys);
-
-    k = get_init_bkey(insert_keys, item->o_offset, ca);
-    if ( !k ) {
-      goto free_keylist;
-      /*assert(" keylist is not enough, need realloc " == 0);*/
-    }
-
-    ret = bch_alloc_sectors(ca->set, k, (item->o_len >> 9), 0, 0, 1);
-
-    SET_KEY_DIRTY(k, true);
-    // dump_bkey("aio_en", k);
-    item->io.pos = item->data;
-    item->io.offset = (PTR_OFFSET(k, 0) << 9);
-    item->io.len = (KEY_SIZE(k)<<9);
-    item->iou_arg = item;
-    item->iou_completion_cb = aio_write_completion;
-
-    bch_keylist_push(insert_keys);
-    item->insert_keys = insert_keys;
-    if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
-      wake_up_gc(ca->set);
-  }
-
-
-  ret = aio_enqueue_batch(CACHE_THREAD_CACHE, ca->handler, items);
-
-  if (ret < 0) {
-    assert( "test aio_enqueue error  " == 0);
-  }
-
   return ret;
 free_keylist:
   free(insert_keys);
@@ -1523,9 +1489,47 @@ err:
 }
 
 int 
-do_write_writethrough(struct ring_item * item)
+do_write_writeback(struct ring_item * item)
 {
-  int ret = 0;
+  struct cache *ca = (struct cache *) item->ca_handler;
+
+  if (_prep_writeback(item) < 0) {
+    assert( " prep_writeback error  " == 0);
+  }
+
+  if (aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item) < 0) {
+    assert( " writeback aio_enqueue error  " == 0);
+  }
+  return 0;
+}
+
+int
+cache_aio_writeback_batch(struct cache *ca, struct ring_items * items)
+{
+  int i;
+  struct ring_item * item;
+
+  for (i = 0; i < items->count; i++){
+    item = items->items[i];
+    item->ca_handler = ca;
+    item->strategy = CACHE_MODE_WRITEBACK;
+    item->io.type=CACHE_IO_TYPE_WRITE;
+    if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
+      wake_up_gc(ca->set);
+    if (_prep_writeback(item) < 0) {
+      assert( " prep_writeback error  " == 0);
+    }
+  }
+
+  if (aio_enqueue_batch(CACHE_THREAD_CACHE, ca->handler, items) < 0) {
+    assert( "writeback aio_enqueue error  " == 0);
+  }
+  return 0;
+}
+
+int
+_prep_writethrough(struct ring_item * item)
+{
   struct cache *ca = (struct cache *) item->ca_handler;
   struct keylist *insert_keys = NULL;
   struct bkey *k = NULL;
@@ -1543,15 +1547,46 @@ do_write_writethrough(struct ring_item * item)
   item->iou_completion_cb = aio_write_completion;
   item->insert_keys = insert_keys;
 
-  ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
+  return 0;
+  err:
+  return -1;
+}
 
-  if (ret < 0) {
-    assert( "test aio_enqueue error  " == 0);
+int 
+do_write_writethrough(struct ring_item * item)
+{
+  struct cache *ca = (struct cache *) item->ca_handler;
+
+  if (_prep_writethrough(item) < 0) {
+    assert( " prep writethrough error  " == 0);
   }
 
-  return ret;
-err:
-  return -1;
+  if (aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item) < 0) {
+    assert( " writethrough aio_enqueue error  " == 0);
+  }
+  return 0;
+}
+
+int
+cache_aio_writethrough_batch(struct cache *ca, struct ring_items * items)
+{
+  int i;
+  struct ring_item * item;
+  for (i = 0; i < items->count; i++){
+    item = items->items[i];
+    item->ca_handler = ca;
+    item->io.type=CACHE_IO_TYPE_WRITE;
+    if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
+       wake_up_gc(ca->set);
+    if (_prep_writethrough(item) < 0) {
+      assert( " prep_writeback error  " == 0);
+    }
+  }
+
+  if (aio_enqueue_batch(CACHE_THREAD_CACHE, ca->handler, items) < 0) {
+    assert( "writeback aio_enqueue error  " == 0);
+  }
+  return 0;
 }
 
 static void add_sequential(struct current_thread *t)

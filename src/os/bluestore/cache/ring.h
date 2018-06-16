@@ -41,7 +41,7 @@ struct ring_items {
   unsigned buf_size;
 };
 
-struct ring_items *ring_items_alloc();
+struct ring_items *ring_items_alloc(int max_buffer);
 
 int ring_items_add(struct ring_items *items, struct ring_item *item);
 

@@ -26,12 +26,11 @@ struct aio_handler *g_handler = NULL;
 #define LIBAIO_EVENTS_PER_GET 32
 
 
-struct cache_thread {
+struct thread_info {
   pthread_mutex_t wait_mutex;
   pthread_cond_t wait_cond;
   struct thread_data *td;
   int fd;
-  int efd;
   struct io_event *events;
   struct timespec *timeout;
   io_context_t *ioctx;
@@ -47,7 +46,7 @@ struct thread_data {
   uint32_t lcore;
   /*pthread_t thread_id;*/
   struct thread_options *t_options;
-  struct cache_thread *cache_thread;
+  struct thread_info *thread_info;
   struct list_head node;
   pthread_t pooler_td;
   pthread_t aio_td;
@@ -73,17 +72,17 @@ cache_io_completion_cb(io_context_t ctx, struct iocb *iocb, long res,
 void *
 poller_fn(void *arg) {
   struct thread_data *td = (struct thread_data *) arg;
-  struct io_event *events = td->cache_thread->events;
-  struct timespec *timeout = td->cache_thread->timeout;
+  struct io_event *events = td->thread_info->events;
+  struct timespec *timeout = td->thread_info->timeout;
   int num_events = 0;
   int i = 0;
   while(1) {
-    num_events = io_getevents(*td->cache_thread->ioctx, 1, LIBAIO_EVENTS_PER_GET, events, timeout);
+    num_events = io_getevents(*td->thread_info->ioctx, 1, LIBAIO_EVENTS_PER_GET, events, timeout);
     if (num_events == 0)
       continue;
     for (i = 0; i < num_events; i++) {
       struct io_event event = events[i];
-      cache_io_completion_cb(*td->cache_thread->ioctx, event.obj,
+      cache_io_completion_cb(*td->thread_info->ioctx, event.obj,
                              event.res, event.res2, event.data);
     }
   }
@@ -106,7 +105,6 @@ get_thread_data(uint16_t type, struct aio_handler *handler) {
 
       break;
     case CACHE_THREAD_BACKEND:
-      CACHE_DEBUGLOG("aio_en", "try get backend ioctx");
       list_for_each_entry(p, &handler->backend_threads, node) {
         if (p->aio_td == pthread_id || p->pooler_td == pthread_id) {
           return p;
@@ -130,7 +128,6 @@ get_thread_data(uint16_t type, struct aio_handler *handler) {
 
       break;
     case CACHE_THREAD_BACKEND:
-      CACHE_DEBUGLOG("aio_en", "try get backend ioctx");
       need_seq = pthread_id % handler->nr_backend;
       list_for_each_entry(p, &handler->backend_threads, node) {
         if (!need_seq--) {
@@ -147,120 +144,101 @@ get_thread_data(uint16_t type, struct aio_handler *handler) {
 }
 
 
-int
-aio_enqueue(uint16_t type, struct aio_handler *h, struct ring_item *item) {
-  struct thread_data *td = NULL;
-  struct cache_thread *ct;
+int aio_queue_submit(io_context_t ctx, unsigned len, struct iocb **iocbs)
+{
+  // 2^16 * 125us = ~8 seconds, so max sleep is ~16 seconds
+  int attempts = 16;
+  int delay = 125;
+  int retries = 0;
+  int r;
+  while (true) {
+    r = io_submit(ctx, len, iocbs);
+    if (r < 0) {
+      if (r == -EAGAIN && attempts-- > 0) {
+        usleep(delay);
+        delay *= 2;
+        retries++;
+        continue;
+      }
+    }
+    if (r != len){
+      CACHE_ERRORLOG(CAT_AIO," io_submit len=%u ret=%d\n", len, r);
+    }
+    assert(r == len);
+    break;
+  }
+  if (retries){
+    CACHE_ERRORLOG(CAT_AIO," aio submit retries=%d\n", retries);
+  }
+  return r;
+}
+
+
+struct iocb *get_iocb(struct thread_info *ct, struct ring_item *item){
   struct iocb *iocb;
   char *err;
-  int rc;
-
-
-  td = get_thread_data(type, h);
-
-  ct = td->cache_thread;
 
   iocb = calloc(1, sizeof(struct iocb));
+  if ( !iocb ) {
+    err = " Could not alloc iocb ";
+    CACHE_ERRORLOG(CAT_AIO, err);
+    assert(err == 0);
+  }
   switch (item->io.type) {
     case CACHE_IO_TYPE_WRITE:
       io_prep_pwrite(iocb, ct->fd, item->io.pos, item->io.len, item->io.offset);
-      err = " Libaio write error ";
       break;
     case CACHE_IO_TYPE_READ:
       io_prep_pread(iocb, ct->fd, item->io.pos, item->io.len, item->io.offset);
-      err = " Libaio read error ";
       break;
     default:
       CACHE_ERRORLOG(NULL, " Unsuporte IO type(%d)\n", item->io.type);
       assert(" Unsupporte IO type " == 0);
   }
-  io_set_eventfd(iocb, ct->efd);
   iocb->data = item;
-  // TODO: submit multi-request
+  return iocb;
+}
 
-    rc = -11;
-    while (rc == -11){
-      rc = io_submit(*ct->ioctx, 1, &iocb);
-    }
-  if (rc != 1){
-    CACHE_ERRORLOG("aio_en"," %s: ret=%d\n", err, rc);
-    assert(err == 0);
-  }
-  if ( rc < 0 ) {
-    CACHE_ERRORLOG(NULL," %s: ret=%d\n", err, rc);
-    // 只是一次IO错误，不应该下断言，测试阶段，这里暂时按断言处理
-    assert(err == 0);
-  }
+int
+aio_enqueue(uint16_t type, struct aio_handler *h, struct ring_item *item) {
+  struct thread_data *td = NULL;
+  struct thread_info *ti;
+  struct iocb *iocb;
+  char *err;
+  int rc;
 
+  td = get_thread_data(type, h);
+  ti = td->thread_info;
+  iocb = get_iocb(ti, item);
+  aio_queue_submit(*ti->ioctx, 1, &iocb);
   return 0;
 }
 
 int
 aio_enqueue_batch(uint16_t type, struct aio_handler *h, struct ring_items *items) {
   struct thread_data *td = NULL;
-  struct cache_thread *ct;
+  struct thread_info *ti;
   struct ring_item *item;
   struct iocb *iocb;
   struct iocb **iocbs;
   char *err;
-  int i, rc;
+  int i;
 
   td = get_thread_data(type, h);
-
-  ct = td->cache_thread;
-
+  ti = td->thread_info;
   iocbs = calloc(items->count, sizeof(struct iocb*));
   if ( !iocbs ) {
     err = " Could not alloc iocbs ";
-    CACHE_ERRORLOG(NULL, err);
+    CACHE_ERRORLOG(CAT_AIO, err);
     assert(err == 0);
   }
   for (i = 0; i < items->count; i++){
     item = items->items[i];
-    struct cache *ca = (struct cache *) item->ca_handler;
-
-
-    iocb = calloc(1, sizeof(struct iocb));
-    if ( !iocb ) {
-      err = " Could not alloc iocb ";
-      CACHE_ERRORLOG(NULL, err);
-      assert(err == 0);
-    }
-
-    switch (item->io.type) {
-      case CACHE_IO_TYPE_WRITE:
-        //printf(" io prep pwrite   offset = %lu , len = %lu \n", item->io.offset/512, item->io.len/512);
-        io_prep_pwrite(iocb, ct->fd, item->io.pos, item->io.len, item->io.offset);
-        err = " Libaio write error ";
-        break;
-      case CACHE_IO_TYPE_READ:
-        //printf(" --------- read -----------\n");
-        io_prep_pread(iocb, ct->fd, item->io.pos, item->io.len, item->io.offset);
-        err = " Libaio read error ";
-        break;
-      default:
-        CACHE_ERRORLOG(NULL, " Unsuporte IO type(%d)\n", item->io.type);
-        assert(" Unsupporte IO type " == 0);
-    }
-    iocb->data = item;
+    iocb = get_iocb(ti, item);
     iocbs[i] = iocb;
   }
 
-  rc = -11;
-  while (rc == -11){
-    rc = io_submit(*ct->ioctx, items->count, iocbs);
-  }
-
-  if (rc != items->count){
-    CACHE_ERRORLOG("aio_en", " %s: ret=%d\n", err, rc);
-    assert(err == 0);
-  }
-
-  if ( rc < 0 ) {
-    CACHE_ERRORLOG(NULL," %s: ret=%d\n", err, rc);
-    // 只是一次IO错误，不应该下断言，测试阶段，这里暂时按断言处理
-    assert(err == 0);
-  }
+  aio_queue_submit(*ti->ioctx, items->count, iocbs);
   free(iocbs);
 
   return 0;
@@ -275,10 +253,11 @@ aio_thread_init(void *ca) {
   struct thread_options *cache_options = NULL;
   struct thread_options *hdd_options = NULL;
   struct aio_handler *handler = g_handler;
-  char *path = ((struct cache *) ca)->bdev_path;
-  char *cache_name;
-  char *backend_name;
-  struct cache_thread *cache_thread;
+  struct cache *myca = (struct cache *) ca;
+  char *path = myca->bdev_path;
+  char *cache_name = NULL;
+  char *backend_name  = NULL;
+  struct thread_info *thread_info;
   pthread_t poller_td, self_td;
   int rc = 0;
   io_context_t *iocxt;
@@ -291,7 +270,7 @@ aio_thread_init(void *ca) {
     assert("Read config error!" == 0);
   }
   sp = conf_find_section(cf, "AIO");
-  for (;; i++) {
+  for (i=0;; i++) {
     static const char *name = NULL;
 
     char *file = conf_section_get_nmval(sp, "AIO", i, 0);
@@ -308,8 +287,8 @@ aio_thread_init(void *ca) {
       backend_name = file;
     }
   }
-  sp = conf_find_section(cf, "DPDK_ENV");
-  poll_period = conf_section_get_intval(sp, "poll_period");
+  assert(cache_name != NULL);
+  assert(backend_name != NULL);
 
   self_td = pthread_self();
   rc = pthread_getaffinity_np(self_td, sizeof(cpu_set_t), &cpuset);
@@ -329,17 +308,17 @@ aio_thread_init(void *ca) {
       goto err;
     }
 
-    cache_thread = calloc(1, sizeof(*cache_thread));
-    if (!cache_thread) {
+    thread_info = calloc(1, sizeof(*thread_info));
+    if (!thread_info) {
       msg = "failed to allocate thread local context\n";
       goto err;
     }
 
-    cache_thread->efd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    cache_thread->events = malloc(sizeof(struct io_event) * LIBAIO_EVENTS_PER_GET);
-    cache_thread->timeout = calloc(1, sizeof(struct timespec));
-    cache_thread->timeout->tv_sec = 5;
-    cache_thread->timeout->tv_nsec = 100000000;
+    thread_info->events = malloc(sizeof(struct io_event) * LIBAIO_EVENTS_PER_GET);
+    thread_info->timeout = calloc(1, sizeof(struct timespec));
+    thread_info->timeout->tv_sec = 5;
+    thread_info->timeout->tv_nsec = 100000000;
+    thread_info->ioctx = iocxt;
 
     if (i < 1) {
       cache_options = calloc(1, sizeof(*cache_options));
@@ -347,13 +326,12 @@ aio_thread_init(void *ca) {
       cache_options->name = cache_name;
       td->t_options = cache_options;
 
-      cache_thread->td = td;
-      td->cache_thread = cache_thread;
-      cache_thread->ioctx = iocxt;
-      cache_thread->fd = open(cache_options->name, O_RDWR | O_DIRECT, 0644);
+      thread_info->td = td;
+      td->thread_info = thread_info;
+      thread_info->fd = open(cache_options->name, O_RDWR | O_DIRECT, 0644);
       rc = pthread_create(&poller_td, NULL, poller_fn, td);
       if (rc) {
-        free(cache_thread);
+        free(thread_info);
         msg = "failed to allocate cache poller thread\n";
         goto err;
       }
@@ -379,13 +357,12 @@ aio_thread_init(void *ca) {
 
       td->t_options = hdd_options;
 
-      cache_thread->td = td;
-      td->cache_thread = cache_thread;
-      cache_thread->ioctx = iocxt;
-      cache_thread->fd = open(hdd_options->name, O_RDWR | O_DIRECT, 0644);
+      thread_info->td = td;
+      td->thread_info = thread_info;
+      thread_info->fd = open(hdd_options->name, O_RDWR | O_DIRECT, 0644);
       rc = pthread_create(&poller_td, NULL, poller_fn, td);
       if (rc) {
-        free(cache_thread);
+        free(thread_info);
         msg = "failed to allocate backend poller thread\n";
         goto err;
       }

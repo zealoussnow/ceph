@@ -700,25 +700,54 @@ void io_complete(void *t)
 
 }
 
+void CacheDevice::_aio_writeback(struct ring_items *items){
+  int r;
+  r = t2store_cache_aio_writeback_batch(&cache_ctx, items);
+  if (r < 0) {
+    dout(10) << __func__ << " failed to do write command" << dendl;
+    ceph_abort();
+  }
+  t2store_cache_aio_items_reset(items);
+}
+
+void CacheDevice::_aio_writearound(struct ring_items *items){
+  int r;
+  r = t2store_cache_aio_writearound_batch(&cache_ctx, items);
+  if (r < 0) {
+    dout(10) << __func__ << " failed to do write command" << dendl;
+    ceph_abort();
+  }
+  t2store_cache_aio_items_reset(items);
+}
+
+void CacheDevice::_aio_writethrough(struct ring_items *items){
+  int r;
+  r = t2store_cache_aio_writethrough_batch(&cache_ctx, items);
+  if (r < 0) {
+    dout(10) << __func__ << " failed to do write command" << dendl;
+    ceph_abort();
+  }
+  t2store_cache_aio_items_reset(items);
+}
+
 void CacheDevice::_aio_thread()
 {
   Task *t = nullptr;
   uint64_t off, len;
   int r = 0;
   int max_buffer = cct->_conf->cache_aio_write_batch_max_size;
-  bool write_immediately;
   r = t2store_cache_aio_thread_init(&cache_ctx);
   if (r < 0) {
     derr << __func__ << " failed to do thread init" << dendl;
     ceph_abort();
   }
-  struct ring_items *items = t2store_cache_aio_items_alloc();
+  struct ring_items *items_wb = t2store_cache_aio_items_alloc(max_buffer);
+  struct ring_items *items_wa = t2store_cache_aio_items_alloc(max_buffer);
+  struct ring_items *items_wt = t2store_cache_aio_items_alloc(max_buffer);
   struct ring_item *item;
-  unsigned count = 0;
 
   dout(10) << __func__ << " linbing " << dendl;
   while (true) {
-    printf("--------------\n");
     //bool inflight = queue_op_seq.load() - completed_op_seq.load();
     for (; t; t = t->next) {
       off = t->offset;
@@ -727,46 +756,62 @@ void CacheDevice::_aio_thread()
         case IOCommand::WRITE_COMMAND:
         {
           dout(20) << __func__ << " write command issued " << off << "~" << len << dendl;
-          //r = t2store_cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
-
-          write_immediately = true;
           if (cct->_conf->cache_aio_write_batch) {
             item = t2store_cache_aio_get_item(t->write_bl.c_str(), off, len, (void *) io_complete, (void *) t);
+
+            // for CACHE_MODE_WRITEBACK
             if (t2store_cache_aio_get_cache_strategy(&cache_ctx, item) == CACHE_MODE_WRITEBACK) {
-              t2store_cache_aio_items_add(items, item);
-              count++;
-              write_immediately = false;
-              if (count >= max_buffer) {
-                t2store_cache_aio_writeback_batch(&cache_ctx, items);
-                t2store_cache_aio_items_reset(items);
-                count = 0;
+              if(t2store_cache_aio_items_add(items_wb, item) < 0){
+                _aio_writeback(items_wb);
+                if(t2store_cache_aio_items_add(items_wb, item) < 0){
+                  dout(10) << __func__ << " failed to add write to queue" << dendl;
+                  delete t;
+                  ceph_abort();
+                }
               }
+              break;
+            } if (t2store_cache_aio_get_cache_strategy(&cache_ctx, item) == CACHE_MODE_WRITEAROUND) {
+              if(t2store_cache_aio_items_add(items_wa, item) < 0){
+                _aio_writearound(items_wa);
+                if(t2store_cache_aio_items_add(items_wa, item) < 0){
+                  dout(10) << __func__ << " failed to add write to queue" << dendl;
+                  delete t;
+                  ceph_abort();
+                }
+              }
+              break;
+            } else if (t2store_cache_aio_get_cache_strategy(&cache_ctx, item) == CACHE_MODE_WRITETHROUGH) {
+              if(t2store_cache_aio_items_add(items_wt, item) < 0){
+                _aio_writethrough(items_wt);
+                if(t2store_cache_aio_items_add(items_wt, item) < 0){
+                  dout(10) << __func__ << " failed to add write to queue" << dendl;
+                  delete t;
+                  ceph_abort();
+                }
+              }
+              break;
             } else {
               free(item);
             }
           }
 
-          if (write_immediately) {
-            r = t2store_cache_aio_writeback_batch(&cache_ctx, items);
-            //t2store_cache_aio_write(handler, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
-            if (r < 0) {
-              dout(10) << __func__ << " failed to do write command" << dendl;
-              delete t;
-              ceph_abort();
-            }
-            t2store_cache_aio_items_reset(items);
-            count = 0;
+          // for no batch
+          r = t2store_cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
+          if (r < 0) {
+            dout(10) << __func__ << " failed to do write command" << dendl;
+            delete t;
+            ceph_abort();
           }
+
           break;
         }
         case IOCommand::READ_COMMAND:
         {
           // write first
-          if (count) {
-            t2store_cache_aio_writeback_batch(&cache_ctx, items);
-            t2store_cache_aio_items_reset(items);
-            count = 0;
-          }
+          _aio_writeback(items_wb);
+          _aio_writethrough(items_wt);
+          _aio_writearound(items_wa);
+
           dout(20) << __func__ << " read command issued " << off << "~" << len << dendl;
           r = t2store_cache_aio_read(&cache_ctx, t->read_ptr.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
@@ -791,13 +836,13 @@ void CacheDevice::_aio_thread()
         t = task_queue.front();
         task_queue.pop();
       } else {
-        if (count) {
-          t2store_cache_aio_writeback_batch(&cache_ctx, items);
-          t2store_cache_aio_items_reset(items);
-          count = 0;
-        }
+        _aio_writeback(items_wb);
+        _aio_writethrough(items_wt);
+        _aio_writearound(items_wa);
         if (aio_stop) {
-          t2store_cache_aio_items_free(items);
+          t2store_cache_aio_items_free(items_wb);
+          t2store_cache_aio_items_free(items_wt);
+          t2store_cache_aio_items_free(items_wa);
           break;
         }
         queue_cond.Wait(queue_lock);
