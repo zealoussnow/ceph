@@ -371,42 +371,40 @@ err:
 
 ///* Journalling */
 //
-//static void btree_flush_write(struct cache_set *c)
-//{
-//	/*
-//	 * Try to find the btree node with that references the oldest journal
-//	 * entry, best is our current candidate and is locked if non NULL:
-//	 */
-//	struct btree *b, *best;
-//	unsigned i;
-//retry:
-//	best = NULL;
-//
-//	for_each_cached_btree(b, c, i)
-//		if (btree_current_write(b)->journal) {
-//			if (!best)
-//				best = b;
-//			else if (journal_pin_cmp(c,
-//					btree_current_write(best)->journal,
-//					btree_current_write(b)->journal)) {
-//				best = b;
-//			}
-//		}
-//
-//	b = best;
-//	if (b) {
-//		pthread_mutex_lock(&b->write_lock);
-//		if (!btree_current_write(b)->journal) {
-//			pthread_mutex_unlock(&b->write_lock);
-//			/* We raced */
-//			goto retry;
-//		}
-//
-//		__bch_btree_node_write(b, NULL);
-//		pthread_mutex_unlock(&b->write_lock);
-//	}
-//}
-//
+static void btree_flush_write(struct cache_set *c)
+{
+  /*
+   * Try to find the btree node with that references the oldest journal
+   * entry, best is our current candidate and is locked if non NULL:
+   */
+  struct btree *b, *best;
+  unsigned i;
+retry:
+  best = NULL;
+
+  for_each_cached_btree(b, c, i) {
+    if (btree_current_write(b)->journal) {
+      if (!best) {
+        best = b;
+      } else if (journal_pin_cmp(c, btree_current_write(best)->journal,
+        btree_current_write(b)->journal)) {
+        best = b;
+      }
+    }
+  }
+  b = best;
+  if (b) {
+    pthread_mutex_lock(&b->write_lock);
+    if (!btree_current_write(b)->journal) {
+      pthread_mutex_unlock(&b->write_lock);
+      /* We raced */
+      goto retry;
+    }
+    __bch_btree_node_write(b);
+    pthread_mutex_unlock(&b->write_lock);
+  }
+}
+
 #define last_seq(j)	((j)->seq - fifo_used(&(j)->pin) + 1)
 //
 //static void journal_discard_endio(struct bio *bio)
@@ -598,7 +596,6 @@ void bch_journal_next(struct journal *j)
 //	spin_unlock(&c->journal.lock);
 //}
 //
-/*static void journal_write_unlocked(struct closure *cl)*/
 static void journal_write_unlocked(struct cache_set *c)
 {
   struct cache *ca;
@@ -607,25 +604,24 @@ static void journal_write_unlocked(struct cache_set *c)
   unsigned i, sectors = set_blocks(w->data, block_bytes(c)) *
     c->sb.block_size;
   CACHE_DEBUGLOG(CAT_JOURNAL," journal write \n");
-  //
-  //	struct bio *bio;
-  //	struct bio_list list;
-  //	bio_list_init(&list);
-  //
   if (!w->need_write) {
-    /*closure_return_with_destructor(cl, journal_write_unlock);*/
-    /*journal_write_unlock();*/
+    CACHE_ERRORLOG(CAT_JOURNAL,"need write %d in here\n", w->need_write);
+    assert("need write false" == 0 ); 
+#if 0
+    closure_return_with_destructor(cl, journal_write_unlock);
     return;
+#endif
   } else if (journal_full(&c->journal)) {
+    CACHE_ERRORLOG(CAT_JOURNAL,"journal should not be full in here\n");
+    assert("journal should not be full in here" == 0);
+#if 0
     journal_reclaim(c);
-    pthread_spin_unlock(&c->journal.lock);
-    //		spin_unlock(&c->journal.lock);
-    //
-    //		btree_flush_write(c);
-    //		continue_at(cl, journal_write, system_wq);
+    spin_unlock(&c->journal.lock);
+    btree_flush_write(c);
+    continue_at(cl, journal_write, system_wq);
     return;
+#endif
   }
-  /*printf(" journa write start \n");*/
 
   c->journal.blocks_free -= set_blocks(w->data, block_bytes(c));
 
@@ -634,8 +630,7 @@ static void journal_write_unlocked(struct cache_set *c)
   bkey_copy(&w->data->btree_root, &c->root->key);
   bkey_copy(&w->data->uuid_bucket, &c->uuid_bucket);
 
-  for_each_cache(ca, c, i)
-  {
+  for_each_cache(ca, c, i) {
     w->data->prio_bucket[ca->sb.nr_this_dev] = ca->prio_buckets[0];
   }
 
@@ -643,60 +638,26 @@ static void journal_write_unlocked(struct cache_set *c)
   w->data->version	= BCACHE_JSET_VERSION;
   w->data->last_seq	= last_seq(&c->journal);
   w->data->csum		= csum_set(w->data);
-  /*printf(" ***************** journal.c FUN %s: journal write: seq=%ld,last_seq=%d,btree_level=%d,blocks_free=%d\n",__func__,w->data->seq,w->data->last_seq,w->data->btree_level,c->journal.blocks_free);*/
-  /*printf(" journal.c FUN %s: journal write: seq=%ld,last_seq=%d,btree_level=%d,blocks_free=%d\n",__func__,w->data->seq,w->data->last_seq,w->data->btree_level,c->journal.blocks_free);*/
   for (i = 0; i < KEY_PTRS(k); i++) {
     ca = PTR_CACHE(c, k, i);
-    /*bio = &ca->journal.bio;*/
-
     atomic_long_add(sectors, &ca->meta_sectors_written);
-
-    //		bio_reset(bio);
-    //		bio->bi_iter.bi_sector	= PTR_OFFSET(k, i);
     // 1. start = PTR_OFFSET;
     /*off_t start = PTR_OFFSET(k, i) << 9;*/
     off_t start = PTR_OFFSET_to_bytes(k, i);
     size_t len = sectors << 9;
-    /*printf(" journal.c FUN %s: journal write: fd=%d,start=0x%x,len=%d\n", __func__,ca->fd,start,len);*/
     if ( sync_write( ca->fd, w->data, len, start) == -1) {
       printf(" write journal error \n");
       exit(1);
     }
     SET_PTR_OFFSET(k, i, PTR_OFFSET(k, i) + sectors);
     ca->journal.seq[ca->journal.cur_idx] = w->data->seq;
-    /*printf(" journal.c FUN %s: complete journal write: seq[%d]=%d\n", __func__,ca->journal.cur_idx,w->data->seq);*/
-    //		bio_set_dev(bio, ca->bdev);
-    //		bio->bi_iter.bi_size = sectors << 9;
-    //
-    //		bio->bi_end_io	= journal_write_endio;
-    //		bio->bi_private = w;
-    //		bio_set_op_attrs(bio, REQ_OP_WRITE,
-    //				 REQ_SYNC|REQ_META|REQ_PREFLUSH|REQ_FUA);
-    //		bch_bio_map(bio, w->data);
-    //
-    //		trace_bcache_journal_write(bio);
-    //		bio_list_add(&list, bio);
-    //
-    //		SET_PTR_OFFSET(k, i, PTR_OFFSET(k, i) + sectors);
-    //
-    //		ca->journal.seq[ca->journal.cur_idx] = w->data->seq;
   }
-
   atomic_dec_bug(&fifo_back(&c->journal.pin));
-  /*printf(" journal.c FUN %s: Start bch_journal_next \n", __func__);*/
   bch_journal_next(&c->journal);
-  /*printf(" journal.c FUN %s: Start journal_reclaim \n", __func__);*/
   journal_reclaim(c);
 
   /*spin_unlock(&c->journal.lock);*/
   pthread_spin_unlock(&c->journal.lock);
-  //
-  //	while ((bio = bio_list_pop(&list)))
-  //		closure_bio_submit(bio, cl);
-  //
-  // ********** sync write done ************** //
-  // wake other journal_write 
-  // ********** sync write done ************** //
   //	continue_at(cl, journal_write_done, NULL);
 }
 //
@@ -710,11 +671,9 @@ static void journal_write_unlocked(struct cache_set *c)
 //
 static void journal_try_write(struct cache_set *c)
 {
-  /*struct closure *cl = &c->journal.io;*/
   struct journal_write *w = c->journal.cur;
 
   w->need_write = true;
-  /*printf("  c->journal.io_in_flight = %d \n", c->journal.io_in_flight);*/
   journal_write_unlocked(c);
   /*if (!c->journal.io_in_flight) {*/
   /*c->journal.io_in_flight = 1;*/
@@ -730,39 +689,29 @@ struct journal_write *
 journal_wait_for_write(struct cache_set *c, unsigned nkeys)
 {
   size_t sectors;
-  /*struct closure cl;*/
-  bool wait = false;
 
-  /*closure_init_stack(&cl);*/
-
-  /*spin_lock(&c->journal.lock);*/
   pthread_spin_lock( &c->journal.lock);
-  /*c->journal.blocks_free = c->sb.bucket_size >> c->block_bits;*/
   while (1) {
+    if (fifo_free(&c->journal.pin) <= 1) {
+      dump_journal_pin("fifo full", &c->journal.pin);      
+      goto flush;
+    }
     struct journal_write *w = c->journal.cur;
-
     sectors = __set_blocks(w->data, w->data->keys + nkeys,
         block_bytes(c)) * c->sb.block_size;
-
-    // 1. c->journal.blocks_free * c->sb.block_size journal现在可写的空间(即一个bucket的扇区数：1024）
-    // 2. PAGE_SECTORS << JSET_BITS 一个jset占用的空间( 8 * 8 = 64个扇区）  
-    /*printf(" journal: c->journal.blocks_free = %d\n", c->journal.blocks_free);*/
-    /*printf(" journal: c->journal.blocks_free * c->sb.block_size = %d\n", c->journal.blocks_free * c->sb.block_size);*/
-    /*printf(" journal: PAGE_SECTORS << JSET_BITS = %d\n", PAGE_SECTORS << JSET_BITS );*/
-    /*printf(" journal.c <%s>: Wait Write need sectors=%d,blocks_free=%d,max_jset_sectos=%d\n", __func__,sectors,c->journal.blocks_free,PAGE_SECTORS<<JSET_BITS);*/
     if (sectors <= min_t(size_t, c->journal.blocks_free * c->sb.block_size,
-          PAGE_SECTORS << JSET_BITS))
-    {
-      /*printf(" journal.c <%s>: Wait Write: Enough sectors, return journal_write\n", __func__);*/
+          PAGE_SECTORS << JSET_BITS)) {
       return w;
     }
-    /*if (wait)*/
-    /*closure_wait(&c->journal.wait, &cl);*/
-
     if (!journal_full(&c->journal)) {
-      /*if (wait)*/
-      /*trace_bcache_journal_entry_full(c);*/
-
+      /*
+       1. block_free不为0
+       2. pip也还够用
+         所以这种场景是插入的数据空间太大了，导致blocks_free剩余的空间
+         不够，所以需要先将现在的jset数据刷到磁盘，之后会进行journal_reclam
+         和journal_next，来保证本次的journal有足够的空间，所以这种场景下，我们
+         需要保证必须有bkeys需要写入，否则断言
+      */
       /*
        * XXX: If we were inserting so many keys that they
        * won't fit in an _empty_ journal write, we'll
@@ -770,26 +719,25 @@ journal_wait_for_write(struct cache_set *c, unsigned nkeys)
        * bch_keylist_realloc() - but something to think about.
        */
       BUG_ON(!w->data->keys);
-      /*printf(" journal.c <%s>: Wait Write: Journal secors not enough and journal not full\n", __func__);*/
-      /*printf(" journal.c <%s>: Wait Write Start Write\n",__func__);*/
+      CACHE_DEBUGLOG(CAT_JOURNAL,"journal not full,but blocks_free %u is not \
+                                enough for sectors %u, try to flush cur write\n",
+                                c->journal.blocks_free, sectors);
       journal_try_write(c);
-      /*printf(" journal.c <%s>: Wait Write End Write\n",__func__);*/
     } else {
-      /*if (wait)*/
-      /*trace_bcache_journal_full(c);*/
-      /*printf(" journal.c <%s>: Wait Write: Journal full blocks_free=%d,fifo_free(pin)=%d\n", __func__,c->journal.blocks_free,fifo_free(&c->journal.pin));*/
-      /*printf(" journal.c <%s>: Wait Write Start journal reclaim\n", __func__);*/
+flush:
+      dump_journal("journal full", &c->journal);
+      dump_journal_pin("journal full",&c->journal.pin);
+      // 先刷入，释放pin
+      btree_flush_write(c);
+      // 后将其释放的pin记性回收
       journal_reclaim(c);
-      /*printf(" journal.c <%s>: Wait Write End journal reclaim\n", __func__);*/
-      pthread_spin_unlock(&c->journal.lock);
-      /*spin_unlock(&c->journal.lock);*/
-      /*btree_flush_write(c);*/
+      /*
+      * btree_flush_write 采用同步刷，这里不用解锁   
+      */
+      //pthread_spin_unlock(&c->journal.lock);
     }
-
-    /*closure_sync(&cl);*/
     /*spin_lock(&c->journal.lock);*/
-    pthread_spin_lock(&c->journal.lock);
-    wait = true;
+    //pthread_spin_lock(&c->journal.lock);
   }
 }
 
@@ -811,9 +759,6 @@ journal_wait_for_write(struct cache_set *c, unsigned nkeys)
  * bch_journal() hands those same keys off to btree_insert_async()
  * 向btree添加时，调用该函数建立journal
  */
-/*atomic_t *bch_journal(struct cache_set *c,*/
-/*struct keylist *keys,*/
-/*struct closure *parent)*/
 atomic_t *bch_journal(struct cache_set *c, struct keylist *keys)
 {
   struct journal_write *w = NULL;
@@ -828,15 +773,11 @@ atomic_t *bch_journal(struct cache_set *c, struct keylist *keys)
 
   memcpy(bset_bkey_last(w->data), keys->keys, bch_keylist_bytes(keys));
   w->data->keys += bch_keylist_nkeys(keys);
-  /*printf(" journal.c FUN %s: Journal befor update pin fifo_used=%d\n",__func__,fifo_used(&c->journal.pin));*/
   ret = &fifo_back(&c->journal.pin);
   atomic_inc(ret);
-  /*printf(" journal.c FUN %s: Journal after update pin fifo_used=%d\n",__func__,fifo_used(&c->journal.pin));*/
-
-  /*printf(" journal.c FUN %s: Journal Start Write\n",__func__);*/
   journal_try_write(c);
-  /*printf(" journal.c FUN %s: Journal End Write\n",__func__);*/
 
+  dump_pin("journal write done", ret, c);
   /*if (parent) {*/
   /*closure_wait(&w->wait, parent);*/
   /*journal_try_write(c);*/
@@ -848,14 +789,11 @@ atomic_t *bch_journal(struct cache_set *c, struct keylist *keys)
   /*} else {*/
   /*spin_unlock(&c->journal.lock);*/
   /*}*/
-
-
   return ret;
 }
 
 void bch_journal_meta(struct cache_set *c)
 {
-  CACHE_DEBUGLOG(CAT_JOURNAL, "journal meta\n");
   struct keylist keys;
   atomic_t *ref;
   bch_keylist_init(&keys);
@@ -863,6 +801,7 @@ void bch_journal_meta(struct cache_set *c)
   ref = bch_journal(c, &keys);
   if (ref)
     atomic_dec_bug(ref);
+  dump_pin("journal meta", ref, c);
 }
 
 /*void bch_journal_free(struct cache_set *c)*/
@@ -876,7 +815,6 @@ int bch_journal_alloc(struct cache_set *c)
 {
   struct journal *j = &c->journal;
 
-  /*spin_lock_init(&j->lock);*/
   pthread_spin_init(&j->lock, 0);
   /*INIT_DELAYED_WORK(&j->work, journal_write_work);*/
 
@@ -885,19 +823,10 @@ int bch_journal_alloc(struct cache_set *c)
   j->w[0].c = c;
   j->w[1].c = c;
 
-  /*
-   * __get_free_pages(unsigned int flags, unsigned int order);
-   * order是请求的页数以2为底的对数，这里为3，就是请求分配8个页(32KB)
-   */
-  /*if (!(init_fifo(&j->pin, JOURNAL_PIN, GFP_KERNEL)) ||*/
-  /*!(j->w[0].data = (void *) __get_free_pages(GFP_KERNEL, JSET_BITS)) ||*/
-  /*!(j->w[1].data = (void *) __get_free_pages(GFP_KERNEL, JSET_BITS)))*/
-  /*return -ENOMEM;*/
   if (!(init_fifo(&j->pin, JOURNAL_PIN)) ||
       !(j->w[0].data = (void *) T2Molloc(PAGE_SIZE << JSET_BITS )) ||
       !(j->w[1].data = (void *) T2Molloc(PAGE_SIZE << JSET_BITS )))
     return -ENOMEM;
-
-  /*printf(" journal.c FUN %s: pin used=%d,JSET_BITS=%d\n",__func__,fifo_used(&j->pin),JSET_BITS);*/
+  dump_journal_pin("journal alloc init", &j->pin);
   return 0;
 }

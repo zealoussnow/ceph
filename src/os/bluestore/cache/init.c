@@ -968,10 +968,10 @@ bch_data_insert_keys(struct cache_set *c_set,
 
   journal_ref = bch_journal(c_set, insert_keys);
   if (!journal_ref) {
-    return ;
+    return -1;
   }
 
-  ret = bch_btree_insert(c_set, insert_keys, NULL, replace_key);
+  ret = bch_btree_insert(c_set, insert_keys, journal_ref, replace_key);
 
   if (ret != 0) {
     CACHE_ERRORLOG(CAT_BTREE,"insert keylist error ret %d\n", ret);

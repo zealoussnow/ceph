@@ -315,10 +315,10 @@ static void btree_complete_write(struct btree *b, struct btree_write *w)
     wake_up_allocators(b->c);
   }
 
-  /*if (w->journal) {*/
-  /*atomic_dec_bug(w->journal);*/
+  if (w->journal) {
+    atomic_dec_bug(w->journal);
   /*__closure_wake_up(&b->c->journal.wait);*/
-  /*}*/
+  }
 
   w->prio_blocked	= 0;
   w->journal	= NULL;

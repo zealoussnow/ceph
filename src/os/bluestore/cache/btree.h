@@ -238,10 +238,7 @@ void bkey_put(struct cache_set *c, struct bkey *k);
         for (iter = 0;                                                  \
             iter < ARRAY_SIZE((c)->bucket_hash);                       \
             iter++)                                                    \
-            ;
-		// TODO
-		//hlist_for_each_entry((b), (c)->bucket_hash + iter, hash)
-		//hlist_for_each_entry_rcu((b), (c)->bucket_hash + iter, hash)
+            hlist_for_each_entry((b), (c)->bucket_hash + iter, hash)
 
 /* Recursing down the btree */
 

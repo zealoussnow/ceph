@@ -14,6 +14,7 @@ extern void cache_zlog(const char *cat_type, const char *file,
 #define DEFAULT_CAT_TYPE  "cache"
 #define CAT_BTREE "btree"
 #define CAT_JOURNAL "journal"
+#define CAT_PIN "pin"
 #define CAT_BSET "bset"
 #define CAT_WRITEBACK "writeback"
 #define CAT_GC "gc"

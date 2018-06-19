@@ -195,4 +195,30 @@ void bch_journal_next(struct journal *);
 void bch_journal_meta(struct cache_set *);
 int bch_journal_alloc(struct cache_set *);
 
+#define dump_pin(pre, p,c)        \
+  if (p==NULL) {\
+    CACHE_DEBUGLOG(CAT_JOURNAL,"%s dump pin is NULL \n", pre);       \
+  } else {      \
+    CACHE_DEBUGLOG(CAT_JOURNAL,"%s dump pin %p(value %d idx %d)\n", \
+            pre, p, *p, fifo_idx(&(c)->journal.pin,(p)));\
+  };
+
+#define dump_journal_pin(prefix,p)                                            \
+  if (p==NULL) {                                                              \
+    CACHE_DEBUGLOG(CAT_JOURNAL,"%s dump journal pin is NULL \n", prefix);     \
+  } else {                                                                    \
+    CACHE_DEBUGLOG(CAT_JOURNAL,"%s dump journal pin (size %lu used %lu free %lu full? %d front %d back %d)\n",\
+        prefix, (*p).size, fifo_used(p), fifo_free(p),                        \
+        fifo_full(p), fifo_front(p), fifo_back(p));                           \
+  };
+
+#define dump_journal(p,j)                                 \
+  CACHE_DEBUGLOG(CAT_JOURNAL,"%s dump journal seq %lu block_free %u last_seq %lu cur journal write %p(dirty %d need_write %d)\n", \
+        p, (*j).seq, (*j).blocks_free, last_seq(j), (*j).cur, (*j).cur->dirty, (*j).cur->need_write);\
+
+#define dump_journal_device(p, j)       \
+  CACHE_DEBUGLOG(CAT_JOURNAL,"%s dump journal device(cur_idx %u last_idx %u discard_idx %u discard_in_flight %d)\n",  \
+      p, (*j).cur_idx, (*j).last_idx, (*j).discard_idx, (*j).discard_in_flight);
+
+
 #endif /* _BCACHE_JOURNAL_H */
