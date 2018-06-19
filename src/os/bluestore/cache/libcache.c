@@ -71,3 +71,57 @@ int t2store_cache_invalidate_region(struct cache_context * ctx, uint64_t off, ui
   ret = cache_invalidate_region(ctx->cache, off, len);
   return ret;
 }
+
+struct ring_items * t2store_cache_aio_items_alloc(int max_buffer){
+  return ring_items_alloc(max_buffer);
+}
+
+struct ring_item * t2store_cache_aio_get_item(void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg){
+  struct ring_item * item = get_ring_item(bl, off, len);
+  item->io_arg = cb_arg;
+  item->io_completion_cb = cb;
+}
+
+int t2store_cache_aio_items_add(struct ring_items *items, struct ring_item * item){
+  return ring_items_add(items, item);
+}
+
+void t2store_cache_aio_items_free(struct ring_items* items){
+  ring_items_free(items);
+}
+
+int t2store_cache_aio_items_reset(struct ring_items* items){
+  return ring_items_reset(items);
+}
+
+int t2store_cache_aio_writethrough_batch(struct cache_context * ctx, struct ring_items* items){
+  if (items->count){
+    return cache_aio_writethrough_batch(ctx->cache, items);
+  }
+  return 0;
+}
+
+int t2store_cache_aio_writeback_batch(struct cache_context * ctx, struct ring_items* items){
+  if (items->count){
+    return cache_aio_writeback_batch(ctx->cache, items);
+  }
+  return 0;
+}
+
+int t2store_cache_aio_writearound_batch(struct cache_context * ctx, struct ring_items* items){
+  if (items->count){
+    return cache_aio_writearound_batch(ctx->cache, items);
+  }
+  return 0;
+}
+
+
+int t2store_cache_aio_thread_init(struct cache_context * ctx){
+  return aio_thread_init(ctx->cache);
+}
+
+
+int t2store_cache_aio_get_cache_strategy(struct cache_context * ctx, struct ring_item *item){
+  //return get_cache_strategy(ca->set->dc, item);
+  return CACHE_MODE_WRITEBACK;
+}

@@ -16,3 +16,42 @@ get_ring_item(void *data, uint64_t offset, uint64_t len)
   }
   return item;
 }
+
+
+struct ring_items *
+ring_items_alloc(int max_buffer){
+  struct ring_items* items = calloc(1, sizeof(struct ring_items));
+  if (!items){
+    return NULL;
+  }
+  items->count = 0;
+  items->buf_size = max_buffer;
+  items->items = calloc(max_buffer, sizeof(struct ring_items *));
+  if (!items->items){
+    free(items);
+    return NULL;
+  }
+  return items;
+}
+
+int
+ring_items_add(struct ring_items *items, struct ring_item *item){
+  if (items->count == items->buf_size){
+    return -1;
+  }
+  items->items[items->count] = item;
+  items->count ++;
+  return 0;
+}
+
+void
+ring_items_free(struct ring_items *items){
+  free(items->items);
+  free(items);
+}
+
+int
+ring_items_reset(struct ring_items *items){
+  items->count = 0;
+  return 0;
+}

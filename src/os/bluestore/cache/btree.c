@@ -335,7 +335,7 @@ static void __btree_node_write_done(struct btree *b)
   // TODO
   // if (btree_node_dirty(b))
   //  schedule_delayed_work(&b->work, 30 * HZ);
-  
+
   //up(&b->io_mutex);
   sem_post(&b->io_mutex);
 }
@@ -378,7 +378,7 @@ static void do_btree_node_write(struct btree *b)
    */
 
   // 3. offset
-  bkey_copy(&k.key, &b->key);  // memcpy(_dest, _src, bkey_bytes(_src)) 
+  bkey_copy(&k.key, &b->key);  // memcpy(_dest, _src, bkey_bytes(_src))
   // PTR_OFFSET(&k.key, 0) btree在某个bucket中的起始位置
   // bset_sector_offset(&b->keys, i) 算出bset i在btree里面的偏移量
   //    (i - b->keys->set[0]->data)>>9 变成扇区数
@@ -410,7 +410,7 @@ void __bch_btree_node_write(struct btree *b)
   // TODO
   // 这里需要删除掉delayed work
   /*cancel_delayed_work(&b->work);*/
-  
+
   /*down(&b->io_mutex);*/
   sem_wait(&b->io_mutex);
 
@@ -551,7 +551,7 @@ static struct btree *mca_bucket_alloc(struct cache_set *c, struct bkey *k)
   INIT_LIST_HEAD(&b->list);
   delayed_work_assign(&b->ev_node_write, c->ev_base, btree_node_write_work, (void*)b);
   //INIT_DELAYED_WORK(&b->work, btree_node_write_work);
-  b->c = c; 
+  b->c = c;
   //sema_init(&b->io_mutex, 1);
   sem_init(&b->io_mutex, 0, 1);
 
@@ -601,7 +601,7 @@ static int mca_reap(struct btree *b, unsigned min_order, bool flush)
 
   return 0;
 out_unlock:
-  rw_unlock(true, b); 
+  rw_unlock(true, b);
   return -ENOMEM;
 }
 
@@ -931,7 +931,7 @@ struct btree *
 __bch_btree_node_alloc(struct cache_set *c, struct btree_op *op,
                     int level, bool wait, struct btree *parent)
 {
-  BKEY_PADDED(key) k; 
+  BKEY_PADDED(key) k;
   struct btree *b = ERR_PTR(-EAGAIN);
 
   pthread_mutex_lock(&c->bucket_lock);
@@ -1976,7 +1976,7 @@ err:
 }
 
 static int 
-bch_btree_insert_node(struct btree *b, struct btree_op *op, struct keylist *insert_keys, 
+bch_btree_insert_node(struct btree *b, struct btree_op *op, struct keylist *insert_keys,
                       atomic_t *journal_ref, struct bkey *replace_key)
 {
   BUG_ON(b->level && replace_key);
@@ -2140,7 +2140,7 @@ void bch_btree_set_root(struct btree *b)
   pthread_mutex_lock(&b->c->bucket_lock);
   list_del_init(&b->list);
   pthread_mutex_unlock(&b->c->bucket_lock);
-  b->c->root = b; 
+  b->c->root = b;
   dump_btree_node("set new btree root", b, true);
   bch_journal_meta(b->c);
 }
@@ -2189,7 +2189,7 @@ int __bch_btree_map_nodes(struct btree_op *op, struct cache_set *c,
   return btree_root(map_nodes_recurse, c, op, from, fn, flags);
 }
 
-static int 
+static int
 bch_btree_map_keys_recurse(struct btree *b, struct btree_op *op,
             struct bkey *from, btree_map_keys_fn *fn, int flags)
 {
@@ -2248,7 +2248,7 @@ struct refill {
   keybuf_pred_fn	*pred;
 };
 
-static int 
+static int
 refill_keybuf_fn(struct btree_op *op, struct btree *b, struct bkey *k)
 {
   struct refill *refill = container_of(op, struct refill, op);
