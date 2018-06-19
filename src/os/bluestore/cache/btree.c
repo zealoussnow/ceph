@@ -899,9 +899,9 @@ retry:
 static void btree_node_prefetch(struct btree *parent, struct bkey *k)
 {
   struct btree *b;
-  //pthread_mutex_lock(&parent->c->bucket_lock);
+  pthread_mutex_lock(&parent->c->bucket_lock);
   b = mca_alloc(parent->c, NULL, k, parent->level - 1);
-  //pthread_mutex_unlock(&parent->c->bucket_lock);
+  pthread_mutex_unlock(&parent->c->bucket_lock);
   if (!IS_ERR_OR_NULL(b)) {
     b->parent = parent;
     bch_btree_node_read(b);
