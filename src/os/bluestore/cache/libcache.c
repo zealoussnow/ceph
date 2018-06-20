@@ -38,6 +38,7 @@ int t2store_cache_register_cache(struct cache_context *ctx)
   ((struct cache *)ctx->cache)->fd=ctx->fd_cache;
   ((struct cache *)ctx->cache)->hdd_fd=ctx->fd_direct;
   ((struct cache *)ctx->cache)->bdev_path = ctx->bdev_path;
+  ((struct cache *)ctx->cache)->logger_cb = ctx->logger_cb;
 
   ret = init(ctx->cache);
   if (ret < 0 ) {

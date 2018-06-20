@@ -11,6 +11,18 @@ extern "C" {
   #define CEPH_CACHE_API
 #endif
 
+enum {
+  l_cachedevice_first = 888888,
+  l_bluestore_cachedevice_aio_write_lat,
+  l_bluestore_cachedevice_read_lat,
+  l_bluestore_cachedevice_flush_lat,
+  l_cachedevice_aio_write_lat,
+  l_cachedevice_aio_read_lat,
+  l_cachedevice_alloc_sectors,
+  l_cachedevice_insert_keys,
+  l_cachedevice_last
+};
+
 struct cache_context {
         void * cache;
         int fd_cache;
@@ -18,6 +30,7 @@ struct cache_context {
         int fd_buffered;
         bool registered;
         const char *bdev_path;
+        void *logger_cb;
         const char *whoami;
         const char *log_path;
 };

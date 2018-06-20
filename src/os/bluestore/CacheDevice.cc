@@ -111,14 +111,14 @@ struct Task {
   std::function<void()> fill_cb;
   Task *next = nullptr;
   int64_t return_code;
-  ceph::coarse_real_clock::time_point start;
+  utime_t start;
   IORequest io_request;
   std::mutex lock;
   std::condition_variable cond;
   Task(CacheDevice *dev, IOCommand c, uint64_t off, uint64_t l, int64_t rc = 0)
     : device(dev), command(c), offset(off), len(l),
       return_code(rc),
-      start(ceph::coarse_real_clock::now()) {}
+      start(ceph_clock_now()) {}
   ~Task() {
     //assert(!io_request.nseg);
   }
@@ -169,6 +169,7 @@ CacheDevice::CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv)
     aio_stop(false),
     injecting_crash(0)
 {
+  _init_logger();
   cache_ctx.registered=false;
 }
 
@@ -184,6 +185,17 @@ int CacheDevice::_lock()
   return 0;
 }
 
+void logger_tinc(void *t, int serial, struct timespec start, struct timespec end)
+{
+  Task *task = static_cast<Task*>(t);
+  CacheDevice *cache_device = task->device;
+  utime_t u_start(start);
+  utime_t u_end(end);
+  utime_t dur = u_end - u_start;
+
+  cache_device->logger->tinc(serial, dur);
+}
+
 int CacheDevice::cache_init(const std::string& path)
 {
   int r = 0;
@@ -194,6 +206,7 @@ int CacheDevice::cache_init(const std::string& path)
   cache_ctx.bdev_path = bdev_path.c_str();
   cache_ctx.whoami = cct->_conf->name.get_id().c_str();
   cache_ctx.log_path = cct->_conf->t2store_cache_log_path.c_str();
+  cache_ctx.logger_cb = (void*)logger_tinc;
 
   dout(0)<< __func__ << " cache log path "<< cache_ctx.log_path <<dendl;
   dout(1)<< __func__ << " lb cache_ctx.registered "<< cache_ctx.registered <<dendl;
@@ -207,6 +220,36 @@ int CacheDevice::cache_init(const std::string& path)
     return r;
 
   return r;
+}
+
+void CacheDevice::_init_logger()
+{
+  PerfCountersBuilder b(cct, "cachedevice",
+                        l_cachedevice_first, l_cachedevice_last);
+
+  b.add_time_avg(l_bluestore_cachedevice_aio_write_lat, "blue_aio_write",
+                 "bluestore cache aio write");
+  b.add_time_avg(l_bluestore_cachedevice_read_lat, "blue_read",
+                 "bluestore cache aio read");
+  b.add_time_avg(l_bluestore_cachedevice_flush_lat, "blue_flush",
+                 "bluestore cache flush");
+  b.add_time_avg(l_cachedevice_aio_write_lat, "cache_aio_write",
+                 "cache aio write latency");
+  b.add_time_avg(l_cachedevice_aio_read_lat, "cache_aio_read",
+                 "cache aio read latency");
+  b.add_time_avg(l_cachedevice_alloc_sectors, "cache_alloc_sectors",
+                 "alloc bucket for cache");
+  b.add_time_avg(l_cachedevice_insert_keys, "cache_insert_keys",
+                 "cache bkey insert");
+
+  logger = b.create_perf_counters();
+  cct->get_perfcounters_collection()->add(logger);
+}
+
+void CacheDevice::_shutdown_logger()
+{
+  cct->get_perfcounters_collection()->remove(logger);
+  delete logger;
 }
 
 int CacheDevice::write_cache_super(const std::string& path)
@@ -477,6 +520,7 @@ void CacheDevice::close()
   delete fs;
   fs = NULL;
 
+  _shutdown_logger();
   assert(fd_direct >= 0);
   VOID_TEMP_FAILURE_RETRY(::close(fd_direct));
   fd_direct = -1;
@@ -666,7 +710,9 @@ void io_complete(void *t)
   IOContext *ctx = task->ctx;
 
   assert(ctx != NULL);
+  utime_t dur = ceph_clock_now() - task->start;
   if (task->command == IOCommand::WRITE_COMMAND) {
+    cache_device->logger->tinc(l_bluestore_cachedevice_aio_write_lat, dur);
     if (ctx->priv) {
       //TODO: need add a aio finish log
       if (!--ctx->num_running) {
@@ -678,6 +724,7 @@ void io_complete(void *t)
   delete task;
   } else if (task->command == IOCommand::READ_COMMAND) {
     //task->fill_cb();
+    cache_device->logger->tinc(l_bluestore_cachedevice_read_lat, dur);
     if(!task->return_code) {
       if (ctx->priv) {
         if (!--ctx->num_running) {
@@ -695,6 +742,7 @@ void io_complete(void *t)
     }
   } else {
     assert(task->command == IOCommand::FLUSH_COMMAND);
+    cache_device->logger->tinc(l_bluestore_cachedevice_flush_lat, dur);
     task->return_code = 0;
   }
 
