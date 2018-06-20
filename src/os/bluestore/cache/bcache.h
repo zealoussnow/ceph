@@ -424,7 +424,7 @@ enum alloc_reserve {
 };
 
 
-typedef void (*logger_callback_fn)(void *ctx, int serial, struct timespec start, struct timespec end);
+typedef void (*logger_callback_fn)(void *cd, int serial, struct timespec start, struct timespec end);
 
 struct cache {
   struct aio_handler  * handler;
@@ -433,7 +433,6 @@ struct cache {
   const char *bdev_path;
   struct cache_set      *set;
   struct cache_sb               sb;
-  logger_callback_fn logger_cb;
   //struct bio          sb_bio;
   //struct bio_vec              sb_bv[1];
   
@@ -531,6 +530,8 @@ struct cache_set {
   int                     hdd_fd;
   //struct closure              cl;
   
+  logger_callback_fn logger_cb;
+  void               *bluestore_cd;
   struct event_base     *ev_base;
 
   struct list_head      list;

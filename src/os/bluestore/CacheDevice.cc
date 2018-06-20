@@ -185,10 +185,9 @@ int CacheDevice::_lock()
   return 0;
 }
 
-void logger_tinc(void *t, int serial, struct timespec start, struct timespec end)
+void logger_tinc(void *cd, int serial, struct timespec start, struct timespec end)
 {
-  Task *task = static_cast<Task*>(t);
-  CacheDevice *cache_device = task->device;
+  CacheDevice *cache_device = static_cast<CacheDevice*>(cd);
   utime_t u_start(start);
   utime_t u_end(end);
   utime_t dur = u_end - u_start;
@@ -207,6 +206,7 @@ int CacheDevice::cache_init(const std::string& path)
   cache_ctx.whoami = cct->_conf->name.get_id().c_str();
   cache_ctx.log_path = cct->_conf->t2store_cache_log_path.c_str();
   cache_ctx.logger_cb = (void*)logger_tinc;
+  cache_ctx.bluestore_cd = (void*)this;
 
   dout(0)<< __func__ << " cache log path "<< cache_ctx.log_path <<dendl;
   dout(1)<< __func__ << " lb cache_ctx.registered "<< cache_ctx.registered <<dendl;
@@ -229,24 +229,26 @@ void CacheDevice::_init_logger()
 
   b.add_time_avg(l_bluestore_cachedevice_aio_write_lat, "blue_aio_write",
                  "bluestore cache aio write");
-  b.add_time_avg(l_bluestore_cachedevice_read_lat, "blue_read",
+  b.add_time_avg(l_bluestore_cachedevice_aio_read_lat, "blue_aio_read",
                  "bluestore cache aio read");
   b.add_time_avg(l_bluestore_cachedevice_flush_lat, "blue_flush",
                  "bluestore cache flush");
   b.add_time_avg(l_bluestore_cachedevice_write_queue_lat, "blue_write_queue",
                  "bluestore cache write queue latency");
-  b.add_time_avg(l_cachedevice_cache_write_lat, "cache_write",
+  b.add_time_avg(l_bluestore_cachedevice_t2cache_write_lat, "t2cache_write",
                  "cache write latency");
-  b.add_time_avg(l_cachedevice_cache_read_lat, "cache_read",
+  b.add_time_avg(l_bluestore_cachedevice_t2cache_read_lat, "t2cache_read",
                  "cache read latency");
-  b.add_time_avg(l_cachedevice_aio_write_lat, "cache_aio_write",
+  b.add_time_avg(l_bluestore_cachedevice_t2cache_libaio_write_lat, "t2cache_libaio_write",
                  "cache aio write latency");
-  b.add_time_avg(l_cachedevice_aio_read_lat, "cache_aio_read",
+  b.add_time_avg(l_bluestore_cachedevice_t2cache_libaio_read_lat, "t2cache_libaio_read",
                  "cache aio read latency");
-  b.add_time_avg(l_cachedevice_alloc_sectors, "cache_alloc_sectors",
+  b.add_time_avg(l_bluestore_cachedevice_t2cache_alloc_sectors, "t2cache_alloc_sectors",
                  "alloc bucket for cache");
-  b.add_time_avg(l_cachedevice_insert_keys, "cache_insert_keys",
+  b.add_time_avg(l_bluestore_cachedevice_t2cache_insert_keys, "t2cache_insert_keys",
                  "cache bkey insert");
+  b.add_time_avg(l_bluestore_cachedevice_t2cache_journal_write, "t2cache_journal_write",
+                 "cache journal write");
 
   logger = b.create_perf_counters();
   cct->get_perfcounters_collection()->add(logger);
@@ -730,7 +732,7 @@ void io_complete(void *t)
   delete task;
   } else if (task->command == IOCommand::READ_COMMAND) {
     //task->fill_cb();
-    cache_device->logger->tinc(l_bluestore_cachedevice_read_lat, dur);
+    cache_device->logger->tinc(l_bluestore_cachedevice_aio_read_lat, dur);
     if(!task->return_code) {
       if (ctx->priv) {
         if (!--ctx->num_running) {

@@ -14,20 +14,22 @@ extern "C" {
 enum {
   l_cachedevice_first = 888888,
   l_bluestore_cachedevice_aio_write_lat,
-  l_bluestore_cachedevice_write_queue_lat,
-  l_bluestore_cachedevice_read_lat,
+  l_bluestore_cachedevice_aio_read_lat,
   l_bluestore_cachedevice_flush_lat,
-  l_cachedevice_cache_write_lat,
-  l_cachedevice_cache_read_lat,
-  l_cachedevice_aio_write_lat,
-  l_cachedevice_aio_read_lat,
-  l_cachedevice_alloc_sectors,
-  l_cachedevice_insert_keys,
+  l_bluestore_cachedevice_write_queue_lat,
+  l_bluestore_cachedevice_t2cache_write_lat,
+  l_bluestore_cachedevice_t2cache_read_lat,
+  l_bluestore_cachedevice_t2cache_libaio_write_lat,
+  l_bluestore_cachedevice_t2cache_libaio_read_lat,
+  l_bluestore_cachedevice_t2cache_alloc_sectors,
+  l_bluestore_cachedevice_t2cache_insert_keys,
+  l_bluestore_cachedevice_t2cache_journal_write,
   l_cachedevice_last
 };
 
 struct cache_context {
         void * cache;
+        void * bluestore_cd;
         int fd_cache;
         int fd_direct;
         int fd_buffered;
