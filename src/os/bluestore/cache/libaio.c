@@ -234,6 +234,7 @@ aio_enqueue_batch(uint16_t type, struct aio_handler *h, struct ring_items *items
   }
   for (i = 0; i < items->count; i++){
     item = items->items[i];
+    item->aio_start = cache_clock_now();
     iocb = get_iocb(ti, item);
     iocbs[i] = iocb;
   }

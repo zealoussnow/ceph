@@ -1287,9 +1287,10 @@ aio_write_completion(void *cb)
         }
       case CACHE_MODE_WRITEBACK:
         CACHE_DEBUGLOG(CAT_AIO_WRITE,"writeback completion start insert keys \n");
-        struct timespec start = cache_clock_now();
+        struct timespec insert_start = cache_clock_now();
+        ca->logger_cb(item->io_arg, l_cachedevice_aio_write_lat, item->aio_start, insert_start);
         ret = bch_data_insert_keys(ca->set, item->insert_keys);
-        ca->logger_cb(item->io_arg, l_cachedevice_insert_keys, start, cache_clock_now());
+        ca->logger_cb(item->io_arg, l_cachedevice_insert_keys, insert_start, cache_clock_now());
         bch_writeback_add(ca->set->dc);
         break;
       default:
@@ -1310,7 +1311,7 @@ aio_write_completion(void *cb)
     } else if( item->io_completion_cb ) {
       // choice 2
       // item->io_completion_cb(item->io_arg, ret); 
-      ca->logger_cb(item->io_arg, l_cachedevice_aio_write_lat, item->aio_start, cache_clock_now());
+      ca->logger_cb(item->io_arg, l_cachedevice_cache_write_lat, item->start, cache_clock_now());
       item->io_completion_cb(item->io_arg); 
     } else {
       /*printf("<%s>: No io_completion_cb for IO(star=%lu(0x%lx),len=%lu(0x%lx))\n",*/
@@ -1440,7 +1441,7 @@ cache_aio_writearound_batch(struct cache *ca, struct ring_items * items)
     item = items->items[i];
     item->ca_handler = ca;
     item->io.type=CACHE_IO_TYPE_WRITE;
-    item->aio_start = cache_clock_now();
+    item->start = cache_clock_now();
     if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
         wake_up_gc(ca->set);
 
@@ -1520,7 +1521,7 @@ cache_aio_writeback_batch(struct cache *ca, struct ring_items * items)
     item->ca_handler = ca;
     item->strategy = CACHE_MODE_WRITEBACK;
     item->io.type=CACHE_IO_TYPE_WRITE;
-    item->aio_start = cache_clock_now();
+    item->start = cache_clock_now();
     if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
       wake_up_gc(ca->set);
     if (_prep_writeback(item) < 0) {
@@ -1583,7 +1584,7 @@ cache_aio_writethrough_batch(struct cache *ca, struct ring_items * items)
     item = items->items[i];
     item->ca_handler = ca;
     item->io.type=CACHE_IO_TYPE_WRITE;
-    item->aio_start = cache_clock_now();
+    item->start = cache_clock_now();
     if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
        wake_up_gc(ca->set);
     if (_prep_writethrough(item) < 0) {
@@ -1717,7 +1718,7 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   }
   item->io_completion_cb = cb;
   item->io_arg = cb_arg;
-  item->aio_start = cache_clock_now();
+  item->start = cache_clock_now();
 
   /*item->strategy = get_cache_strategy(dc, item);*/
   /**********   策略相关的代码 ******************/
@@ -1815,7 +1816,7 @@ aio_read_completion(struct ring_item *item)
   struct cache *ca = item->ca_handler;
   /*printf("<%s>: All read complete. \n", __func__);*/
 
-  ca->logger_cb(item->io_arg, l_cachedevice_aio_read_lat, item->aio_start, cache_clock_now());
+  ca->logger_cb(item->io_arg, l_cachedevice_cache_read_lat, item->start, cache_clock_now());
   // call callback function
   if (item->io_completion_cb) {
     item->io_completion_cb(item->io_arg);
@@ -2004,7 +2005,7 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   item->iou_arg = item;
   item->ca_handler = ca;
   atomic_set(&item->need_write_cache, 0);
-  item->aio_start = cache_clock_now();
+  item->start = cache_clock_now();
   
   s.item = item;
   bch_btree_op_init(&s.op, -1);

@@ -14,8 +14,11 @@ extern "C" {
 enum {
   l_cachedevice_first = 888888,
   l_bluestore_cachedevice_aio_write_lat,
+  l_bluestore_cachedevice_write_queue_lat,
   l_bluestore_cachedevice_read_lat,
   l_bluestore_cachedevice_flush_lat,
+  l_cachedevice_cache_write_lat,
+  l_cachedevice_cache_read_lat,
   l_cachedevice_aio_write_lat,
   l_cachedevice_aio_read_lat,
   l_cachedevice_alloc_sectors,
