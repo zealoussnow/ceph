@@ -50,8 +50,18 @@ ring_items_free(struct ring_items *items){
   free(items);
 }
 
-int
-ring_items_reset(struct ring_items *items){
-  items->count = 0;
-  return 0;
+void ring_items_reset(struct ring_items *items)
+{
+  if (items != NULL) {
+    items->count =0;
+  }
+}
+
+int ring_items_count(struct ring_items *items)
+{
+  if ( items != NULL) {
+    return items->count;
+  } else {
+    return 0;
+  }
 }

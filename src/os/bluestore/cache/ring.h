@@ -46,8 +46,8 @@ struct ring_items *ring_items_alloc(int max_buffer);
 int ring_items_add(struct ring_items *items, struct ring_item *item);
 
 void ring_items_free(struct ring_items *items);
-int ring_items_reset(struct ring_items *items);
-
+void ring_items_reset(struct ring_items *items);
+int ring_items_count(struct ring_items *items);
 
 struct ring_item *get_ring_item(void *data, uint64_t offset, uint64_t len);
 

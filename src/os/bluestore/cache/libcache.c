@@ -90,8 +90,14 @@ void t2store_cache_aio_items_free(struct ring_items* items){
   ring_items_free(items);
 }
 
-int t2store_cache_aio_items_reset(struct ring_items* items){
-  return ring_items_reset(items);
+int t2store_cache_ring_items_get_size(struct ring_items* items)
+{
+  return ring_items_count(items);
+}
+
+void t2store_cache_aio_items_reset(struct ring_items* items)
+{
+  ring_items_reset(items);
 }
 
 int t2store_cache_aio_writethrough_batch(struct cache_context * ctx, struct ring_items* items){
@@ -122,6 +128,8 @@ int t2store_cache_aio_thread_init(struct cache_context * ctx){
 
 
 int t2store_cache_aio_get_cache_strategy(struct cache_context * ctx, struct ring_item *item){
-  //return get_cache_strategy(ca->set->dc, item);
-  return CACHE_MODE_WRITEBACK;
+  // TODO: tmp return wirteback mode
+  //item->strategy = get_cache_strategy(ca->set->dc, item);
+  item->strategy = CACHE_MODE_WRITEBACK;
+  return item->strategy;
 }
