@@ -46,7 +46,7 @@ void cache_zlog(const char *cat_type, const char *file,
                 long line, const int level,  const char *format, ...)
 {
   if ( level < g_log_level) {
-    return 0;
+    return ;
   }
   char formatted_buf[BUFSIZ];
   memset(formatted_buf, 0, BUFSIZ);
