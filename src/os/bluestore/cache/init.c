@@ -969,7 +969,8 @@ bch_data_insert_keys(struct cache_set *c_set,
   struct timespec start = cache_clock_now();
   journal_ref = bch_journal(c_set, insert_keys);
   if (!journal_ref) {
-    return -1;
+    CACHE_ERRORLOG(CAT_JOURNAL,"write journal error\n");
+    assert("write journal error" == 0);
   }
   c_set->logger_cb(c_set->bluestore_cd, l_bluestore_cachedevice_t2cache_journal_write, start, cache_clock_now());
 
@@ -1165,22 +1166,22 @@ err_close:
   return -1;
 }
 
-static int bch_keylist_realloc(struct keylist *l, unsigned u64s,
-                               struct cache_set *c)
+static int 
+bch_keylist_realloc(struct keylist *l, unsigned u64s, struct cache_set *c)
 {
-        size_t oldsize = bch_keylist_nkeys(l);
-        size_t newsize = oldsize + u64s;
+  size_t oldsize = bch_keylist_nkeys(l);
+  size_t newsize = oldsize + u64s;
 
-        /*
-         * The journalling code doesn't handle the case where the keys to insert
-         * is bigger than an empty write: If we just return -ENOMEM here,
-         * bio_insert() and bio_invalidate() will insert the keys created so far
-         * and finish the rest when the keylist is empty.
-         */
-        if (newsize * sizeof(uint64_t) > block_bytes(c) - sizeof(struct jset))
-                return -ENOMEM;
+  /*
+   * The journalling code doesn't handle the case where the keys to insert
+   * is bigger than an empty write: If we just return -ENOMEM here,
+   * bio_insert() and bio_invalidate() will insert the keys created so far
+   * and finish the rest when the keylist is empty.
+   */
+  if (newsize * sizeof(uint64_t) > block_bytes(c) - sizeof(struct jset))
+          return -ENOMEM;
 
-        return __bch_keylist_realloc(l, u64s);
+  return __bch_keylist_realloc(l, u64s);
 }
 
 struct bkey *
@@ -1189,10 +1190,12 @@ get_init_bkey(struct keylist *keylist, uint64_t offset, struct cache *ca)
   struct bkey *k = NULL;
 
   if (bch_keylist_realloc(keylist, 3, ca->set)) {
-    assert("no memory" == 0);
+    CACHE_ERRORLOG(NULL, "keylist realloc nomem\n");
+    assert("keylist realloc no memory" == 0);
   }
 
   k = keylist->top;
+  assert(k != NULL);
 
   if ( k ) {
     bkey_init(k);
@@ -1210,9 +1213,8 @@ int item_write_next(struct ring_item *item, bool dirty)
   struct bkey *k = NULL;
   k = get_init_bkey(item->insert_keys, (item->o_offset + item->io.len), ca);
   if ( !k ) {
-    CACHE_DEBUGLOG("aio_en", "keylist is not enough, need realloc \n");
-    goto free_keylist;
-    assert ( " keylist is not enough, need realloc " == 0);
+    CACHE_ERRORLOG(NULL, "keylist is not enough, need realloc \n");
+    assert ( "keylist is not enough, need realloc" == 0);
   }
 
   if ( dirty ) {
@@ -1222,8 +1224,8 @@ int item_write_next(struct ring_item *item, bool dirty)
   uint64_t left = item->o_len - item->io.len;
   ret = bch_alloc_sectors(ca->set, k,(left >> 9), 0, 0, 1);
   if ( ret < 0 ) {
-    CACHE_DEBUGLOG("aio_en", "alloc sectors faild \n");
-    assert(" alloc sectors faild " == 0);
+    CACHE_ERRORLOG(NULL, "alloc bucket/sectors failed\n");
+    assert("alloc bucket/sectors failed" == 0);
   }
   //dump_bkey("aio_en", k);
   //CACHE_DEBUGLOG("aio_en", "o_off=%lu, o_len=%lu \n", item->o_offset/512, item->o_len/ 512);
@@ -1275,13 +1277,14 @@ aio_write_completion(void *cb)
           item->io.len = 0;
           // write through的bkey不需要设置dirty=true
           if (!item_write_next(item, false)) {
-            assert(" item init failed " == 0);
+            CACHE_ERRORLOG(NULL,"writethough write left io failed\n");
+            assert("writethough write left io failed" == 0);
           }
           ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
           if ( ret < 0) {
-              assert(" test aio enqueue faild " == 0);
+            CACHE_ERRORLOG(NULL,"writethough aio enqueue failed\n");
+            assert("writethough aio enqueue failed" == 0);
           }
-          return ;
         } else {
           CACHE_DEBUGLOG(CAT_AIO_WRITE,"writethrough completion start insert keys \n");
           ret = bch_data_insert_keys(ca->set, item->insert_keys);
@@ -1316,30 +1319,29 @@ aio_write_completion(void *cb)
       ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_write_lat, item->start, cache_clock_now());
       item->io_completion_cb(item->io_arg); 
     } else {
-      /*printf("<%s>: No io_completion_cb for IO(star=%lu(0x%lx),len=%lu(0x%lx))\n",*/
-                /*__func__, item->o_offset/512, item->o_offset, item->o_len/512,item->o_len);*/
       CACHE_WARNLOG(NULL, "No io_completion_cb for IO(star=%lu(0x%lx),len=%lu(0x%lx))\n",
                 item->o_offset/512, item->o_offset, item->o_len/512,item->o_len);
-
     }
     free(item->insert_keys);
     free(item);
   } else {
-    /*printf(" ********** write rest io *********88 \n");*/
-    item_write_next(item, true);
+    assert( item != NULL);
+    assert( item->insert_keys != NULL);
+    if (!item_write_next(item, true)) {
+      CACHE_ERRORLOG(NULL,"write left io failed\n");
+      assert("write left io failed" == 0);
+    }
     // re enqueue
     ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
     if (ret < 0) {
-      assert(" test aio enqueue faild " == 0);
+      CACHE_ERRORLOG(NULL,"write left io aio enqueue io failed\n");
+      assert("write left io aio enqueue io failed" == 0);
     }
   }
 }
 
 int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
 {
-  /*printf("<%s>: Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) \n",*/
-                        /*__func__, offset/512,offset,len/512,len);*/
-
   CACHE_DEBUGLOG(NULL,"Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) \n",
                         offset/512,offset,len/512,len);
   int ret = 0;
@@ -1348,22 +1350,20 @@ int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
 
   insert_keys = calloc(1, sizeof(*insert_keys));
   if ( !insert_keys ) {
+    CACHE_ERRORLOG(NULL, "calloc insert_keys no mem\n");
+    assert("calloc insert_keys no mem" == 0);
     goto err;
   }
   bch_keylist_init(insert_keys);
 
   k = get_init_bkey(insert_keys, offset, ca);
-  if ( !k ) {
-    ret = -1;
-    goto free_keylist;
-  }
 
   SET_KEY_OFFSET(k, KEY_OFFSET(k) + (len >> 9));
   SET_KEY_SIZE(k, (len >> 9));
   bch_keylist_push(insert_keys);
 
   ret = bch_data_insert_keys(ca->set, insert_keys);
-  if ( ret !=0 ) {
+  if ( ret != 0 ) {
     CACHE_DEBUGLOG(NULL,"Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) ERROR.\n",
                         offset/512,offset,len/512,len);
     assert("Invaliedate region error"==0);
@@ -1390,10 +1390,6 @@ _prep_writearound(struct ring_item * item)
     goto err;
   }
   bch_keylist_init(insert_keys);
-  /*k = insert_keys->top;*/
-  /*bkey_init(k);*/
-  /*SET_KEY_INODE(k, 1);*/
-  /*SET_KEY_OFFSET(k, (item->o_offset>>9));*/
   k = get_init_bkey(insert_keys, item->o_offset, ca);
   if ( !k ) {
     goto free_keylist;
@@ -1472,7 +1468,6 @@ int _prep_writeback(struct ring_item * item){
   k = get_init_bkey(insert_keys, item->o_offset, ca);
   if ( !k ) {
     goto free_keylist;
-    /*assert(" keylist is not enough, need realloc " == 0);*/
   }
 
   struct timespec start = cache_clock_now();

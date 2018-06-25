@@ -11,7 +11,12 @@
 
 
 #define LOG_CONF "/etc/ceph/t2store_cachelog.conf"
+int g_log_level = ZLOG_LEVEL_DEBUG;
 
+void set_log_level(int level)
+{
+  g_log_level = level;
+}
 
 int 
 log_init(const char *log_path, const char *log_instant)
@@ -26,6 +31,8 @@ log_init(const char *log_path, const char *log_instant)
     return -1;
   }
 
+  set_log_level(ZLOG_LEVEL_ERROR);
+
   return 0;
 }
 
@@ -38,6 +45,9 @@ void cache_zlog(const char *cat_type, const char *file,
                 size_t filelen, const char *func, size_t funclen, 
                 long line, const int level,  const char *format, ...)
 {
+  if ( level < g_log_level) {
+    return 0;
+  }
   char formatted_buf[BUFSIZ];
   memset(formatted_buf, 0, BUFSIZ);
 

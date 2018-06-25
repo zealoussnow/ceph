@@ -135,9 +135,11 @@ int __bch_keylist_realloc(struct keylist *l, unsigned u64s)
   size_t newsize = oldsize + u64s;
   uint64_t *old_keys = l->keys_p == l->inline_keys ? NULL : l->keys_p;
   uint64_t *new_keys;
-  newsize = roundup(newsize, 4);
 
-  if (newsize <= KEYLIST_INLINE || roundup(oldsize, 4) == newsize)
+  newsize = roundup_pow_of_two(newsize);
+
+  if (newsize <= KEYLIST_INLINE || 
+      roundup_pow_of_two(oldsize) == newsize)
     return 0;
 
   new_keys = realloc(old_keys, sizeof(uint64_t) * newsize);
