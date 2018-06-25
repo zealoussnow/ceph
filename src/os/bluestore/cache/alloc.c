@@ -320,7 +320,7 @@ static int bch_allocator_push(struct cache *ca, long bucket)
       ret = true;
       goto wake_up;
   }
-  CACHE_DEBUGLOG(CAT_ALLOC, "fifo_push bucket %ld failed ret %d\n", ret);
+  CACHE_DEBUGLOG(CAT_ALLOC, "fifo_push bucket %ld failed ret %d\n", bucket, ret);
 wake_up:
   wake_up_reserve_cond(ca);
   return ret;

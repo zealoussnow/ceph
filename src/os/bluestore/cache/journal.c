@@ -158,7 +158,6 @@ int bch_journal_read(struct cache_set *c, struct list_head *list)
     for (i = 0; i < ca->sb.njournal_buckets; i++) {
       l = (i * 2654435769U) % ca->sb.njournal_buckets;
       if (test_bit(l, bitmap)) {
-        CACHE_DEBUGLOG(CAT_JOURNAL,"test bit l %u \n");
         break;
       }
       // 1. 如果调用read_bucket 返回 > 0, 则会goto bsearch
