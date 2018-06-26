@@ -7,7 +7,7 @@
 
 typedef void (*event_callback_fn)(evutil_socket_t, short, void *);
 
-void delayed_work_add(struct event *, unsigned int);
+void delayed_work_add(struct event *, struct timeval *);
 void delayed_work_del(struct event *);
 void delayed_work_assign(struct event *, struct event_base *, event_callback_fn, void *);
 
