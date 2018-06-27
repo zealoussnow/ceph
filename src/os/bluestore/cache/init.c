@@ -1325,6 +1325,10 @@ aio_write_completion(void *cb)
     free(item->insert_keys);
     free(item);
   } else {
+    CACHE_ERRORLOG(CAT_AIO_WRITE,"AIO split to multiple. IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n",
+                   item->o_offset/512, item->o_offset, item->o_len/512,
+                   item->o_len, item->io.success);
+    assert( "IO Split" == 0);
     assert( item != NULL);
     assert( item->insert_keys != NULL);
     if (!item_write_next(item, true)) {

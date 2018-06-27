@@ -263,8 +263,8 @@ void CacheDevice::_shutdown_logger()
 int CacheDevice::write_cache_super(const std::string& path)
 {
   int r = 0;
-  unsigned block_size = 1;
-  unsigned bucket_size = 1024;
+  unsigned block_size = 8;
+  unsigned bucket_size = 1024 * 8;
   bool writeback = 0;
   bool discard = 0;
   bool wipe_bcache = 1;
