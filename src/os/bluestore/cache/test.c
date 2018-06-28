@@ -145,7 +145,7 @@ void do_writeback_batch_test(struct cache *ca)
   uint64_t offset = 8192;
 
   aio_thread_init(ca);
-  struct ring_items *items = ring_items_alloc();
+  struct ring_items *items = ring_items_alloc(1024);
   struct ring_item *item;
 
   posix_memalign((void **)&data, 512, len);

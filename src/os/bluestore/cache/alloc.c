@@ -587,22 +587,61 @@ struct open_bucket {
  * detecting sequential IO to segregate their data, but going off of the task
  * should be a sane heuristic.
  * 这两个任务都会做相当多的随机IO，因此不能依赖检测顺序IO来将它们的数据分开。
+ *
+ * How to find best open bucket:
+ * 1. Try to match start address is equal bucket's last address and sectors_free greater than alloc.
+ * 2. Try to find sectors_free equal to alloc.
+ * 3. Try to find sectors_free greater than alloc.
+ * 4. Try to find sectors_free equal to zero.
+ * 5. Try to find the smallest open bucket to invalid.
+ *
+ * Todo: How to use write_point to filter open buckets.
  */
 static struct open_bucket *
-pick_data_bucket(struct cache_set *c, const struct bkey *search, unsigned write_point,
-                struct bkey *alloc)
+pick_data_bucket(struct cache_set *c, const struct bkey *search,
+                struct bkey *alloc, unsigned sectors, struct open_bucket **last)
 {
-  struct open_bucket *ret, *ret_task = NULL;
+  struct open_bucket *ret, *min_bkt = NULL, *eq_task = NULL, *gt_task = NULL, *zero_task = NULL;
+  int i;
 
-  list_for_each_entry_reverse(ret, &c->data_buckets, list)
-    if (!bkey_cmp(&ret->key, search))
-    {
+  if (*last){
+    ret = *last;
+    goto found;
+  }
+
+  min_bkt = list_last_entry(&c->data_buckets, struct open_bucket, list);
+
+  list_for_each_entry_reverse(ret, &c->data_buckets, list){
+    if (!bkey_cmp(&ret->key, search) && ret->sectors_free > sectors) {
       goto found;
+    } else {
+//      if (ret->last_write_point == write_point)
+//        ret_task = ret;
+      if (ret->sectors_free == sectors)
+        eq_task = ret;
+      else if (ret->sectors_free > sectors)
+        gt_task = ret;
+      else if (!ret->sectors_free)
+        zero_task = ret;
+      else if (ret->sectors_free < min_bkt->sectors_free){
+        min_bkt = ret;
+      }
     }
-    else if (ret->last_write_point == write_point)
-      ret_task = ret;
+  }
 
-  ret = ret_task ?: list_first_entry(&c->data_buckets, struct open_bucket, list);
+  ret = eq_task?:(gt_task?: zero_task);
+  if (ret)
+    goto found;
+
+//  ret = ret_task ?: list_first_entry(&c->data_buckets, struct open_bucket, list);
+
+  // invalid the smallest open bucket.
+  ret = min_bkt;
+  ret->sectors_free = 0;
+  for (i = 0; i < KEY_PTRS(&ret->key); i++){
+    atomic_dec(&PTR_BUCKET(c, &ret->key, i)->pin);
+  }
+
 found:
   /* 找到的bucket中没有可用的扇区？*/
   if (!ret->sectors_free && KEY_PTRS(alloc)) {
@@ -611,6 +650,7 @@ found:
     bkey_init(alloc);
   }
   if (!ret->sectors_free) {
+    *last =  ret;
     ret = NULL;
   }
   return ret;
@@ -632,7 +672,7 @@ found:
 bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
                       unsigned write_point, unsigned write_prio, bool wait)
 {
-  struct open_bucket *b;
+  struct open_bucket *b, *last_bkt = NULL;
   BKEY_PADDED(key) alloc; 
   unsigned i;
 
@@ -651,7 +691,7 @@ bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
   //spin_lock(&c->data_bucket_lock);
   pthread_spin_lock(&c->data_bucket_lock);
 
-  while (!(b = pick_data_bucket(c, k, write_point, &alloc.key))) {
+  while (!(b = pick_data_bucket(c, k, &alloc.key, sectors, &last_bkt))) {
     unsigned watermark = write_prio
       ? RESERVE_MOVINGGC
       : RESERVE_NONE;
@@ -682,7 +722,7 @@ bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
   for (i = 0; i < KEY_PTRS(&b->key); i++)
     k->ptr[i] = b->key.ptr[i];
 
-  sectors = min(sectors, b->sectors_free);
+  assert(sectors <= b->sectors_free);
 
   SET_KEY_OFFSET(k, KEY_OFFSET(k) + sectors);
   SET_KEY_SIZE(k, sectors);

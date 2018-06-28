@@ -162,7 +162,7 @@ int aio_queue_submit(io_context_t ctx, unsigned len, struct iocb **iocbs)
       }
     }
     if (r != len){
-      CACHE_ERRORLOG(CAT_AIO," io_submit len=%u ret=%d\n", len, r);
+      CACHE_ERRORLOG(CAT_AIO," io_submit len=%u ret=%d retries=%d\n", len, r, retries);
     }
     assert(r == len);
     break;
