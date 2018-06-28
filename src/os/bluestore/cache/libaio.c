@@ -53,6 +53,7 @@ struct thread_data {
 };
 
 struct aio_handler {
+  pthread_spinlock_t      lock;
   uint32_t nr_cache;
   uint32_t nr_backend;
   struct list_head cache_threads;
@@ -116,7 +117,7 @@ get_thread_data(uint16_t type, struct aio_handler *handler) {
   }
 
   //for random  select io_context
-  CACHE_DEBUGLOG(NULL, " random  select io_context \n");
+  CACHE_WARNLOG(NULL, " random  select io_context \n");
   switch (type) {
     case CACHE_THREAD_CACHE:
       need_seq = pthread_id % handler->nr_cache;
@@ -210,8 +211,7 @@ aio_enqueue(uint16_t type, struct aio_handler *h, struct ring_item *item) {
   td = get_thread_data(type, h);
   ti = td->thread_info;
   iocb = get_iocb(ti, item);
-  aio_queue_submit(*ti->ioctx, 1, &iocb);
-  return 0;
+  return aio_queue_submit(*ti->ioctx, 1, &iocb);
 }
 
 int
@@ -349,8 +349,10 @@ aio_thread_init(void *ca) {
       td->pooler_td = poller_td;
       td->aio_td = self_td;
 
+      pthread_spin_lock(&handler->lock);
       handler->nr_cache++;
       list_add(&td->node, &handler->cache_threads);
+      pthread_spin_unlock(&handler->lock);
     } else {
       hdd_options = calloc(1, sizeof(*hdd_options));
       hdd_options->name = backend_name;
@@ -380,8 +382,10 @@ aio_thread_init(void *ca) {
       td->pooler_td = poller_td;
       td->aio_td = self_td;
 
+      pthread_spin_lock(&handler->lock);
       handler->nr_backend++;
       list_add(&td->node, &handler->backend_threads);
+      pthread_spin_unlock(&handler->lock);
     }
   }
   conf_free(cf);
@@ -402,9 +406,12 @@ aio_init(void *ca) {
   struct aio_handler *handler = NULL;
 
   handler = calloc(1, sizeof(*handler));
+  pthread_spin_init(&handler->lock, 0);
 
   INIT_LIST_HEAD(&handler->cache_threads);
   INIT_LIST_HEAD(&handler->backend_threads);
+  handler->nr_backend = 0;
+  handler->nr_cache = 0;
 
   g_handler = handler;
   return (void *) handler;

@@ -83,12 +83,12 @@ static void update_writeback_rate(void *arg)
 
   pthread_setname_np(pthread_self(), "writeback_rate_update");
   while (!dc->writeback_should_stop) {
-    pthread_rwlock_rdlock(&dc->writeback_lock);
+    //pthread_rwlock_rdlock(&dc->writeback_lock);
     if (atomic_read(&dc->has_dirty) &&
         dc->writeback_percent)
       __update_writeback_rate(dc);
 
-    pthread_rwlock_unlock(&dc->writeback_lock);
+    //pthread_rwlock_unlock(&dc->writeback_lock);
 
     /*schedule_delayed_work(&dc->writeback_rate_update,*/
     /*dc->writeback_rate_update_seconds * HZ);*/
@@ -229,6 +229,12 @@ struct dirty_io {
   char                    *data;
 };
 
+struct dirty_item {
+  struct ring_item *item;
+  struct keybuf_key *w;
+  struct cached_dev *dc;
+};
+
 static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
 {
   if (KEY_DIRTY(&w->key)) {
@@ -255,23 +261,71 @@ static void dirty_io_write(struct dirty_io *io, struct cached_dev *dc)
   sync_write(dc->c->hdd_fd, io->data, io->len, io->offset);
 }
 
-static void dirty_io_read(struct dirty_io *io, struct cached_dev *dc)
-{
-  sync_read(dc->c->fd, io->data, io->len, io->offset);
+static void *write_completion(void *arg){
+  struct dirty_item *d = (struct dirty_item *)arg;
+  struct ring_item *item = d->item;
+  struct keybuf_key *w = d->w;
+  struct cached_dev *dc = d->dc;
+
+  dirty_io_complete(w, dc);
+
+  bch_keybuf_del(&dc->writeback_keys, w);
+  free(item->data);
+  free(item);
+  free(d);
 }
 
-static void dirty_io_init(struct dirty_io *io, struct keybuf_key *w)
+static void *read_completion(void *arg){
+  struct dirty_item *d = (struct dirty_item *)arg;
+  struct ring_item *item = d->item;
+  struct keybuf_key *w = d->w;
+  struct cached_dev *dc = d->dc;
+  int ret;
+
+  item->io.offset = KEY_START(&w->key) << 9;
+  item->io.type=CACHE_IO_TYPE_WRITE;
+  item->iou_completion_cb = write_completion;
+
+  ret = aio_enqueue(CACHE_THREAD_BACKEND, dc->c->cache[0]->handler, item);
+  if (ret < 0) {
+    bch_keybuf_del(&dc->writeback_keys, w);
+    assert( "dirty aio_enqueue read error  " == 0);
+  }
+}
+
+static void dirty_io_read(struct keybuf_key *w, struct cached_dev *dc)
 {
-  io->len = KEY_SIZE(&w->key) << 9;
-  io->offset = PTR_OFFSET(&w->key, 0) << 9;
-  io->data = malloc(io->len);
-  memset(io->data, 0, io->len);
+  int ret;
+  uint64_t len = KEY_SIZE(&w->key) << 9;
+  void *data = malloc(len);
+  uint64_t offset = PTR_OFFSET(&w->key, 0) << 9;
+  struct ring_item *item = get_ring_item(data, offset, len);
+  struct dirty_item *d = malloc(sizeof(struct dirty_item));
+
+  d->item = item;
+  d->dc = dc;
+  d->w = w;
+
+  item->iou_completion_cb = read_completion;
+  item->iou_arg = d;
+  item->io.type=CACHE_IO_TYPE_READ;
+  item->io.pos = item->data;
+  item->io.offset = item->o_offset;
+  item->io.len = item->o_len;
+
+  ret = aio_enqueue(CACHE_THREAD_CACHE, dc->c->cache[0]->handler, item);
+  if (ret < 0) {
+    bch_keybuf_del(&dc->writeback_keys, w);
+    assert( "dirty aio_enqueue read error  " == 0);
+  }
 }
 
 static void read_dirty(struct cached_dev *dc)
 {
   unsigned delay = 0;
-  struct keybuf_key *w;
+  struct keybuf_key *next, *keys[MAX_WRITEBACKS_IN_PASS], *w;
+  size_t size;
+  int nk, i;
   /*struct dirty_io *io;*/
   /*struct closure cl;*/
 
@@ -282,39 +336,61 @@ static void read_dirty(struct cached_dev *dc)
    * mempools.
    */
 
-  while (!dc->writeback_should_stop) {
 
-    w = bch_keybuf_next(&dc->writeback_keys);
-    if (!w)
-      break;
+  next = bch_keybuf_next(&dc->writeback_keys);
 
-    if (KEY_START(&w->key) != dc->last_read ||
-        jiffies_to_msecs(delay) > 50)
-      sleep(delay / HZ);
+  while (!dc->writeback_should_stop && next) {
+    size = 0;
+    nk = 0;
 
-    dc->last_read	= KEY_OFFSET(&w->key);
+    do {
 
+      /*
+       * Don't combine too many operations, even if they
+       * are all small.
+       */
+      if (nk >= MAX_WRITEBACKS_IN_PASS)
+        break;
 
-    BUG_ON(ptr_stale(dc->c, &w->key, 0));
+      /*
+       * If the current operation is very large, don't
+       * further combine operations.
+       */
+      if (size >= MAX_WRITESIZE_IN_PASS)
+        break;
 
+      /*
+       * Operations are only eligible to be combined
+       * if they are contiguous.
+       *
+       * TODO: add a heuristic willing to fire a
+       * certain amount of non-contiguous IO per pass,
+       * so that we can benefit from backing device
+       * command queueing.
+       */
+      if ((nk != 0) && bkey_cmp(&keys[nk-1]->key,
+                                &START_KEY(&next->key)))
+        break;
 
-    struct dirty_io *io = malloc(sizeof(struct dirty_io));
+      size += KEY_SIZE(&next->key);
+      keys[nk++] = next;
+    } while ((next = bch_keybuf_next(&dc->writeback_keys)));
 
-    dirty_io_init(io, w);
+    for (i = 0; i < nk; i++) {
+      w = keys[i];
 
-    dirty_io_read(io, dc);
+      if (KEY_START(&w->key) != dc->last_read ||
+          jiffies_to_msecs(delay) > 50)
+        sleep(delay / HZ);
 
-    io->offset = KEY_START(&w->key) << 9;
+      dc->last_read = KEY_OFFSET(&w->key);
 
-    dirty_io_write(io, dc);
+      BUG_ON(ptr_stale(dc->c, &w->key, 0));
 
-    dirty_io_complete(w, dc);
+      dirty_io_read(w, dc);
+    }
 
-    delay = writeback_delay(dc, KEY_SIZE(&w->key));
-
-    free(io->data);
-    free(io);
-    bch_keybuf_del(&dc->writeback_keys, w);
+    delay = writeback_delay(dc, size);
   }
 
   /*if (0) {*/
@@ -469,14 +545,18 @@ static int bch_writeback_thread(void *arg)
   struct cached_dev *dc = arg;
   bool searched_full_index;
 
+  CACHE_DEBUGLOG("writeback", "Thread start\n");
+
+  aio_thread_init(dc->c->cache[0]);
+
   pthread_setname_np(pthread_self(), "writeback_thread");
   while (!dc->writeback_should_stop) {
     /*printf("<%s>: start writeback\n", __func__);*/
-    pthread_rwlock_wrlock(&dc->writeback_lock);
+    //pthread_rwlock_wrlock(&dc->writeback_lock);
 
     /* 如果不为dirty或者writeback机制未运行时，该线程让出CPU控制权 */
     if (!atomic_read(&dc->has_dirty)) {
-      pthread_rwlock_unlock(&dc->writeback_lock);
+      //pthread_rwlock_unlock(&dc->writeback_lock);
       pthread_mutex_lock(&dc->writeback_mut);
       pthread_cond_wait(&dc->writeback_cond, &dc->writeback_mut);
       pthread_mutex_unlock(&dc->writeback_mut);
@@ -486,13 +566,14 @@ static int bch_writeback_thread(void *arg)
 
     searched_full_index = refill_dirty(dc);
 
+    //show_list(&dc->writeback_keys);
     if (searched_full_index && RB_EMPTY_ROOT(&dc->writeback_keys.keys)) {
       atomic_set(&dc->has_dirty, 0);
       SET_BDEV_STATE(&dc->sb, BDEV_STATE_CLEAN);
       /*bch_write_bdev_super(dc, NULL);*/
     }
 
-    pthread_rwlock_unlock(&dc->writeback_lock);
+    //pthread_rwlock_unlock(&dc->writeback_lock);
 
     ///*up_write(&dc->writeback_lock);*/
 

@@ -1149,6 +1149,8 @@ init(struct cache * ca)
   }
   pthread_cond_signal(&ca->alloc_cond);
 
+  ca->handler = aio_init((void *)ca);
+
   
   /*bch_cached_dev_writeback_start(ca->set->dc);*/
   /*bch_sectors_dirty_init(ca->set->dc);*/
@@ -1158,7 +1160,7 @@ init(struct cache * ca)
   bch_moving_init_cache_set(ca->set);
   /*bch_gc_thread_start(ca->set);*/
 
-  ca->handler = aio_init((void *)ca);
+
 
   return 0;
 
