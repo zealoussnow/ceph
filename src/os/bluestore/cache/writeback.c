@@ -552,11 +552,11 @@ static int bch_writeback_thread(void *arg)
   pthread_setname_np(pthread_self(), "writeback_thread");
   while (!dc->writeback_should_stop) {
     /*printf("<%s>: start writeback\n", __func__);*/
-    //pthread_rwlock_wrlock(&dc->writeback_lock);
+    pthread_rwlock_wrlock(&dc->writeback_lock);
 
     /* 如果不为dirty或者writeback机制未运行时，该线程让出CPU控制权 */
     if (!atomic_read(&dc->has_dirty)) {
-      //pthread_rwlock_unlock(&dc->writeback_lock);
+      pthread_rwlock_unlock(&dc->writeback_lock);
       pthread_mutex_lock(&dc->writeback_mut);
       pthread_cond_wait(&dc->writeback_cond, &dc->writeback_mut);
       pthread_mutex_unlock(&dc->writeback_mut);
@@ -573,7 +573,7 @@ static int bch_writeback_thread(void *arg)
       /*bch_write_bdev_super(dc, NULL);*/
     }
 
-    //pthread_rwlock_unlock(&dc->writeback_lock);
+    pthread_rwlock_unlock(&dc->writeback_lock);
 
     ///*up_write(&dc->writeback_lock);*/
 

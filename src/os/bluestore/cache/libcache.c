@@ -131,7 +131,7 @@ int t2store_cache_aio_thread_init(struct cache_context * ctx){
 
 int t2store_cache_aio_get_cache_strategy(struct cache_context * ctx, struct ring_item *item){
   // TODO: tmp return wirteback mode
-  /*item->strategy = get_cache_strategy(ctx->cache, item);*/
-  item->strategy = CACHE_MODE_WRITEBACK;
+  item->strategy = get_cache_strategy(ctx->cache, item);
+  //item->strategy = CACHE_MODE_WRITEBACK;
   return item->strategy;
 }

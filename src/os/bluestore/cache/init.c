@@ -1707,6 +1707,8 @@ int get_cache_strategy(struct cache *ca, struct ring_item *item)
   bch_keybuf_check_overlapping(&dc->c->moving_gc_keys, &start, &end);
 
   pthread_rwlock_rdlock(&dc->writeback_lock);
+  return CACHE_MODE_WRITEBACK;
+
   if (bch_keybuf_check_overlapping(&dc->writeback_keys, &start, &end))
     return CACHE_MODE_WRITEBACK;
 
@@ -1731,14 +1733,14 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   item->io_arg = cb_arg;
   item->start = cache_clock_now();
 
-  /*item->strategy = get_cache_strategy(dc, item);*/
+  item->strategy = get_cache_strategy(ca, item);
   /**********   策略相关的代码 ******************/
   // 进行一些列判断，最终得到本次io的写入策略
   // 1. should bypass
   // 2. should writeback
   /***********************************************/
 
-  item->strategy = CACHE_MODE_WRITEBACK;
+  //item->strategy = CACHE_MODE_WRITEBACK;
   /*insert_keys = calloc(1, sizeof(*insert_keys));*/
   if (item->strategy != CACHE_MODE_WRITEAROUND) {
     if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
