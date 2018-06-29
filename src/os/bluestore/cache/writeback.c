@@ -376,12 +376,14 @@ static void read_dirty(struct cached_dev *dc)
       keys[nk++] = next;
     } while ((next = bch_keybuf_next(&dc->writeback_keys)));
 
+    CACHE_DEBUGLOG("writeback", "Try to writeback %d next(%p) sleep=%d\n", nk, next, delay);
+
     for (i = 0; i < nk; i++) {
       w = keys[i];
 
-      if (KEY_START(&w->key) != dc->last_read ||
-          jiffies_to_msecs(delay) > 50)
-        sleep(delay / HZ);
+//      if (KEY_START(&w->key) != dc->last_read ||
+//          jiffies_to_msecs(delay) > 50)
+//        usleep(delay / HZ);
 
       dc->last_read = KEY_OFFSET(&w->key);
 
@@ -390,7 +392,7 @@ static void read_dirty(struct cached_dev *dc)
       dirty_io_read(w, dc);
     }
 
-    delay = writeback_delay(dc, size);
+//    delay = writeback_delay(dc, size);
   }
 
   /*if (0) {*/
