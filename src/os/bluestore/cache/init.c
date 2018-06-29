@@ -55,17 +55,17 @@ getblocks(int fd)
   uint64_t ret;
   struct stat statbuf;
   if (fstat(fd, &statbuf)) {
-    perror("stat error\n");
-    exit(EXIT_FAILURE);
+    CACHE_ERRORLOG(NULL, "ioctl fd %d got error\n", fd);
+    assert("ioctl fd got error" == 0);
   }
 #define BLKGETSIZE _IO(0x12,96) /* return device size /512 (long *arg) */
   ret = statbuf.st_size / 512;
   if (S_ISBLK(statbuf.st_mode))
     if (ioctl(fd, BLKGETSIZE, &ret)) {
-      perror("ioctl error");
-      exit(EXIT_FAILURE);
+      CACHE_ERRORLOG(NULL, "ioctl fd %d got error\n", fd);
+      assert("ioctl fd got error" == 0);
   }
-  CACHE_DEBUGLOG(NULL,"getblocks %u \n", ret);
+  CACHE_INFOLOG(NULL,"get fd %d blocks %u \n", fd, ret);
 
   return ret;
 }
@@ -83,19 +83,19 @@ prio_io(struct cache *ca, uint64_t bucket, int op,
 
   // 数据：数据在ca->disk_buckets
   if ( op == REQ_OP_WRITE ) {
-    CACHE_DEBUGLOG(CAT_WRITE,"Prio io write fd %d start 0x%x len %x (bucket %u) \n", 
+    CACHE_DEBUGLOG(CAT_WRITE,"prio io write fd %d start 0x%x len %x (bucket %u)\n", 
                                 ca->fd, start, len, bucket);
     if ( sync_write(ca->fd, ca->disk_buckets, len, start) == -1){
-      CACHE_ERRORLOG(CAT_WRITE, "Prio io write error \n");
-      exit(1);
+      CACHE_ERRORLOG(CAT_WRITE, "prio io write error\n");
+      assert("prio io write error" == 0);
     }
   }
   if ( op == REQ_OP_READ ) {
-    CACHE_DEBUGLOG(CAT_WRITE,"Prio io read fd %d start 0x%x len %x (bucket %u) \n", 
+    CACHE_DEBUGLOG(CAT_WRITE,"prio io read fd %d start 0x%x len %x (bucket %u)\n", 
                                 ca->fd, start, len, bucket);
     if ( sync_read(ca->fd, ca->disk_buckets, len, start ) == -1 ) {
-      CACHE_ERRORLOG(CAT_WRITE, "Prio io read error \n");
-      exit(1);
+      CACHE_ERRORLOG(CAT_WRITE, "prio io read error\n");
+      assert("prio io read error" == 0);
     }
   }
 
@@ -499,7 +499,7 @@ __write_super(struct cache *c)
                         c->fd, start, len);
   if (sync_write(c->fd, sb, len, start) == -1) {
     CACHE_ERRORLOG(CAT_WRITE,"write super error \n");
-    exit(1);
+    assert("write super error" == 0);
   }
 }
 
@@ -549,13 +549,13 @@ uuid_io(struct cache_set *c, int op, unsigned long op_flags,
   if ( op == REQ_OP_WRITE ) {
     if ( sync_write(c->fd, c->uuids, len , start) == -1 ) {
       CACHE_ERRORLOG(CAT_WRITE,"write uuid error \n");
-      exit(-1);
+      assert("write uuid error" == 0);
     }
   }
   if ( op == REQ_OP_READ ) {
     if ( sync_read(c->fd, c->uuids, len , start) == -1 ) {
       CACHE_ERRORLOG(CAT_WRITE,"read uuid error \n");
-      exit(-1);
+      assert("read uuid error" == 0);
     }
   }
   //BUG_ON(!parent);
@@ -1137,15 +1137,17 @@ init(struct cache * ca)
 
   if (pread(fd, &sb, sizeof(struct cache_sb), SB_START) != sizeof(struct cache_sb)) {
    CACHE_ERRORLOG(NULL, "Couldn't read cache device\n");
-   exit(2);
+   assert("Couldn't read cache device super" == 0);
   }
   err = read_super(&ca->sb, &sb);
   if (err) {
-    goto err_close;
+    CACHE_ERRORLOG(NULL, "read super error\n");
+    assert("read super error" == 0);
   }
 
   if (_register_cache(&sb, ca) != 0) {
-    goto err_close;
+    CACHE_ERRORLOG(NULL, "register cache error\n");
+    assert("register cache error" == 0);
   }
   pthread_cond_signal(&ca->alloc_cond);
 
@@ -1160,13 +1162,7 @@ init(struct cache * ca)
   bch_moving_init_cache_set(ca->set);
   bch_gc_thread_start(ca->set);
 
-
-
   return 0;
-
-err_close:
-  CACHE_ERRORLOG(NULL, "cache module init error \n");
-  return -1;
 }
 
 static int 
@@ -1181,8 +1177,11 @@ bch_keylist_realloc(struct keylist *l, unsigned u64s, struct cache_set *c)
    * bio_insert() and bio_invalidate() will insert the keys created so far
    * and finish the rest when the keylist is empty.
    */
-  if (newsize * sizeof(uint64_t) > block_bytes(c) - sizeof(struct jset))
-          return -ENOMEM;
+  if (newsize * sizeof(uint64_t) > block_bytes(c) - sizeof(struct jset)) {
+    CACHE_ERRORLOG(NULL, "keylist realloc jset has nomem\n");
+    assert("keylist realloc jset has nomem" == 0);
+    return -ENOMEM;
+  }
 
   return __bch_keylist_realloc(l, u64s);
 }
@@ -1295,6 +1294,7 @@ aio_write_completion(void *cb)
         }
       case CACHE_MODE_WRITEBACK:
         CACHE_DEBUGLOG(CAT_AIO_WRITE,"writeback completion start insert keys \n");
+        assert(bch_keylist_nkeys(item->insert_keys) == 3);
         struct timespec insert_start = cache_clock_now();
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
         ret = bch_data_insert_keys(ca->set, item->insert_keys);
@@ -1457,6 +1457,7 @@ cache_aio_writearound_batch(struct cache *ca, struct ring_items * items)
     }
   }
   if (aio_enqueue_batch(CACHE_THREAD_BACKEND, ca->handler, items) < 0) {
+    CACHE_ERRORLOG(NULL,"writearound aio_enqueue error" == 0);
     assert( "writearound aio_enqueue error  " == 0);
   }
   return 0;
@@ -1644,7 +1645,9 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
 
   if ((item->o_offset >> 9) & (c->sb.block_size -1) ||
       (item->o_len >> 9) & (c->sb.block_size -1)) {
-    CACHE_DEBUGLOG(CAT_WRITE, "skipping unaligned io\n");
+    CACHE_ERRORLOG(CAT_WRITE, "got unaligned io(o_offset 0x%lx len 0x%lx\n",
+        item->o_offset, item->o_len);
+    assert("skipping unaligned io" == 0);
     goto skip;
   }
 
@@ -2046,33 +2049,36 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
 
   if ((fd = open(dev, O_RDWR|O_EXCL)) == -1) {
     CACHE_ERRORLOG(NULL, "Can't open dev %s: %s\n", dev, strerror(errno));
-    exit(EXIT_FAILURE);
+    assert("open cache device failed" == 0);
   }
   if (pread(fd, &sb, sizeof(sb), SB_START) != sizeof(sb)) {
     CACHE_ERRORLOG(NULL, "pread dev %s: %s\n", dev, strerror(errno));
-    exit(EXIT_FAILURE);
+    assert("pread cache device super block failed" == 0);
   }
   if (!memcmp(sb.magic, bcache_magic, 16) && !wipe_bcache) {
     CACHE_ERRORLOG(NULL, "Already a bcache device on %s, "
         "overwrite with --wipe-bcache\n", dev);
-    exit(EXIT_FAILURE);
+    assert("cache device super block magic need overwrite with --wipe-bcache"==0);
   }
 
   if (!(pr = blkid_new_probe())) {
-    exit(EXIT_FAILURE);
+    CACHE_ERRORLOG(NULL, "cache device blkid new probe failed\n");
+    assert("cache device blkid new probe failed"==0);
   }
   if (blkid_probe_set_device(pr, fd, 0, 0)) {
-    exit(EXIT_FAILURE);
+    CACHE_ERRORLOG(NULL, "cache device blkid probe set device failed\n");
+    assert("cache device blkid probe set device failed" == 0);
   }
   /* enable ptable probing; superblock probing is enabled by default */
   if (blkid_probe_enable_partitions(pr, true)) {
-    exit(EXIT_FAILURE);
+    CACHE_ERRORLOG(NULL, "cache device blkid probe enable partitions failed\n");
+    assert("cache device blkid probe enable partitions failed" == 0);
   }
   if (!blkid_do_probe(pr)) {
     /* XXX wipefs doesn't know how to remove partition tables */
     CACHE_ERRORLOG(NULL, "Device %s already has a non-bcache superblock, "
         "remove it using wipefs and wipefs -a\n", dev);
-    exit(EXIT_FAILURE);
+    assert("cache device already has a non-bcache superblock, need wipsfs -a" == 0);
   }
   memset(&sb, 0, sizeof(struct cache_sb));
   sb.offset	= SB_SECTOR;
@@ -2107,9 +2113,9 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
     sb.nr_in_set		= 1;
     sb.first_bucket		= (23 / sb.bucket_size) + 1;
     if (sb.nbuckets < 1 << 7) {
-      CACHE_ERRORLOG(NULL, "Not enough buckets: %ju, need %u\n",
+      CACHE_ERRORLOG(NULL, "not have enough buckets: %ju, need %u\n",
                                 sb.nbuckets, 1 << 7);
-      exit(EXIT_FAILURE);
+      assert("not have enough buckets"==0);
     }
     SET_CACHE_DISCARD(&sb, discard);
     SET_CACHE_REPLACEMENT(&sb, cache_replacement_policy);
@@ -2135,12 +2141,12 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
   /* Zero start of disk */
   if (pwrite(fd, zeroes, SB_START, 0) != SB_START) {
     CACHE_ERRORLOG(NULL, "write zeroes super from SB_START %u error \n", SB_START);
-    exit(EXIT_FAILURE);
+    assert("write zeroes super from SB_START got error" == 0);
   }
   /* Write superblock */
   if (pwrite(fd, &sb, sizeof(sb), SB_START) != sizeof(sb)) {
     CACHE_ERRORLOG(NULL, "write super from SB_START %u error \n", SB_START);
-    exit(EXIT_FAILURE);
+    assert("write super from SB_START got error" == 0);
   }
 
   return 0;

@@ -52,8 +52,9 @@ reread:	left = ca->sb.bucket_size - offset;
         off_t start = (bucket+offset) << 9;
         size_t lenght = len << 9;
         if ( sync_read( ca->fd, data, lenght, start ) == -1 ) {
-          CACHE_ERRORLOG(CAT_JOURNAL," read bucket error \n");
-          exit(1);
+          CACHE_ERRORLOG(CAT_JOURNAL," read bucket(index %u bucket %ld) error \n",
+                                        bucket_index, ca->sb.d[bucket_index]);
+          assert("read bucket got error"==0);
         }
 
         j = data;
@@ -180,8 +181,7 @@ int bch_journal_read(struct cache_set *c, struct list_head *list)
 
     /* no journal entries on this device? */
     if (l == ca->sb.njournal_buckets) {
-      CACHE_ERRORLOG(CAT_JOURNAL,"No journal entries on this device\n");
-      exit(1);
+      CACHE_WARNLOG(CAT_JOURNAL,"no journal entries on this device, continue\n");
       continue;
     }
 bsearch:
@@ -645,8 +645,9 @@ static void journal_write_unlocked(struct cache_set *c)
     off_t start = PTR_OFFSET_to_bytes(k, i);
     size_t len = sectors << 9;
     if ( sync_write( ca->fd, w->data, len, start) == -1) {
-      printf(" write journal error \n");
-      exit(1);
+      CACHE_ERRORLOG(CAT_JOURNAL, "write journal(fd %d data %p start %lu len %lu) got error\n",
+                                          ca->fd, w->data, start, len);
+      assert("write journal got error" == 0);
     }
     SET_PTR_OFFSET(k, i, PTR_OFFSET(k, i) + sectors);
     ca->journal.seq[ca->journal.cur_idx] = w->data->seq;

@@ -301,7 +301,7 @@ static void bch_btree_node_read(struct btree *b)
                         b->c->fd, start/512, len/512);
   if ( sync_read(b->c->fd, b->keys.set[0].data, len, start) == -1 ) {
     CACHE_ERRORLOG(CAT_BTREE,"btree node read error\n");
-    exit(1);
+    assert("btree node read error" == 0);
   }
   bch_btree_node_read_done(b);
   /*bch_time_stats_update(&b->c->btree_read_time, start_time);*/
@@ -392,7 +392,7 @@ static void do_btree_node_write(struct btree *b)
                         b->c->fd, start/512, len/512);
   if ( sync_write(b->c->fd, i, len, start) == -1 ) {
     CACHE_ERRORLOG(CAT_WRITE,"btree write node error\n");
-    exit(1);
+    assert("btree write node error" == 0);
   }
   __btree_node_write_done(b);
 }
@@ -2117,10 +2117,12 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   if (ret) {
     struct bkey *k;
     CACHE_ERRORLOG(CAT_BTREE,"recurse insert keylist faild ret %d\n", ret);
+    assert("recurse insert keylist faild" == 0);
     while ((k = bch_keylist_pop(keys))){
       bkey_put(c, k);
     }
   } else if (op.op.insert_collision) {
+    assert("recurse insert keylist faild" == 0);
     ret = -ESRCH;
   }
 

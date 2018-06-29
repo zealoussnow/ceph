@@ -143,8 +143,11 @@ int __bch_keylist_realloc(struct keylist *l, unsigned u64s)
     return 0;
 
   new_keys = realloc(old_keys, sizeof(uint64_t) * newsize);
-  if (!new_keys)
+  if (!new_keys) {
+    CACHE_ERRORLOG(NULL, "keylist realloc has no mem\n");
+    assert("keylist realloc has no mem" == 0);
     return -ENOMEM;
+  }
   if (!old_keys)
     memcpy(new_keys, l->inline_keys, sizeof(uint64_t) * oldsize);
 
