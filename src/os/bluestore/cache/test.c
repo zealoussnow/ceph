@@ -349,6 +349,10 @@ void inorder_test()
 }
 
 
+void *log_fn(void *cd, int serial, struct timespec start, struct timespec end){
+
+}
+
 int main()
 {
   struct cache *ca = T2Molloc(sizeof(struct cache));
@@ -370,6 +374,7 @@ int main()
   /*ca->hdd_fd = hdd_fd;*/
 
   init(ca);
+  ca->set->logger_cb = log_fn;
 
   /*do_write_split_test(ca);*/
 

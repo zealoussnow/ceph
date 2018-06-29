@@ -1320,7 +1320,7 @@ aio_write_completion(void *cb)
       assert("Insert btree error"==0);
     } else if( item->io_completion_cb ) {
       // choice 2
-      // item->io_completion_cb(item->io_arg, ret); 
+      // item->io_completion_cb(item->io_arg, ret);
       ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_write_lat, item->start, cache_clock_now());
       item->io_completion_cb(item->io_arg); 
     } else {
