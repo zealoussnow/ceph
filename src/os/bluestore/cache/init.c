@@ -1152,13 +1152,13 @@ init(struct cache * ca)
   ca->handler = aio_init((void *)ca);
 
   
-  /*bch_cached_dev_writeback_start(ca->set->dc);*/
-  /*bch_sectors_dirty_init(ca->set->dc);*/
+  bch_cached_dev_writeback_start(ca->set->dc);
+  bch_sectors_dirty_init(ca->set->dc);
   /*atomic_set(&ca->set->dc->has_dirty, 1);*/
   /*atomic_inc(&ca->set->dc->count);*/
 
   bch_moving_init_cache_set(ca->set);
-  /*bch_gc_thread_start(ca->set);*/
+  bch_gc_thread_start(ca->set);
 
 
 
@@ -1467,6 +1467,7 @@ int _prep_writeback(struct ring_item * item){
   struct bkey *k = NULL;
   struct cache *ca = (struct cache *) item->ca_handler;
   int ret = 0;
+  unsigned i;
 
   insert_keys = calloc(1, sizeof(*insert_keys));
   if ( !insert_keys ) {
@@ -1484,6 +1485,9 @@ int _prep_writeback(struct ring_item * item){
   ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_alloc_sectors, start, cache_clock_now());
 
   SET_KEY_DIRTY(k, true);
+  for (i = 0; i < KEY_PTRS(k); i++)
+    SET_GC_MARK(PTR_BUCKET(ca->set, k, i),
+	        GC_MARK_DIRTY);
   // dump_bkey("aio_en", k);
   item->io.pos = item->data;
   item->io.offset = (PTR_OFFSET(k, 0) << 9);
