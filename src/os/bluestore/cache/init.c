@@ -839,6 +839,7 @@ static int cached_dev_init(struct cached_dev *dc)
   SET_BDEV_CACHE_MODE(&dc->sb, CACHE_MODE_WRITEBACK);
   INIT_LIST_HEAD(&dc->io_thread);
   INIT_LIST_HEAD(&dc->io_lru);
+  pthread_spin_init(&dc->io_lock, 0);
 
   for (io = dc->io; io < dc->io + RECENT_IO; io++) {
     list_add(&io->lru, &dc->io_lru);
@@ -1148,6 +1149,8 @@ init(struct cache * ca)
   }
   pthread_cond_signal(&ca->alloc_cond);
 
+  ca->handler = aio_init((void *)ca);
+
   
   /*bch_cached_dev_writeback_start(ca->set->dc);*/
   /*bch_sectors_dirty_init(ca->set->dc);*/
@@ -1157,7 +1160,7 @@ init(struct cache * ca)
   bch_moving_init_cache_set(ca->set);
   /*bch_gc_thread_start(ca->set);*/
 
-  ca->handler = aio_init((void *)ca);
+
 
   return 0;
 
@@ -1309,6 +1312,8 @@ aio_write_completion(void *cb)
      *    to bluestore
      * choice 2 is most suitable,but for testing, we choose choice 1
      */
+    pthread_rwlock_unlock(&ca->set->dc->writeback_lock);
+
     if ( ret!=0 ) {
       // choice 1
       CACHE_ERRORLOG(NULL,"Insert btree error %d\n", ret);
@@ -1451,7 +1456,7 @@ cache_aio_writearound_batch(struct cache *ca, struct ring_items * items)
       assert( " prep writearound error  " == 0);
     }
   }
-  if (aio_enqueue_batch(CACHE_THREAD_CACHE, ca->handler, items) < 0) {
+  if (aio_enqueue_batch(CACHE_THREAD_BACKEND, ca->handler, items) < 0) {
     assert( "writearound aio_enqueue error  " == 0);
   }
   return 0;
@@ -1635,7 +1640,7 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
 
   if ((item->o_offset >> 9) & (c->sb.block_size -1) ||
       (item->o_len >> 9) & (c->sb.block_size -1)) {
-    printf("skipping unaligned io\n");
+    CACHE_DEBUGLOG(CAT_WRITE, "skipping unaligned io\n");
     goto skip;
   }
 
@@ -1644,16 +1649,17 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
       goto skip;
 
   list_for_each_entry(task, &dc->io_thread, list) {
-    /*printf("task->thread_id = %ld\n", task->thread_id);*/
     if (task->thread_id == pthread_self())
       goto out;
   }
 
-  task = malloc(sizeof(struct current_thread));
+  task = calloc(1, sizeof(*task));
   task->thread_id = pthread_self();
   list_add_tail(&task->list, &dc->io_thread);
 
 out:
+  pthread_spin_lock(&dc->io_lock);
+
   hlist_for_each_entry(i, iohash(dc, (item->o_offset >> 9)), hash) {
     if (i->last == (item->o_offset >> 9) &&
         time_before64((uint64_t)time(NULL), i->jiffies))
@@ -1676,6 +1682,8 @@ found:
   hlist_add_head(&i->hash, iohash(dc, i->last));
   list_move_tail(&i->lru, &dc->io_lru);
 
+  pthread_spin_unlock(&dc->io_lock);
+
 
   sectors = max(task->sequential_io,
       task->sequential_io_avg) >> 9;
@@ -1689,13 +1697,17 @@ skip:
   return true;
 }
 
-int get_cache_strategy(struct cached_dev *dc, struct ring_item *item)
+int get_cache_strategy(struct cache *ca, struct ring_item *item)
 {
+  struct cached_dev *dc = ca->set->dc;
   unsigned int mode = BDEV_CACHE_MODE(&dc->sb);
   struct bkey start = KEY(0, item->o_offset >> 9, 0);
   struct bkey end = KEY(0, (item->o_offset >> 9) + (item->o_len >> 9), 0);
 
   bch_keybuf_check_overlapping(&dc->c->moving_gc_keys, &start, &end);
+
+  pthread_rwlock_rdlock(&dc->writeback_lock);
+  return CACHE_MODE_WRITEBACK;
 
   if (bch_keybuf_check_overlapping(&dc->writeback_keys, &start, &end))
     return CACHE_MODE_WRITEBACK;
@@ -1721,14 +1733,14 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   item->io_arg = cb_arg;
   item->start = cache_clock_now();
 
-  /*item->strategy = get_cache_strategy(dc, item);*/
+  item->strategy = get_cache_strategy(ca, item);
   /**********   策略相关的代码 ******************/
   // 进行一些列判断，最终得到本次io的写入策略
   // 1. should bypass
   // 2. should writeback
   /***********************************************/
 
-  item->strategy = CACHE_MODE_WRITEBACK;
+  //item->strategy = CACHE_MODE_WRITEBACK;
   /*insert_keys = calloc(1, sizeof(*insert_keys));*/
   if (item->strategy != CACHE_MODE_WRITEAROUND) {
     if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)

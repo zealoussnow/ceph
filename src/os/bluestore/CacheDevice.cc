@@ -263,8 +263,8 @@ void CacheDevice::_shutdown_logger()
 int CacheDevice::write_cache_super(const std::string& path)
 {
   int r = 0;
-  unsigned block_size = 8;
-  unsigned bucket_size = 1024 * 8;
+  unsigned block_size = 1;
+  unsigned bucket_size = 1024;
   bool writeback = 0;
   bool discard = 0;
   bool wipe_bcache = 1;
@@ -853,7 +853,7 @@ retry_wa:       if (t2store_cache_aio_items_add(items_wa, item) < 0) {
               case CACHE_MODE_WRITETHROUGH:
 retry_wt:       if (t2store_cache_aio_items_add(items_wt, item) < 0) {
                   dout(20) << __func__ << "add writethrough items full, flush and retry" << dendl;
-                  _aio_writearound(items_wt);
+                  _aio_writethrough(items_wt);
                   goto retry_wt;
                 }
                 break;
@@ -903,8 +903,8 @@ retry_wt:       if (t2store_cache_aio_items_add(items_wt, item) < 0) {
         task_queue.pop();
       } else {
         _aio_writeback(items_wb);
-        //_aio_writethrough(items_wt);
-        //_aio_writearound(items_wa);
+        _aio_writethrough(items_wt);
+        _aio_writearound(items_wa);
         if (aio_stop) {
           t2store_cache_aio_items_free(items_wb);
           t2store_cache_aio_items_free(items_wt);

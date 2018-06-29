@@ -157,20 +157,21 @@
   _r;                                                                                           \
 })
 
-void show_list(struct keybuf *buf)
-{
-  struct keybuf_key *w;
+/*void show_list(struct keybuf *buf)*/
+/*{*/
+  /*struct keybuf_key *w;*/
 
-  pthread_spin_lock(&buf->lock);
-  CACHE_DEBUGLOG(CAT_LIST, "\n ************** start ********** \n");
-  w = bch_keybuf_first(buf);
-  while(&w->list != &buf->list) { 
-    CACHE_DEBUGLOG(CAT_LIST, "keybuf_key addr ====== %p\n", w);
-    w = bch_keybuf_next(buf, w);
-  }
-  CACHE_DEBUGLOG(CAT_LIST, " ************** end ********** \n");
-  pthread_spin_unlock(&buf->lock);
-}
+  /*CACHE_DEBUGLOG(CAT_LIST, "\n ************** start ********** \n");*/
+  /*pthread_spin_lock(&buf->lock);*/
+  /*w = RB_FIRST(&buf->keys, struct keybuf_key, node);*/
+
+  /*while (w) {*/
+    /*CACHE_DEBUGLOG(CAT_LIST, "keybuf_key addr ====== %p\n", w);*/
+    /*w = RB_NEXT(w, node);*/
+  /*}*/
+  /*pthread_spin_unlock(&buf->lock);*/
+  /*CACHE_DEBUGLOG(CAT_LIST, " ************** end ********** \n");*/
+/*}*/
 
 static inline struct bset *write_block(struct btree *b)
 {
@@ -1530,24 +1531,19 @@ static size_t bch_btree_gc_finish(struct cache_set *c)
     SET_GC_MARK(PTR_BUCKET(c, &c->uuid_bucket, i),
         GC_MARK_METADATA);
 
-  // 回刷相关的内容
-  /* don't reclaim buckets to which writeback keys point */
-  //rcu_read_lock();
+  /*rcu_read_lock();*/
   for (i = 0; i < c->nr_uuids; i++) {
-    /*struct bcache_device *d = c->devices[i];*/
-    /*struct cached_dev *dc;*/
-    /*struct cached_dev *dc = c->dc;*/
+    struct cached_dev *dc = c->dc;
     struct keybuf_key *w, *n;
-    struct keybuf *buf = &c->dc->writeback_keys;
     unsigned j;
 
-    pthread_spin_lock(&buf->lock);
-    bch_keybuf_each_entry(w, buf) {
+    pthread_spin_lock(&dc->writeback_keys.lock);
+    rbtree_postorder_for_each_entry_safe(w, n,
+        &dc->writeback_keys.keys, node)
       for (j = 0; j < KEY_PTRS(&w->key); j++)
         SET_GC_MARK(PTR_BUCKET(c, &w->key, j),
             GC_MARK_DIRTY);
-    }
-    pthread_spin_unlock(&buf->lock);
+    pthread_spin_unlock(&dc->writeback_keys.lock);
   }
   //rcu_read_unlock();
 
@@ -2267,42 +2263,28 @@ refill_keybuf_fn(struct btree_op *op, struct btree *b, struct bkey *k)
     goto out;
 
   if (refill->pred(buf, k)) {
-    struct keybuf_key *w = NULL;
+    struct keybuf_key *w;
+
     pthread_spin_lock(&buf->lock);
-    w = calloc(1, sizeof(struct keybuf_key));
+
+    w = array_alloc(&buf->freelist);
     if (!w) {
       pthread_spin_unlock(&buf->lock);
-      return -ENOMEM;
+      return MAP_DONE;
     }
 
-    bkey_init(&w->key);
-    bch_keybuf_add(buf, w);
+    w->private = false;
     bkey_copy(&w->key, k);
+
+    if (RB_INSERT(&buf->keys, w, node, keybuf_cmp))
+      array_free(&buf->freelist, w);
+    else
+      refill->nr_found++;
+
+    if (array_freelist_empty(&buf->freelist))
+      ret = MAP_DONE;
+
     pthread_spin_unlock(&buf->lock);
-
-
-    /*struct keybuf_key *w;*/
-
-    //spin_lock(&buf->lock);
-
-    /*w = array_alloc(&buf->freelist);*/
-    /*if (!w) {*/
-    //spin_unlock(&buf->lock);
-    /*return MAP_DONE;*/
-    /*}*/
-
-    /*w->private = NULL;*/
-    /*bkey_copy(&w->key, k);*/
-
-    //if (RB_INSERT(&buf->keys, w, node, keybuf_cmp))
-    //	array_free(&buf->freelist, w);
-    //else
-    //	refill->nr_found++;
-
-    /*if (array_freelist_empty(&buf->freelist))*/
-    /*ret = MAP_DONE;*/
-
-    //spin_unlock(&buf->lock);
   }
 out:
   buf->last_scanned = *k;
@@ -2315,8 +2297,7 @@ void bch_refill_keybuf(struct cache_set *c, struct keybuf *buf,
   struct bkey start = buf->last_scanned;
   struct refill refill;
 
-  // TODO
-  //cond_resched();
+  /*cond_resched();*/
 
   bch_btree_op_init(&refill.op, -1);
   refill.nr_found	= 0;
@@ -2327,46 +2308,32 @@ void bch_refill_keybuf(struct cache_set *c, struct keybuf *buf,
   bch_btree_map_keys(&refill.op, c, &buf->last_scanned,
       refill_keybuf_fn, MAP_END_KEY);
 
+  /*trace_bcache_keyscan(refill.nr_found,*/
+      /*KEY_INODE(&start), KEY_OFFSET(&start),*/
+      /*KEY_INODE(&buf->last_scanned),*/
+      /*KEY_OFFSET(&buf->last_scanned));*/
+
   pthread_spin_lock(&buf->lock);
-  if (!bch_keybuf_empty(buf)) {
+
+  if (!RB_EMPTY_ROOT(&buf->keys)) {
     struct keybuf_key *w;
-    w = bch_keybuf_first(buf);
-    buf->start      = START_KEY(&w->key);
+    w = RB_FIRST(&buf->keys, struct keybuf_key, node);
+    buf->start	= START_KEY(&w->key);
 
-    w = bch_keybuf_last(buf);
-    buf->end        = w->key;
+    w = RB_LAST(&buf->keys, struct keybuf_key, node);
+    buf->end	= w->key;
   } else {
-    buf->start      = MAX_KEY;
-    buf->end        = MAX_KEY;
+    buf->start	= MAX_KEY;
+    buf->end	= MAX_KEY;
   }
+
   pthread_spin_unlock(&buf->lock);
-
-  //trace_bcache_keyscan(refill.nr_found,
-  //		     KEY_INODE(&start), KEY_OFFSET(&start),
-  //		     KEY_INODE(&buf->last_scanned),
-  //		     KEY_OFFSET(&buf->last_scanned));
-
-  //spin_lock(&buf->lock);
-
-  //if (!RB_EMPTY_ROOT(&buf->keys)) {
-  //	struct keybuf_key *w;
-  //	w = RB_FIRST(&buf->keys, struct keybuf_key, node);
-  //	buf->start	= START_KEY(&w->key);
-
-  //	w = RB_LAST(&buf->keys, struct keybuf_key, node);
-  //	buf->end	= w->key;
-  //} else {
-  //	buf->start	= MAX_KEY;
-  //	buf->end	= MAX_KEY;
-  //}
-
-  //spin_unlock(&buf->lock);
 }
 
 static void __bch_keybuf_del(struct keybuf *buf, struct keybuf_key *w)
 {
-  list_del(&w->list);
-  T2Free(w);
+  rb_erase(&w->node, &buf->keys);
+  array_free(&buf->freelist, w);
 }
 
 void bch_keybuf_del(struct keybuf *buf, struct keybuf_key *w)
@@ -2376,89 +2343,57 @@ void bch_keybuf_del(struct keybuf *buf, struct keybuf_key *w)
   pthread_spin_unlock(&buf->lock);
 }
 
-void bch_keybuf_add(struct keybuf *buf, struct keybuf_key *w)
-{
-  list_add_tail(&w->list, &buf->list);
-}
-
 bool bch_keybuf_check_overlapping(struct keybuf *buf, struct bkey *start,
     struct bkey *end)
 {
   bool ret = false;
-  struct keybuf_key *w, *prev;
-
-  /*show_list(buf);*/
+  struct keybuf_key *p, *w, s;
+  s.key = *start;
 
   if (bkey_cmp(end, &buf->start) <= 0 ||
       bkey_cmp(start, &buf->end) >= 0)
     return false;
 
   pthread_spin_lock(&buf->lock);
-  bch_keybuf_each_entry(w, buf) {
-    if (bkey_cmp(&START_KEY(&w->key), end) < 0 && bkey_cmp(&w->key, start) > 0) {
+  w = RB_GREATER(&buf->keys, s, node, keybuf_nonoverlapping_cmp);
+
+  while (w && bkey_cmp(&START_KEY(&w->key), end) < 0) {
+    p = w;
+    w = RB_NEXT(w, node);
+
+    if (p->private)
       ret = true;
-      prev = bch_keybuf_prev(buf, w);
-      __bch_keybuf_del(buf, w);
-      w = prev;
-    }
+    else
+      __bch_keybuf_del(buf, p);
   }
   pthread_spin_unlock(&buf->lock);
 
   return ret;
 }
 
-// TODO
-bool bch_keybuf_head(struct keybuf *buf, struct keybuf_key *w)
+struct keybuf_key *bch_keybuf_next(struct keybuf *buf)
 {
-  return &buf->list == &w->list;
+  struct keybuf_key *w;
+
+  pthread_spin_lock(&buf->lock);
+
+  w = RB_FIRST(&buf->keys, struct keybuf_key, node);
+
+  while (w && w->private)
+    w = RB_NEXT(w, node);
+
+  if (w)
+    w->private = true;
+
+  pthread_spin_unlock(&buf->lock);
+  return w;
 }
 
-struct keybuf_key *
-bch_keybuf_next(struct keybuf *buf, struct keybuf_key *w)
+struct keybuf_key *bch_keybuf_next_rescan(struct cache_set *c,
+    struct keybuf *buf,
+    struct bkey *end,
+    keybuf_pred_fn *pred)
 {
-  struct keybuf_key *next;
-
-  next = list_next_entry(w, list);
-  return next;
-}
-
-struct keybuf_key *
-bch_keybuf_prev(struct keybuf *buf, struct keybuf_key *w)
-{
-  struct keybuf_key *prev;
-
-  prev = list_prev_entry(w, list);
-  return prev;
-}
-
-struct keybuf_key *bch_keybuf_first(struct keybuf *buf)
-{
-  struct keybuf_key *first;
-
-  first = list_first_entry(&buf->list,
-      struct keybuf_key, list);
-  return first;
-}
-
-struct keybuf_key *bch_keybuf_last(struct keybuf *buf)
-{
-  struct keybuf_key *last;
-
-  last = list_last_entry(&buf->list,
-      struct keybuf_key, list);
-  return last;
-}
-
-int bch_keybuf_empty(struct keybuf *buf)
-{
-  return list_empty(&buf->list);
-}
-
-struct keybuf_key *
-bch_keybuf_next_rescan(struct cache_set *c, struct keybuf *buf,
-                        struct bkey *end, keybuf_pred_fn *pred)
-{
-#if 0
   struct keybuf_key *ret;
 
   while (1) {
@@ -2467,7 +2402,7 @@ bch_keybuf_next_rescan(struct cache_set *c, struct keybuf *buf,
       break;
 
     if (bkey_cmp(&buf->last_scanned, end) >= 0) {
-      printf("scan finished \n");
+      CACHE_DEBUGLOG(CAT_GC, "scan finished\n");
       break;
     }
 
@@ -2475,11 +2410,13 @@ bch_keybuf_next_rescan(struct cache_set *c, struct keybuf *buf,
   }
 
   return ret;
-#endif
 }
 
 void bch_keybuf_init(struct keybuf *buf)
 {
   buf->last_scanned	= MAX_KEY;
+  buf->keys		= RB_ROOT;
+
   pthread_spin_init(&buf->lock, PTHREAD_PROCESS_SHARED);
+  array_allocator_init(&buf->freelist);
 }

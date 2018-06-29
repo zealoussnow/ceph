@@ -11,6 +11,8 @@
 #include <time.h>
 
 #include "bcache_types.h"
+#include "rbtree.h"
+#include "rbtree_augmented.h"
 
 #define HZ 100
 
@@ -492,7 +494,6 @@ int get_random_bytes(void *buf, int len);
 	_ptr ? container_of(_ptr, type, member) : NULL;			\
 })
 
-#if 0
 #define RB_INSERT(root, new, member, cmp)				\
 ({									\
 	__label__ dup;							\
@@ -567,7 +568,6 @@ dup:									\
 
 #define RB_PREV(ptr, member)						\
 	container_of_or_null(rb_prev(&(ptr)->member), typeof(*ptr), member)
-#endif
 
 /* Does linear interpolation between powers of two */
 static inline unsigned fract_exp_two(unsigned x, unsigned fract_bits)
