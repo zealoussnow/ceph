@@ -1646,6 +1646,8 @@ static int bch_gc_thread(void *arg)
 {
   struct cache_set *c = arg;
 
+  CACHE_DEBUGLOG(MOVINGGC, "Moving gc thread start. \n");
+  aio_thread_init(c->cache[0]);
   pthread_setname_np(pthread_self(), "moving_gc");
   while (1) {
     //wait_event_interruptible(c->gc_wait,

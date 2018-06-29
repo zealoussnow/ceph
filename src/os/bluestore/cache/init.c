@@ -1449,8 +1449,6 @@ cache_aio_writearound_batch(struct cache *ca, struct ring_items * items)
     item->ca_handler = ca;
     item->io.type=CACHE_IO_TYPE_WRITE;
     item->start = cache_clock_now();
-    if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
-        wake_up_gc(ca->set);
 
     if (_prep_writearound(item) < 0) {
       assert( " prep writearound error  " == 0);
@@ -1846,7 +1844,7 @@ aio_read_completion(struct ring_item *item)
   // TODO: we should not direct write readed data into caceh when using
   // caceh_aio_write interface, that will cause data error
   // 1. we should consider of user desire or business
-  // 2. take care of when read complete, need sync write, no async, this 
+  // 2. take care of when read complete, need sync write, no async, this
   //    will drop perf downk
   /*if (atomic_read(&item->need_write_cache)) {*/
     // 这里需要有一个回调来确认读出来的数据正确的写入到SSD,暂时设置成NULL

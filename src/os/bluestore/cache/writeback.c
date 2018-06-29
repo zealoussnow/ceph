@@ -253,11 +253,6 @@ static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
   }
 }
 
-static void dirty_io_write(struct dirty_io *io, struct cached_dev *dc)
-{
-  sync_write(dc->c->hdd_fd, io->data, io->len, io->offset);
-}
-
 static void *write_completion(void *arg){
   struct dirty_item *d = (struct dirty_item *)arg;
   struct ring_item *item = d->item;
@@ -283,6 +278,7 @@ static void *read_completion(void *arg){
   item->io.type=CACHE_IO_TYPE_WRITE;
   item->iou_completion_cb = write_completion;
 
+  pdump_bkey(WRITEBACK, __func__, &w->key);
   ret = aio_enqueue(CACHE_THREAD_BACKEND, dc->c->cache[0]->handler, item);
   if (ret < 0) {
     bch_keybuf_del(&dc->writeback_keys, w);
@@ -373,7 +369,7 @@ static void read_dirty(struct cached_dev *dc)
       keys[nk++] = next;
     } while ((next = bch_keybuf_next(&dc->writeback_keys)));
 
-    CACHE_DEBUGLOG("writeback", "Try to writeback %d next(%p) sleep=%d\n", nk, next, delay);
+    CACHE_DEBUGLOG(WRITEBACK, "Try to writeback %d next(%p) sleep=%d\n", nk, next, delay);
 
     for (i = 0; i < nk; i++) {
       w = keys[i];
@@ -541,7 +537,7 @@ static int bch_writeback_thread(void *arg)
   struct cached_dev *dc = arg;
   bool searched_full_index;
 
-  CACHE_DEBUGLOG("writeback", "Thread start\n");
+  CACHE_DEBUGLOG(WRITEBACK, "Thread start\n");
 
   aio_thread_init(dc->c->cache[0]);
 

@@ -125,6 +125,97 @@ static void read_moving_submit(struct closure *cl)
 }
 #endif
 
+struct moving_item {
+  struct ring_item *item;
+  struct keybuf_key *w;
+  struct cache_set *c;
+};
+
+static void *write_completion(void *arg){
+  struct moving_item *d = (struct moving_item *)arg;
+  struct ring_item *item = d->item;
+  struct keybuf_key *w = d->w;
+  struct cache_set *c = d->c;
+
+  CACHE_DEBUGLOG(MOVINGGC, "Write completion key(%p) \n", &w->key);
+  bch_keylist_push(item->insert_keys);
+  bch_data_insert_keys(c, item->insert_keys);
+  bch_keybuf_del(&c->moving_gc_keys, w);
+
+  free(item->data);
+  free(item);
+  free(d);
+}
+
+static void *read_completion(void *arg){
+  struct moving_item *d = (struct moving_item *)arg;
+  struct ring_item *item = d->item;
+  struct keybuf_key *w = d->w;
+  struct cache_set *c = d->c;
+  int ret;
+
+  if (KEY_DIRTY(&w->key) || !ptr_stale(c, &w->key, 0)) {
+    struct bkey *new_key = NULL;
+    struct keylist *insert_keys = calloc(1, sizeof(struct keylist));
+
+    bch_keylist_init(insert_keys);
+
+    new_key = insert_keys->top;
+    bkey_init(new_key);
+
+    bkey_copy_key(new_key, &w->key);
+    SET_KEY_OFFSET(new_key, KEY_START(&w->key));
+    if (KEY_DIRTY(&w->key))
+      SET_KEY_DIRTY(new_key, true);
+
+    if (!bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 0, 1)){
+      bch_keybuf_del(&c->moving_gc_keys, w);
+      CACHE_ERRORLOG(MOVINGGC, "bch_alloc_sectors failed!\n");
+      assert("bch_alloc_sectors" == 0);
+    }
+
+    item->io.offset = PTR_OFFSET(new_key, 0) << 9;
+    item->io.type=CACHE_IO_TYPE_WRITE;
+    item->iou_completion_cb = write_completion;
+    item->insert_keys = insert_keys;
+
+    pdump_bkey(WRITEBACK, __func__, &w->key);
+    ret = aio_enqueue(CACHE_THREAD_CACHE, c->cache[0]->handler, item);
+    if (ret < 0) {
+      bch_keybuf_del(&c->moving_gc_keys, w);
+      assert( "dirty aio_enqueue read error  " == 0);
+    }
+  }
+}
+
+static void begin_io_read(struct keybuf_key *w, struct cache_set *c)
+{
+  int ret;
+  uint64_t len = KEY_SIZE(&w->key) << 9;
+  void *data = malloc(len);
+  uint64_t offset = PTR_OFFSET(&w->key, 0) << 9;
+  struct ring_item *item = get_ring_item(data, offset, len);
+  struct moving_item *d = malloc(sizeof(struct moving_item));
+
+  d->item = item;
+  d->w = w;
+  d->c = c;
+
+  item->iou_completion_cb = read_completion;
+  item->iou_arg = d;
+  item->io.type=CACHE_IO_TYPE_READ;
+  item->io.pos = item->data;
+  item->io.offset = item->o_offset;
+  item->io.len = item->o_len;
+
+  ret = aio_enqueue(CACHE_THREAD_CACHE, c->cache[0]->handler, item);
+  if (ret < 0) {
+    bch_keybuf_del(&c->moving_gc_keys, w);
+    assert( "dirty aio_enqueue read error  " == 0);
+  }
+}
+
+
 static void read_moving(struct cache_set *c)
 {
   struct keybuf_key       *w;
@@ -147,50 +238,8 @@ static void read_moving(struct cache_set *c)
       continue;
     }
 
-    len = KEY_SIZE(&w->key) << 9;
-    offset = PTR_OFFSET(&w->key, 0) << 9;
-    data = malloc(sizeof(char)*len);
-    memset(data,'0',sizeof(char)*len);
-    sync_read(c->fd, data, len, offset);
-
-    if (KEY_DIRTY(&w->key) || !ptr_stale(c, &w->key, 0)) {
-      struct bkey *new_key = NULL;
-      struct keylist          insert_keys;
-
-      bch_keylist_init(&insert_keys);
-
-      new_key = insert_keys.top;
-      bkey_init(new_key);
-
-      bkey_copy_key(new_key, &w->key);
-      SET_KEY_OFFSET(new_key, KEY_START(&w->key));
-      if (KEY_DIRTY(&w->key))
-        SET_KEY_DIRTY(new_key, true);
-
-      int ret = bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 0, 1);
-      for (j = 0; j < KEY_PTRS(new_key); j++) {
-        off_t ssd_off = PTR_OFFSET(new_key, j) << 9;
-        len = KEY_SIZE(new_key) << 9;
-        sync_write(c->fd, data, len, ssd_off);
-      }
-
-      bch_keylist_push(&insert_keys);
-      bch_data_insert_keys(c, &insert_keys);
-    }
-
-    free(data);
-
-    bch_keybuf_del(&c->moving_gc_keys, w);
+    begin_io_read(w, c);
   }
-
-  /*if (0) {*/
-  /*err:		if (!IS_ERR_OR_NULL(w->private))*/
-  /*kfree(w->private);*/
-
-  /*bch_keybuf_del(&c->moving_gc_keys, w);*/
-  /*}*/
-
-  /*closure_sync(&cl);*/
 }
 
 static bool bucket_cmp(struct bucket *l, struct bucket *r)
@@ -215,6 +264,7 @@ void bch_moving_gc(struct cache_set *c)
   /*return;*/
 
   pthread_mutex_lock(&c->bucket_lock);
+  CACHE_DEBUGLOG(MOVINGGC, "Begin moving gc. \n");
 
   for_each_cache(ca, c, i) {
     unsigned sectors_to_move = 0;
