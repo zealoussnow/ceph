@@ -35,7 +35,7 @@
 #define dout_context cct
 #define dout_subsys ceph_subsys_bdev
 #undef dout_prefix
-#define dout_prefix *_dout << "bdev(" << this << " " << path << ") "
+#define dout_prefix *_dout << "cdev(" << this << " " << path << ") "
 #define BITS_PER_HEX 4
 
 static constexpr uint32_t data_buffer_size = 8192;
@@ -120,33 +120,11 @@ struct Task {
       return_code(rc),
       start(ceph_clock_now()) {}
   ~Task() {
-    //assert(!io_request.nseg);
   }
-
-#if 0
-  void release_segs(SharedDriverQueueData *queue_data) {
-    if (io_request.extra_segs) {
-      for (uint16_t i = 0; i < io_request.nseg; i++)
-        queue_data->data_buf_mempool.push_back(io_request.extra_segs[i]);
-      delete io_request.extra_segs;
-    } else if (io_request.nseg) {
-      for (uint16_t i = 0; i < io_request.nseg; i++)
-        queue_data->data_buf_mempool.push_back(io_request.inline_segs[i]);
-    }
-    io_request.nseg = 0;
-  }
-#endif
-
-  void copy_to_buf(char *buf, uint64_t off, uint64_t len) {
-      //pbl->append(read_bl);
-    //read_bl.copy(off, len, static_cast<char*>(buf));
-  }
-
   void io_wait() {
     std::unique_lock<std::mutex> l(lock);
     cond.wait(l);
   }
-
   void io_wake() {
     std::lock_guard<std::mutex> l(lock);
     cond.notify_all();
@@ -160,9 +138,9 @@ CacheDevice::CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv)
     size(0), block_size(0),
     fs(NULL), aio(false), dio(false),
     debug_lock("CacheDevice::debug_lock"),
-        queue_lock("CacheDevice::queue_lock"),
-        queue_op_seq(0),
-        completed_op_seq(0),
+    queue_lock("CacheDevice::queue_lock"),
+    queue_op_seq(0),
+    completed_op_seq(0),
     aio_queue(cct->_conf->bdev_aio_max_queue_depth),
     aio_callback(cb),
     aio_callback_priv(cbpriv),
@@ -264,7 +242,7 @@ int CacheDevice::write_cache_super(const std::string& path)
 {
   int r = 0;
   unsigned block_size = 1;
-  unsigned bucket_size = 1024;
+  unsigned bucket_size = 1024*block_size;
   bool writeback = 0;
   bool discard = 0;
   bool wipe_bcache = 1;
@@ -279,7 +257,6 @@ int CacheDevice::write_cache_super(const std::string& path)
                         data_offset,false);
   return r;
 }
-#if 1
 int CacheDevice::open(const string& p, const string& c_path)
 {
   path = p;
@@ -405,7 +382,7 @@ int CacheDevice::open(const string& p, const string& c_path)
   fd_cache = -1;
   return r;
 }
-#endif
+
 int CacheDevice::open(const string& p)
 {
   path = p;
@@ -753,7 +730,6 @@ void io_complete(void *t)
     cache_device->logger->tinc(l_bluestore_cachedevice_flush_lat, dur);
     task->return_code = 0;
   }
-
 }
 
 void CacheDevice::_aio_writeback(struct ring_items *items)
@@ -761,10 +737,10 @@ void CacheDevice::_aio_writeback(struct ring_items *items)
   int r;
   int size = t2store_cache_ring_items_get_size(items);
   if (size > 0) { 
-    dout(1) << __func__ << "batch size " << size << dendl;
+    dout(20) << __func__ << "batch size " << size << dendl;
     r = t2store_cache_aio_writeback_batch(&cache_ctx, items);
     if (r < 0) {
-      dout(10) << __func__ << " failed to do write command" << dendl;
+      derr << __func__ << " failed to do write command" << dendl;
       ceph_abort();
     }
     t2store_cache_aio_items_reset(items);
@@ -777,10 +753,10 @@ void CacheDevice::_aio_writearound(struct ring_items *items)
   int r;
   int size = t2store_cache_ring_items_get_size(items);
   if (size > 0) {
-    dout(1) << __func__ << "batch size " << size << dendl;
+    dout(20) << __func__ << "batch size " << size << dendl;
     r = t2store_cache_aio_writearound_batch(&cache_ctx, items);
     if (r < 0) {
-      dout(10) << __func__ << " failed to do write command" << dendl;
+      derr << __func__ << " failed to do write command" << dendl;
       ceph_abort();
     }
     t2store_cache_aio_items_reset(items);
@@ -793,9 +769,10 @@ void CacheDevice::_aio_writethrough(struct ring_items *items)
   int r;
   int size = t2store_cache_ring_items_get_size(items);
   if (size > 0) {
+    dout(20) << __func__ << "batch size " << size << dendl;
     r = t2store_cache_aio_writethrough_batch(&cache_ctx, items);
     if (r < 0) {
-      dout(10) << __func__ << " failed to do write command" << dendl;
+      derr << __func__ << " failed to do write command" << dendl;
       ceph_abort();
     }
     t2store_cache_aio_items_reset(items);
@@ -820,7 +797,7 @@ void CacheDevice::_aio_thread()
   struct ring_items *items_wt = t2store_cache_aio_items_alloc(max_buffer);
   struct ring_item *item;
 
-  dout(10) << __func__ << " start aio thread" << dendl;
+  dout(5) << __func__ << " start aio thread" << dendl;
   while (true) {
     //bool inflight = queue_op_seq.load() - completed_op_seq.load();
     for (; t; t = t->next) {
@@ -865,11 +842,10 @@ retry_wt:       if (t2store_cache_aio_items_add(items_wt, item) < 0) {
           // for no batch
           r = t2store_cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
-            dout(10) << __func__ << " failed to do write command" << dendl;
+            derr << __func__ << " failed to do write command" << dendl;
             delete t;
             ceph_abort();
           }
-
           break;
         }
         case IOCommand::READ_COMMAND:
@@ -917,7 +893,7 @@ retry_wt:       if (t2store_cache_aio_items_add(items_wt, item) < 0) {
   }
 
   reap_ioc();
-  dout(10) << __func__ << " end" << dendl;
+  dout(5) << __func__ << " end aio thread" << dendl;
 }
 
 void CacheDevice::_aio_log_start(
