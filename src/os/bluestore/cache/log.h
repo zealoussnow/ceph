@@ -18,6 +18,7 @@ extern void cache_zlog(const char *cat_type, const char *file,
 #define CAT_BSET "bset"
 #define CAT_WRITEBACK "writeback"
 #define CAT_GC "gc"
+#define CAT_WB "wb"
 #define CAT_AIO "aio"
 #define CAT_AIO_WRITE "aio_write"
 #define CAT_READ "read"

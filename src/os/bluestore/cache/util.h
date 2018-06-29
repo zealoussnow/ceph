@@ -29,6 +29,19 @@ static unsigned int jiffies_to_msecs(const unsigned long j)
   return (MSEC_PER_SEC / HZ) * j;
 }
 
+static struct timespec cache_clock_now()
+{
+  struct timespec tp;
+  clock_gettime(CLOCK_REALTIME, &tp);
+  return tp;
+}
+
+static uint64_t cache_realtime_u64()
+{
+  struct timespec now = cache_clock_now();
+
+  return now.tv_sec * NSEC_PER_SEC + now.tv_nsec;
+}
 
 #define PAGE_SIZE sysconf(_SC_PAGESIZE)
 #define PAGE_SECTORS		(PAGE_SIZE / 512)

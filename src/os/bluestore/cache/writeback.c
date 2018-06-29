@@ -27,8 +27,6 @@ static void __update_writeback_rate(struct cached_dev *dc)
   /*c->cached_dev_sectors);*/
   int64_t target = cache_dirty_target;
 
-  struct timespec now = {0, 0};
-
   /* PD controller */
 
   int64_t dirty = bcache_dev_sectors_dirty(dc);
@@ -55,11 +53,10 @@ static void __update_writeback_rate(struct cached_dev *dc)
   change = proportional + derivative;
 
   /* Don't increase writeback rate if the device isn't keeping up */
-  clock_gettime(CLOCK_REALTIME, &now);
 
   if (change > 0 &&
-      time_after64(now.tv_nsec,
-        dc->writeback_rate.next + USEC_PER_MSEC))
+      time_after64(cache_realtime_u64(),
+        dc->writeback_rate.next + NSEC_PER_MSEC))
     change = 0;
 
   dc->writeback_rate.rate =
@@ -381,10 +378,6 @@ static void read_dirty(struct cached_dev *dc)
     for (i = 0; i < nk; i++) {
       w = keys[i];
 
-//      if (KEY_START(&w->key) != dc->last_read ||
-//          jiffies_to_msecs(delay) > 50)
-//        usleep(delay / HZ);
-
       dc->last_read = KEY_OFFSET(&w->key);
 
       BUG_ON(ptr_stale(dc->c, &w->key, 0));
@@ -392,7 +385,8 @@ static void read_dirty(struct cached_dev *dc)
       dirty_io_read(w, dc);
     }
 
-//    delay = writeback_delay(dc, size);
+    delay = writeback_delay(dc, size);
+    usleep(delay);
   }
 
   /*if (0) {*/
