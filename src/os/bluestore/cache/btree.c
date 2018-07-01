@@ -2363,10 +2363,12 @@ bool bch_keybuf_check_overlapping(struct keybuf *buf, struct bkey *start,
     p = w;
     w = RB_NEXT(w, node);
 
-    if (p->private)
+    if (p->private) {
+      SET_KEY_DIRTY(&p->key, false);
       ret = true;
-    else
+    } else {
       __bch_keybuf_del(buf, p);
+    }
   }
   pthread_spin_unlock(&buf->lock);
 
