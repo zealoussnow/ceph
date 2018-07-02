@@ -328,15 +328,17 @@ struct bkey *bch_btree_iter_init(struct btree_keys *, struct btree_iter *,
 struct bkey *__bch_bset_search(struct btree_keys *, struct bset_tree *,
                                 const struct bkey *);
 
-#define dump_bkey(prefix, b)                                    \
+#define pdump_bkey(prefix, fun, b)                                    \
   if ( b == NULL) {                                             \
-    CACHE_DEBUGLOG(CAT_BKEY,"%s dump bkey is NULL \n", prefix); \
+    CACHE_DEBUGLOG(prefix,"%s dump bkey is NULL \n", prefix); \
   } else {                                                      \
-    CACHE_DEBUGLOG(CAT_BKEY, "%s dump bkey %p(start %lu off %lu size %lu ptr_offset %u ptrs %u dirty %u inode %u) \n",\
-    prefix, b, KEY_OFFSET(b)-KEY_SIZE(b), KEY_OFFSET(b),        \
+    CACHE_DEBUGLOG(prefix, "%s dump bkey %p(start %lu off %lu size %lu ptr_offset %u ptrs %u dirty %u inode %u) \n",\
+    fun, b, KEY_OFFSET(b)-KEY_SIZE(b), KEY_OFFSET(b),        \
     KEY_SIZE(b),PTR_OFFSET(b,0), KEY_PTRS(b), KEY_DIRTY(b),     \
     KEY_INODE(b));                                              \
   };
+
+#define dump_bkey(prefix, b)       pdump_bkey(CAT_BKEY, prefix, b)
 
 #define dump_bset_tree_bkeys(prefix, t)                                         \
   if (t == NULL) {                                                              \
