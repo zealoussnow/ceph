@@ -22,7 +22,7 @@
 struct thread_data;
 
 struct aio_handler *g_handler = NULL;
-#define LIBAIO_NR_EVENTS 1024
+#define LIBAIO_NR_EVENTS 4096
 #define LIBAIO_EVENTS_PER_GET 32
 
 

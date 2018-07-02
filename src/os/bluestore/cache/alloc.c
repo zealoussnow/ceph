@@ -714,15 +714,23 @@ bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
   if (KEY_PTRS(&alloc.key))
     bkey_put(c, &alloc.key);
 
-  for (i = 0; i < KEY_PTRS(&b->key); i++)
-    EBUG_ON(ptr_stale(c, &b->key, i));
+  for (i = 0; i < KEY_PTRS(&b->key); i++) {
+    if (ptr_stale(c, &b->key, i)){ 
+      CACHE_ERRORLOG(NULL, "ptr_stale error \n");
+      EBUG_ON(ptr_stale(c, &b->key, i));
+    }
+  }
 
   /* Set up the pointer to the space we're allocating: */
 
   for (i = 0; i < KEY_PTRS(&b->key); i++)
     k->ptr[i] = b->key.ptr[i];
 
-  assert(sectors <= b->sectors_free);
+  if (sectors > b->sectors_free) {
+    CACHE_ERRORLOG(NULL, "error: sectors %u sectors_free %u \n", 
+        sectors, b->sectors_free);
+    assert(sectors <= b->sectors_free);
+  }
 
   SET_KEY_OFFSET(k, KEY_OFFSET(k) + sectors);
   SET_KEY_SIZE(k, sectors);
