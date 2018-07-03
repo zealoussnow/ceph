@@ -251,6 +251,7 @@ __rb_erase_augmented(struct rb_node *node, struct rb_root *root,
 	}
 
 	augment->propagate(tmp, NULL);
+        node->__rb_parent_color = 0;
 	return rebalance;
 }
 

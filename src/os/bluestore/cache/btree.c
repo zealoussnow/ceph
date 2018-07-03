@@ -2334,10 +2334,22 @@ void bch_refill_keybuf(struct cache_set *c, struct keybuf *buf,
   pthread_spin_unlock(&buf->lock);
 }
 
+static void __bch_keybuf_remove(struct keybuf *buf, struct keybuf_key *w)
+{
+  rb_erase(&w->node, &buf->keys);
+}
+
 static void __bch_keybuf_del(struct keybuf *buf, struct keybuf_key *w)
 {
   rb_erase(&w->node, &buf->keys);
   array_free(&buf->freelist, w);
+}
+
+void bch_keybuf_free(struct keybuf *buf, struct keybuf_key *w)
+{
+  pthread_spin_lock(&buf->lock);
+  array_free(&buf->freelist, w);
+  pthread_spin_unlock(&buf->lock);
 }
 
 void bch_keybuf_del(struct keybuf *buf, struct keybuf_key *w)
@@ -2367,6 +2379,7 @@ bool bch_keybuf_check_overlapping(struct keybuf *buf, struct bkey *start,
 
     if (p->private) {
       SET_KEY_DIRTY(&p->key, false);
+      __bch_keybuf_remove(buf, p);
       ret = true;
     } else {
       __bch_keybuf_del(buf, p);
