@@ -228,8 +228,9 @@ struct dirty_io {
 
 struct dirty_item {
   struct ring_item *item;
-  struct keybuf_key *w;
+  struct keybuf_key *keys[MAX_WRITEBACKS_IN_PASS];
   struct cached_dev *dc;
+  int nk;
 };
 
 static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
@@ -256,59 +257,74 @@ static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
 static void *write_completion(void *arg){
   struct dirty_item *d = (struct dirty_item *)arg;
   struct ring_item *item = d->item;
-  struct keybuf_key *w = d->w;
   struct cached_dev *dc = d->dc;
+  struct keybuf_key *w;
+  int i;
 
-  dirty_io_complete(w, dc);
+  for (i = 0; i < d->nk; i++){
+    w = d->keys[i];
+    dirty_io_complete(w, dc);
+    bch_keybuf_del(&dc->writeback_keys, w);
+  }
 
-  bch_keybuf_del(&dc->writeback_keys, w);
   free(item->data);
   free(item);
   free(d);
 }
 
+static void dirty_io_write(struct dirty_item *d){
+  struct ring_item *item = d->item;
+  struct cached_dev *dc = d->dc;
+  int ret, i;
+
+  item->io.offset = item->o_offset;
+  item->io.len = item->o_len;
+  item->io.pos = item->data;
+  item->io.type = CACHE_IO_TYPE_WRITE;
+  item->iou_completion_cb = write_completion;
+
+  CACHE_DEBUGLOG(WRITEBACK, "Item(%p) io offset=%lu, len=%lu, pos=%p\n",
+                 item, item->io.offset, item->io.len, item->io.pos);
+  ret = aio_enqueue(CACHE_THREAD_BACKEND, dc->c->cache[0]->handler, item);
+  if (ret < 0) {
+    for (i = 0; i < d->nk; i++)
+      bch_keybuf_del(&dc->writeback_keys, d->keys[i]);
+    assert( "dirty aio_enqueue read error  " == 0);
+  }
+
+}
+
 static void *read_completion(void *arg){
   struct dirty_item *d = (struct dirty_item *)arg;
   struct ring_item *item = d->item;
-  struct keybuf_key *w = d->w;
-  struct cached_dev *dc = d->dc;
-  int ret;
 
-  item->io.offset = KEY_START(&w->key) << 9;
-  item->io.type=CACHE_IO_TYPE_WRITE;
-  item->iou_completion_cb = write_completion;
-
-  pdump_bkey(WRITEBACK, __func__, &w->key);
-  ret = aio_enqueue(CACHE_THREAD_BACKEND, dc->c->cache[0]->handler, item);
-  if (ret < 0) {
-    bch_keybuf_del(&dc->writeback_keys, w);
-    assert( "dirty aio_enqueue read error  " == 0);
+  atomic_dec(&item->seq);
+  if (!atomic_read(&item->seq)){
+    atomic_dec(&item->seq);
+    dirty_io_write(d);
   }
 }
 
-static void dirty_io_read(struct keybuf_key *w, struct cached_dev *dc)
+static void dirty_io_read(struct keybuf_key *w, struct dirty_item *d)
 {
-  int ret;
-  uint64_t len = KEY_SIZE(&w->key) << 9;
-  void *data = malloc(len);
-  uint64_t offset = PTR_OFFSET(&w->key, 0) << 9;
-  struct ring_item *item = get_ring_item(data, offset, len);
-  struct dirty_item *d = malloc(sizeof(struct dirty_item));
-
-  d->item = item;
-  d->dc = dc;
-  d->w = w;
+  int ret, i;
+  struct cached_dev *dc = d->dc;
+  struct ring_item *item = d->item;
 
   item->iou_completion_cb = read_completion;
   item->iou_arg = d;
   item->io.type=CACHE_IO_TYPE_READ;
-  item->io.pos = item->data;
-  item->io.offset = item->o_offset;
-  item->io.len = item->o_len;
+  item->io.pos = item->data + (KEY_OFFSET(&w->key) - item->o_offset);
+  item->io.offset = KEY_OFFSET(&w->key);
+  item->io.len = KEY_SIZE(&w->key);
+  atomic_inc(&item->seq);
 
+  CACHE_DEBUGLOG(WRITEBACK, "Item(%p) io offset=%lu, len=%lu, pos=%p\n",
+                 item, item->io.offset, item->io.len, item->io.pos);
   ret = aio_enqueue(CACHE_THREAD_CACHE, dc->c->cache[0]->handler, item);
   if (ret < 0) {
-    bch_keybuf_del(&dc->writeback_keys, w);
+    for (i = 0; i < d->nk; i++)
+      bch_keybuf_del(&dc->writeback_keys, d->keys[i]);
     assert( "dirty aio_enqueue read error  " == 0);
   }
 }
@@ -316,25 +332,19 @@ static void dirty_io_read(struct keybuf_key *w, struct cached_dev *dc)
 static void read_dirty(struct cached_dev *dc)
 {
   unsigned delay = 0;
-  struct keybuf_key *next, *keys[MAX_WRITEBACKS_IN_PASS], *w;
+  struct keybuf_key *next, *w;
   size_t size;
   int nk, i;
-  /*struct dirty_io *io;*/
-  /*struct closure cl;*/
-
-  /*closure_init_stack(&cl);*/
-
-  /*
-   * XXX: if we error, background writeback just spins. Should use some
-   * mempools.
-   */
-
+  void *data;
+  struct dirty_item *d;
+  struct ring_item *item;
 
   next = bch_keybuf_next(&dc->writeback_keys);
 
   while (!dc->writeback_should_stop && next) {
     size = 0;
     nk = 0;
+    d = malloc(sizeof(struct dirty_item));
 
     do {
 
@@ -361,24 +371,39 @@ static void read_dirty(struct cached_dev *dc)
        * so that we can benefit from backing device
        * command queueing.
        */
-      if ((nk != 0) && bkey_cmp(&keys[nk-1]->key,
+      if ((nk != 0) && bkey_cmp(&d->keys[nk-1]->key,
                                 &START_KEY(&next->key)))
         break;
 
       size += KEY_SIZE(&next->key);
-      keys[nk++] = next;
+      d->keys[nk++] = next;
     } while ((next = bch_keybuf_next(&dc->writeback_keys)));
+
+    d->dc = dc;
+    d->nk = nk;
 
     CACHE_DEBUGLOG(WRITEBACK, "Try to writeback %d next(%p) sleep=%d\n", nk, next, delay);
 
+    data = malloc(size);
+    item = get_ring_item(data, KEY_START(&d->keys[0]->key) << 9, size);
+    atomic_set(&item->seq, 1);
+    d->item = item;
+
+
     for (i = 0; i < nk; i++) {
-      w = keys[i];
+      w = d->keys[i];
+      pdump_bkey(WRITEBACK, __func__, &w->key);
 
       dc->last_read = KEY_OFFSET(&w->key);
 
       BUG_ON(ptr_stale(dc->c, &w->key, 0));
 
-      dirty_io_read(w, dc);
+      dirty_io_read(w, d);
+    }
+    atomic_dec(&item->seq);
+    if (!atomic_read(&item->seq)){
+      atomic_dec(&item->seq);
+      dirty_io_write(d);
     }
 
     delay = writeback_delay(dc, size);
