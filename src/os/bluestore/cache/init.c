@@ -1702,6 +1702,16 @@ skip:
   return true;
 }
 
+static bool should_writeback(struct cached_dev *dc, unsigned int cache_mode)
+{
+  unsigned in_use = dc->c->gc_stats.in_use;
+
+  if (cache_mode != CACHE_MODE_WRITEBACK || in_use > CUTOFF_WRITEBACK_SYNC)
+    return false;
+
+  return in_use <= CUTOFF_WRITEBACK;
+}
+
 int get_cache_strategy(struct cache *ca, struct ring_item *item)
 {
   struct cached_dev *dc = ca->set->dc;
@@ -1719,7 +1729,10 @@ int get_cache_strategy(struct cache *ca, struct ring_item *item)
   if (check_should_bypass(dc, item))
     return CACHE_MODE_WRITEAROUND;
 
-  return mode;
+  if (should_writeback(dc, mode))
+    return CACHE_MODE_WRITEBACK;
+  else
+    return CACHE_MODE_WRITETHROUGH;
 }
 
 int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, void *cb, void *cb_arg)
