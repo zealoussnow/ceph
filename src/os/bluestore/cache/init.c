@@ -1660,7 +1660,9 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
 
   task = calloc(1, sizeof(*task));
   task->thread_id = pthread_self();
+  pthread_spin_lock(&dc->io_lock);
   list_add_tail(&task->list, &dc->io_thread);
+  pthread_spin_unlock(&dc->io_lock);
 
 out:
   pthread_spin_lock(&dc->io_lock);
