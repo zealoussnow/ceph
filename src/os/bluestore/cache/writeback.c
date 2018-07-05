@@ -78,7 +78,7 @@ static void update_writeback_rate(void *arg)
   struct cached_dev *dc = arg;
 
 
-  pthread_setname_np(pthread_self(), "writeback_rate_update");
+  pthread_setname_np(pthread_self(), "wb rate update");
   while (!dc->writeback_should_stop) {
     //pthread_rwlock_rdlock(&dc->writeback_lock);
     if (atomic_read(&dc->has_dirty) &&
@@ -573,10 +573,10 @@ static int bch_writeback_thread(void *arg)
   bool searched_full_index;
 
   CACHE_DEBUGLOG(WRITEBACK, "Thread start\n");
+  pthread_setname_np(pthread_self(), "writeback");
 
   aio_thread_init(dc->c->cache[0]);
 
-  pthread_setname_np(pthread_self(), "writeback_thread");
   while (!dc->writeback_should_stop) {
     /*printf("<%s>: start writeback\n", __func__);*/
     pthread_rwlock_wrlock(&dc->writeback_lock);
