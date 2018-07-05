@@ -31,6 +31,8 @@ static int delayed_work_func(void *arg)
   struct event timer_ev;
   struct timeval tv;
 
+  // Note: pthread_setname_np will throw Segmentation fault.
+  //pthread_setname_np(pthread_self(), "delayed work");
   event_assign(&timer_ev, base, -1, flags, timeout_cb, (void*)&timer_ev);
   evutil_timerclear(&tv);
   tv.tv_sec = 5;

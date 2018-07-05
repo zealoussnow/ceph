@@ -330,6 +330,7 @@ static int bch_allocator_thread(void *arg)
 {
   struct cache *ca = arg;
 
+  pthread_setname_np(pthread_self(), "bch allocator");
   pthread_mutex_lock(&ca->set->bucket_lock);
   CACHE_INFOLOG(CAT_ALLOC, "start bucket alloc thread %p\n", pthread_self());
 
