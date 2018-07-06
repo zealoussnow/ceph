@@ -576,6 +576,7 @@ static int bch_writeback_thread(void *arg)
   pthread_setname_np(pthread_self(), "writeback");
 
   aio_thread_init(dc->c->cache[0]);
+  bch_ratelimit_reset(&dc->writeback_rate);
 
   while (!dc->writeback_should_stop) {
     /*printf("<%s>: start writeback\n", __func__);*/
@@ -604,12 +605,11 @@ static int bch_writeback_thread(void *arg)
 
     ///*up_write(&dc->writeback_lock);*/
 
-    bch_ratelimit_reset(&dc->writeback_rate);
-
     read_dirty(dc);
 
     if (searched_full_index) {
       sleep(dc->writeback_delay);
+      //bch_ratelimit_reset(&dc->writeback_rate);
     }
   }
 
