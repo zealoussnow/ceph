@@ -486,7 +486,7 @@ static inline void bch_ratelimit_reset(struct bch_ratelimit *d)
   //d->next = local_clock();
   struct timespec now = {0, 0};
   clock_gettime(CLOCK_REALTIME, &now);
-  d->next = now.tv_nsec;
+  d->next = cache_realtime_u64();
 }
 
 uint64_t bch_next_delay(struct bch_ratelimit *d, uint64_t done);
