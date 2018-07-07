@@ -1704,11 +1704,14 @@ skip:
   return true;
 }
 
-static bool should_writeback(struct cached_dev *dc, unsigned int cache_mode)
+static bool should_writeback(struct cached_dev *dc, unsigned int cache_mode, bool would_skip)
 {
   unsigned in_use = dc->c->gc_stats.in_use;
 
   if (cache_mode != CACHE_MODE_WRITEBACK || in_use > CUTOFF_WRITEBACK_SYNC)
+    return false;
+
+  if (would_skip)
     return false;
 
   return in_use <= CUTOFF_WRITEBACK;
@@ -1721,20 +1724,39 @@ int get_cache_strategy(struct cache *ca, struct ring_item *item)
   struct bkey start = KEY(0, item->o_offset >> 9, 0);
   struct bkey end = KEY(0, (item->o_offset >> 9) + (item->o_len >> 9), 0);
 
+  bool bypass = false;
+  bool writeback = false;
+
+  // 判断io是否可以绕过cache，
+  // 条件：
+  // 1. cache盘的使用量达到阈值CUTOFF_CACHE_ADD
+  // 2. cache模式是none或者around
+  // 3. io在同一个线程内的一段时间内是否连续
+  bypass = check_should_bypass(dc, item);
+
   bch_keybuf_check_overlapping(&dc->c->moving_gc_keys, &start, &end);
 
   pthread_rwlock_rdlock(&dc->writeback_lock);
 
-  if (bch_keybuf_check_overlapping(&dc->writeback_keys, &start, &end))
-    return CACHE_MODE_WRITEBACK;
+  // 如果与正在回刷的bkey有重叠部分，需要使用writeback模式
+  if (bch_keybuf_check_overlapping(&dc->writeback_keys, &start, &end)) {
+    bypass = false;
+    writeback = true;
+  }
 
-  if (check_should_bypass(dc, item))
+  // 如果cache使用量没超过回刷的水位线并且模式是writeback模式的情况，返回true
+  if (should_writeback(dc, mode, bypass)) {
+    bypass = false;
+    writeback = true;
+  }
+
+  if (bypass) {
     return CACHE_MODE_WRITEAROUND;
-
-  if (should_writeback(dc, mode))
+  } else if (writeback) {
     return CACHE_MODE_WRITEBACK;
-  else
+  } else {
     return CACHE_MODE_WRITETHROUGH;
+  }
 }
 
 int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, void *cb, void *cb_arg)
