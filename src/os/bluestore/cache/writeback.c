@@ -69,6 +69,15 @@ static void __update_writeback_rate(struct cached_dev *dc)
   dc->writeback_rate_target = target;
 }
 
+static void __update_read_rate(struct cached_dev *dc){
+  int iops = atomic_read(&dc->read_iops);
+  dc->read_wait = iops / dc->safe_read * dc->pre_read_wait;
+  if (dc->read_wait > 1000000){
+    dc->read_wait = 1000000;
+  }
+  atomic_set(&dc->read_iops, 0);
+}
+
 /*static void update_writeback_rate(struct work_struct *work)*/
 static void update_writeback_rate(void *arg)
 {
@@ -82,8 +91,10 @@ static void update_writeback_rate(void *arg)
   while (!dc->writeback_should_stop) {
     //pthread_rwlock_rdlock(&dc->writeback_lock);
     if (atomic_read(&dc->has_dirty) &&
-        dc->writeback_percent)
+        dc->writeback_percent){
       __update_writeback_rate(dc);
+      __update_read_rate(dc);
+    }
 
     //pthread_rwlock_unlock(&dc->writeback_lock);
 
@@ -98,10 +109,12 @@ static unsigned writeback_delay(struct cached_dev *dc, unsigned sectors)
   /*if (test_bit(BCACHE_DEV_DETACHING, &dc->disk.flags) ||*/
   /*!dc->writeback_percent)*/
   /*return 0;*/
+  unsigned delay;
   if (!dc->writeback_percent)
     return 0;
 
-  return bch_next_delay(&dc->writeback_rate, sectors);
+  delay = bch_next_delay(&dc->writeback_rate, sectors);
+  return delay + dc->read_wait;
 }
 
 #if 0
@@ -671,6 +684,11 @@ void bch_cached_dev_writeback_init(struct cached_dev *dc)
   dc->writeback_rate_update_seconds = 5;
   dc->writeback_rate_d_term	= 30;
   dc->writeback_rate_p_term_inverse = 6000;
+
+  atomic_set(&dc->read_iops, 0);
+  dc->safe_read = 200;
+  dc->read_wait = 200;
+  dc->pre_read_wait = 200; /* us */
 
   /*INIT_DELAYED_WORK(&dc->writeback_rate_update, update_writeback_rate);*/
 }

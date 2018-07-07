@@ -2043,7 +2043,8 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   item->ca_handler = ca;
   atomic_set(&item->need_write_cache, 0);
   item->start = cache_clock_now();
-  
+
+  atomic_add(1 + (len >> 8) / 2, &ca->set->dc->read_iops);
   s.item = item;
   bch_btree_op_init(&s.op, -1);
   bch_btree_map_keys(&s.op, ca->set, &KEY(0,(s.item->o_offset >> 9),0),

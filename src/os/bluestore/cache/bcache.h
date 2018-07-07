@@ -365,6 +365,10 @@ struct cached_dev {
   * shared lock to set and exclusive lock to clear.
   */
   struct bch_ratelimit  writeback_rate;
+  atomic_t              read_iops;
+  unsigned              safe_read;
+  unsigned              read_wait;
+  unsigned              pre_read_wait;
   //struct delayed_work writeback_rate_update;
   
   /*
