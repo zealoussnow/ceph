@@ -424,15 +424,11 @@ retry_invalidate:
 
 long bch_bucket_alloc(struct cache *ca, unsigned reserve, bool wait)
 {
-  //DEFINE_WAIT(w);
   struct bucket *b;
   long r;
 
-  /*printf(" alloc.c FUN %s: pop from reserve=%d, wait=%d\n",__func__, reserve, wait);*/
-  if (fifo_pop(&ca->free[RESERVE_NONE], r) ||
-      fifo_pop(&ca->free[reserve], r))
-  {
-    /*printf(" fifo_pop from RESERVE_NONE or reserve , goto out \n");*/
+  if (fifo_pop(&ca->free[reserve], r) ||
+      fifo_pop(&ca->free[RESERVE_NONE], r)) {
     goto out;
   }
 

@@ -169,9 +169,10 @@ static void *read_completion(void *arg){
     if (KEY_DIRTY(&w->key))
       SET_KEY_DIRTY(new_key, true);
 
-    if (!bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 0, 1)){
-      bch_keybuf_del(&c->moving_gc_keys, w);
+    // wirte moving gc to moving buckets
+    if (!bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 1, 1)) {
       CACHE_ERRORLOG(MOVINGGC, "bch_alloc_sectors failed!\n");
+      bch_keybuf_del(&c->moving_gc_keys, w);
       assert("bch_alloc_sectors" == 0);
     }
 
