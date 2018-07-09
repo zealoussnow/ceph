@@ -136,6 +136,11 @@ void do_writeback_test(struct cache *ca)
   /*printf(" read result =%s \n", read_data);*/
 }
 
+void write_complate(void *arg){
+  atomic_t *seq = (atomic_t *)arg;
+  atomic_dec(seq);
+}
+
 void do_writeback_batch_test(struct cache *ca)
 {
   printf(" ********* start writeback test *********** \n");
@@ -143,6 +148,7 @@ void do_writeback_batch_test(struct cache *ca)
   void *read_data = NULL;
   uint64_t len = 512;
   uint64_t offset = 8192;
+  atomic_t seq;
 
   aio_thread_init(ca);
   struct ring_items *items = ring_items_alloc(1024);
@@ -152,25 +158,32 @@ void do_writeback_batch_test(struct cache *ca)
   posix_memalign((void **)&read_data, 512, len);
   memset(data, 'b', len);
   memset(read_data, '0', len);
+  atomic_set(&seq, 1);
 
   sleep(1);
   // write 512
-  int i = 1;
-  for ( i = 1; i<100; i++ ) {
-    //cache_aio_write(ca, data, offset+1024*i, len*1024, NULL, NULL);
-    item = get_ring_item(data, offset+1024*i, len);
+  int i, j;
+  for (j = 0; j < 100; j++){
+    for ( i = 1; i<100; i++ ) {
+      //cache_aio_write(ca, data, offset+1024*i, len*1024, NULL, NULL);
+      item = get_ring_item(data, offset+1024*i, len);
+      item->strategy = get_cache_strategy(ca, item);
+      item->io_completion_cb = write_complate;
+      item->io_arg = &seq;
       ring_items_add(items, item);
+      atomic_inc(&seq);
+      usleep(1);
+    }
+    cache_aio_writeback_batch(ca, items);
+    ring_items_reset(items);
   }
-  cache_aio_writeback_batch(ca, items);
   ring_items_free(items);
-  /*sleep(10);*/
-  traverse_btree(ca);
-  sleep(2);
-  // read 512
-  cache_aio_read(ca, read_data, offset + 1024 * 2, len, read_complete_cb, read_data);
-  // wait writeback
-  sleep(4);
-  // printf(" read result =%s \n", read_data);
+
+  atomic_dec(&seq);
+  if (!atomic_read(&seq)){
+    sleep(1);
+  }
+  printf("write success\n");
 }
 
 void *start_do_writeback_batch(void *arg){
@@ -358,7 +371,7 @@ int main()
   struct cache *ca = T2Molloc(sizeof(struct cache));
   /*const char *cache_dev = "/dev/sdc";*/
   /*const char *hdd_dev = "/dev/sdd";*/
-  /*ca->bdev_path="/home/lb/bdev.conf.in";*/
+  /*ca->bdev_path="/etc/ceph/bdev.conf.in";*/
   const char *log_path = "/var/log/ceph";
   const char *whoami = "0";
 
@@ -374,6 +387,7 @@ int main()
   /*ca->hdd_fd = hdd_fd;*/
 
   init(ca);
+  aio_thread_init(ca);
   ca->set->logger_cb = log_fn;
 
   /*do_write_split_test(ca);*/
@@ -382,8 +396,8 @@ int main()
   /*do_writeback_test(ca);*/
   //do_writeback_batch_test(ca);
   //pthread_t pp,tt;
-  //pp = pthread_create(&pp, NULL, start_do_writeback_batch, ca);
-  //tt = pthread_create(&tt, NULL, start_do_writeback_batch, ca);
+  //pthread_create(&pp, NULL, start_do_writeback_batch, ca);
+  //pthread_create(&tt, NULL, start_do_writeback_batch, ca);
 
   /*do_invalidate_region_test(ca);*/
 
