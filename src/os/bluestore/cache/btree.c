@@ -310,7 +310,14 @@ static void bch_btree_node_read(struct btree *b)
 
 static void btree_complete_write(struct btree *b, struct btree_write *w)
 {
-  CACHE_DEBUGLOG(CAT_BTREE, "prio_blocked %d \n", w->prio_blocked);
+  /*
+   * prio_blocked: when insert bkey(offset=0) to root btree node(or not leaf), then will inc
+   *               btree node prio_blocked
+   *               when free btree node(maybe split or reclaim), then will inc cache prio_blocked
+   * so when all btree node prio_blocked has write completion, then wake alloc thread
+   * note: when alloc thread refill free_inc, then needed write prio, and will cond wait when btree
+   *       node prio_blocked  is exists
+   */
   if (w->prio_blocked &&
       !atomic_sub_return(w->prio_blocked, &b->c->prio_blocked)) {
     wake_up_allocators(b->c);
@@ -321,8 +328,8 @@ static void btree_complete_write(struct btree *b, struct btree_write *w)
   /*__closure_wake_up(&b->c->journal.wait);*/
   }
 
-  w->prio_blocked	= 0;
-  w->journal	= NULL;
+  w->prio_blocked       = 0;
+  w->journal            = NULL;
 }
 
 static void __btree_node_write_done(struct btree *b)
@@ -1491,8 +1498,14 @@ static void btree_gc_start(struct cache_set *c)
   struct bucket *b;
   unsigned i;
 
-  if (!c->gc_mark_valid)
+  // this logic maybe no used, gc_start would not
+  // be call again when gc not finish?
+  if (!c->gc_mark_valid) {
+    CACHE_ERRORLOG(NULL, "should not call again gc mark valid %d \n",
+                c->gc_mark_valid);
+    assert("should not call again" == 0);
     return;
+  }
 
   pthread_mutex_lock(&c->bucket_lock);
 
@@ -1630,46 +1643,63 @@ static bool gc_should_run(struct cache_set *c)
   struct cache *ca;
   unsigned i;
 
+  /* invalidate_needs_gc is used for invalidate_buckets
+   * when invalidate_buckets happened(bucket is not enough for free_inc,
+   *     invalidate_needs_gc is needed, then take invalidate_needs_gc true
+   *     and wake gc
+   * when gc_finish, invalidate_needs_gc is no needed, so set to false
+   *
+   * when alloc thread found free_inc is empty, and gc_mark_valid is tree and
+   *     invalidate_needs_gc is false(meas that there is no bucket invalidate right now)
+   *     then she will call invalidate_buckets fuc to fill free_inc. or she will
+   *     goto cond wait
+  */
   for_each_cache(ca, c, i)
     if (ca->invalidate_needs_gc)
       return true;
-
-  if (c->sectors_to_gc.counter < 0)
-    return true;
+  // sectors water reach, then need gc
   if (atomic_read(&c->sectors_to_gc) < 0)
     return true;
 
   return false;
 }
 
+void set_gc_stop(struct cache_set *c)
+{
+  atomic_set(&c->gc_stop, 1);
+}
+
+void set_gc_start(struct cache_set *c)
+{
+  atomic_set(&c->gc_stop, 0);
+}
+
 static int bch_gc_thread(void *arg)
 {
   struct cache_set *c = arg;
 
-  CACHE_DEBUGLOG(MOVINGGC, "Moving gc thread start. \n");
+  CACHE_INFOLOG(MOVINGGC, "Moving gc thread start. \n");
+
+  // take gc thread to his own ioctx, useful for bind core
   aio_thread_init(c->cache[0]);
+
   pthread_setname_np(pthread_self(), "moving_gc");
+
   while (1) {
-    //wait_event_interruptible(c->gc_wait,
-    //	   kthread_should_stop() || gc_should_run(c));
-
-    //if (kthread_should_stop())
-    //	break;
-
+    // loop cond wait when no need gc
     for (;;) {
-      if (gc_should_run(c) || c->gc_should_stop)
+      // if gc needed, out loop cond
+      // if gc_stop == true always loop cond
+      if (gc_should_run(c) && !atomic_read(&c->gc_stop)) {
         break;
+      }
       pthread_mutex_lock(&c->gc_wait_mut);
       pthread_cond_wait(&c->gc_wait_cond, &c->gc_wait_mut);
       pthread_mutex_unlock(&c->gc_wait_mut);
     }
-
-    if (c->gc_should_stop)
-      break;
-
+    // start set gc
     set_gc_sectors(c);
     bch_btree_gc(c);
-    /*sleep(1);*/
   }
 
   return 0;
@@ -1678,21 +1708,15 @@ static int bch_gc_thread(void *arg)
 int bch_gc_thread_start(struct cache_set *c)
 {
   int err;
-  c->gc_should_stop = true;
+
+  atomic_set(&c->gc_stop, 0);
 
   err = pthread_create(&c->gc_thread, NULL, (void *)bch_gc_thread, (void *)c);
-  if (err != 0)
-  {
-    printf("can't create thread:%s\n", strerror(err));
+  if (err != 0) {
+    CACHE_ERRORLOG(NULL, "can't create thread:%s\n", strerror(err));
     return err;
   }
 
-  c->gc_should_stop = false;
-  return 0;
-  //	c->gc_thread = kthread_run(bch_gc_thread, c, "bcache_gc");
-  //	if (IS_ERR(c->gc_thread))
-  //		return PTR_ERR(c->gc_thread);
-  //
   return 0;
 }
 

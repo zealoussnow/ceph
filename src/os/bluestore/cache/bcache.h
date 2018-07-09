@@ -676,10 +676,10 @@ struct cache_set {
   /* Counts how many sectors bio_insert has added to the cache */
   atomic_t              sectors_to_gc;
   //wait_queue_head_t   gc_wait;
-  pthread_t               gc_thread;
-  pthread_mutex_t         gc_wait_mut;
-  pthread_cond_t          gc_wait_cond;
-  bool                    gc_should_stop;
+  pthread_t             gc_thread;
+  pthread_mutex_t       gc_wait_mut;
+  pthread_cond_t        gc_wait_cond;
+  atomic_t              gc_stop;
   //struct list_head    moving_gc_keys;
   //struct bkey             gc_last_scanned;
   struct keybuf           moving_gc_keys;

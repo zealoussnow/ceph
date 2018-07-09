@@ -331,9 +331,13 @@ static int bch_allocator_thread(void *arg)
   struct cache *ca = arg;
 
   pthread_setname_np(pthread_self(), "bch allocator");
-  pthread_mutex_lock(&ca->set->bucket_lock);
   CACHE_INFOLOG(CAT_ALLOC, "start bucket alloc thread %p\n", pthread_self());
 
+  /*
+   * when alloc thread is cond wait, she will unlock bucket_lock
+   * and when alloc thread is running, she will hand bucket_lock
+   */
+  pthread_mutex_lock(&ca->set->bucket_lock);
   while (1) {
     /*
      * First, we pull buckets off of the unused and free_inc lists,
@@ -349,47 +353,46 @@ static int bch_allocator_thread(void *arg)
       fifo_pop(&ca->free_inc, bucket);
       CACHE_DEBUGLOG(CAT_ALLOC,"pop bucket %ld from free_inc \n",bucket);
 
-      /*if (ca->discard) {*/
-      /*pthread_mutex_unlock(&ca->set->bucket_lock);*/
-
       // TODO
       /* 对磁盘进行trim操作，比如使用blkdiscard命令时 */
-      /*blkdev_issue_discard(ca->bdev,*/
-      /*bucket_to_sector(ca->set, bucket),*/
-      /*ca->sb.bucket_size, GFP_KERNEL, 0);*/
-
-      /*pthread_mutex_lock(&ca->set->bucket_lock);*/
-      /*}*/
-
-      //allocator_wait(ca, bch_allocator_push(ca, bucket));
-      /*wake_up(&ca->set->btree_cache_wait);*/
-      /*wake_up(&ca->set->bucket_wait);*/
-      // 1. 如果push失败,说明队列都满了，可用bucet太多了，这时候，会进入睡眠
+      /*
+      if (ca->discard) {
+        mutex_unlock(&ca->set->bucket_lock);
+        blkdev_issue_discard(ca->bdev,
+                        bucket_to_sector(ca->set, bucket),
+                        ca->sb.bucket_size, GFP_KERNEL, 0);
+        mutex_lock(&ca->set->bucket_lock);
+      }
+      */
+      // if push bucket sucess, alloc thread will goto continue until push failed,
+      // which means that full, so alloc thread will goto cond wait
       allocator_wait(ca, bch_allocator_push(ca, bucket));
     }
 
     /*
      * We've run out of free buckets, we need to find some buckets
-     * we can invalidate. First, invalidate them in memory and add
-     * them to the free_inc list:
+     * we can invalidate.
+     * First: invalidate them in memory
+     * Second: add them to the free_inc list:
      */
-
 retry_invalidate:
-    /* 如果free_inc已经空了，则需要invalidate当前正在使用的bucket
-    */
-    CACHE_DEBUGLOG(CAT_ALLOC,"gc_mark_valid %d invalidate_needs_gc %d \n",
-                            ca->set->gc_mark_valid, ca->invalidate_needs_gc);
-    allocator_wait(ca, ca->set->gc_mark_valid &&
-        !ca->invalidate_needs_gc); /* 等待gc执行或未完成 */
+    /*
+     * gc_mark_valid: gc_mark_valid is for caceh_set, when gc start set gc_mark_valid =0
+     *                when gc finish set gc_mark_valid = 1
+     *                so gc_mark_valid is true, meas we can wake up gc, false, meas we will cond wait
+     * invalidate_needs_gc is false mean there is no invalidate bucket taks running
+     * so will call invalidate_buckets
+     */
+    allocator_wait(ca, ca->set->gc_mark_valid && !ca->invalidate_needs_gc);
     invalidate_buckets(ca);
 
     /*
      * Now, we write their new gens to disk so we can start writing
      * new stuff to them:
      */
-    CACHE_DEBUGLOG(CAT_ALLOC,"cache set prio_blocked %d \n",ca->set->prio_blocked);
+    // when btree node split or gc (freeing) then will block prio, we should wait
+    // until those node write complete then write prio
     allocator_wait(ca, !atomic_read(&ca->set->prio_blocked));
-    CACHE_DEBUGLOG(CAT_ALLOC,"cache sync %d \n",CACHE_SYNC(&ca->set->sb));
     if (CACHE_SYNC(&ca->set->sb)) {
       /*
        * This could deadlock if an allocation with a btree
@@ -402,7 +405,10 @@ retry_invalidate:
        * uses btree_check_reserve() before allocating now, and
        * if it fails it blocks without btree nodes locked.
        */
-      CACHE_DEBUGLOG(CAT_ALLOC,"fifo_full(&ca->free_inc) %d \n",fifo_full(&ca->free_inc));
+      /*
+       * when free_inc is not full, goto retry and cond wait for gc finish.
+       * this meas that free_inc must be refill until full
+       */
       if (!fifo_full(&ca->free_inc))
         goto retry_invalidate;
       bch_prio_write(ca);

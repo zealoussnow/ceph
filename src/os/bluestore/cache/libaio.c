@@ -96,6 +96,12 @@ get_thread_data(uint16_t type, struct aio_handler *handler) {
   pthread_t pthread_id = pthread_self();
   uint32_t need_seq;
 
+  if ( !handler->nr_cache ) {
+    CACHE_ERRORLOG(NULL, "thread empty nr_cache %d, need thread init\n",
+        handler->nr_cache);
+    assert(!handler->nr_cache);
+  }
+
   switch (type) {
     case CACHE_THREAD_CACHE:
       list_for_each_entry(p, &handler->cache_threads, node) {
