@@ -718,7 +718,11 @@ journal_wait_for_write(struct cache_set *c, unsigned nkeys)
        * deadlock. For now, handle this in
        * bch_keylist_realloc() - but something to think about.
        */
-      BUG_ON(!w->data->keys);
+      if ( !w->data->keys) {
+        CACHE_ERRORLOG(CAT_JOURNAL," journal write jset keys is NULL( block_free %u full? %d\n",
+                c->journal.blocks_free, fifo_free(&(c->journal.pin)));
+        BUG_ON(!w->data->keys);
+      }
       CACHE_DEBUGLOG(CAT_JOURNAL,"journal not full,but blocks_free %u is not \
                                 enough for sectors %u, try to flush cur write\n",
                                 c->journal.blocks_free, sectors);

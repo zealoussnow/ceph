@@ -968,6 +968,10 @@ bch_data_insert_keys(struct cache_set *c_set,
   int ret;
 
   struct timespec start = cache_clock_now();
+  if ( !bch_keylist_nkeys(insert_keys)) {
+    CACHE_ERRORLOG(NULL, "no bkeys insert\n");
+    assert(bch_keylist_nkeys(insert_keys) != 0);
+  }
   journal_ref = bch_journal(c_set, insert_keys);
   if (!journal_ref) {
     CACHE_ERRORLOG(CAT_JOURNAL,"write journal error\n");
@@ -1255,6 +1259,7 @@ aio_write_completion(void *cb)
   int ret = 0;
 
   if ( ! item->io.success ) {
+    CACHE_ERRORLOG(NULL, "Aio completion, io not Sucessfull %d \n", item->io.success);
     assert(" Aio completion, io not Sucessfull " == 0);
   }
 
@@ -1265,6 +1270,11 @@ aio_write_completion(void *cb)
     switch (item->strategy) {
       case CACHE_MODE_WRITEAROUND:
         CACHE_DEBUGLOG(CAT_AIO_WRITE,"writearound completion start insert keys \n");
+        if ( bch_keylist_nkeys(item->insert_keys) != 2) {
+          CACHE_ERRORLOG(NULL, " writeaound error, nkeys = %d \n", 
+                                bch_keylist_nkeys(item->insert_keys));
+          assert(bch_keylist_nkeys(item->insert_keys) == 2);
+        }
         ret = bch_data_insert_keys(ca->set, item->insert_keys);
         break;
       case CACHE_MODE_WRITETHROUGH:
@@ -1282,13 +1292,24 @@ aio_write_completion(void *cb)
             CACHE_ERRORLOG(NULL,"writethough write left io failed\n");
             assert("writethough write left io failed" == 0);
           }
+          if ( item->o_len != item->io.len ) {
+            CACHE_ERRORLOG(NULL,"writethrough got len error o_len %lu, io.len %lu\n",
+                item->o_len, item->io.len);
+            assert(item->o_len == item->io.len);
+          }
           ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
           if ( ret < 0) {
             CACHE_ERRORLOG(NULL,"writethough aio enqueue failed\n");
             assert("writethough aio enqueue failed" == 0);
           }
+          return;
         } else {
           CACHE_DEBUGLOG(CAT_AIO_WRITE,"writethrough completion start insert keys \n");
+          if (bch_keylist_nkeys(item->insert_keys) != 3) {
+            CACHE_ERRORLOG(NULL, "writethrough insert error nkeys %d\n",
+                        bch_keylist_nkeys(item->insert_keys));
+            assert(bch_keylist_nkeys(item->insert_keys) == 3);
+          }
           ret = bch_data_insert_keys(ca->set, item->insert_keys);
           break;
         }
@@ -1565,7 +1586,7 @@ _prep_writethrough(struct ring_item * item)
   item->insert_keys = insert_keys;
 
   return 0;
-  err:
+err:
   return -1;
 }
 
