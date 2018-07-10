@@ -154,6 +154,7 @@ static void *read_completion(void *arg){
   struct keybuf_key *w = d->w;
   struct cache_set *c = d->c;
   int ret;
+  int i;
 
   if (KEY_DIRTY(&w->key) || !ptr_stale(c, &w->key, 0)) {
     struct bkey *new_key = NULL;
@@ -166,14 +167,19 @@ static void *read_completion(void *arg){
 
     bkey_copy_key(new_key, &w->key);
     SET_KEY_OFFSET(new_key, KEY_START(&w->key));
-    if (KEY_DIRTY(&w->key))
-      SET_KEY_DIRTY(new_key, true);
 
     // wirte moving gc to moving buckets
     if (!bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 1, 1)) {
       CACHE_ERRORLOG(MOVINGGC, "bch_alloc_sectors failed!\n");
       bch_keybuf_del(&c->moving_gc_keys, w);
       assert("bch_alloc_sectors" == 0);
+    }
+
+    if (KEY_DIRTY(&w->key)){
+      SET_KEY_DIRTY(new_key, true);
+      for (i = 0; i < KEY_PTRS(new_key); i++)
+	SET_GC_MARK(PTR_BUCKET(c, new_key, i),
+	    GC_MARK_DIRTY);
     }
 
     item->io.offset = PTR_OFFSET(new_key, 0) << 9;
