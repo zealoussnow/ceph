@@ -1,7 +1,8 @@
-
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <libaio.h>
 
 #include "libcache.h"
@@ -136,8 +137,12 @@ int t2store_cache_aio_get_cache_strategy(struct cache_context * ctx, struct ring
   return item->strategy;
 }
 
-int t2store_set_gc_stop(struct cache_context *ctx, int stop)
+int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_conf)
 {
-  set_gc_stop(ctx->cache, stop);
+  assert(u_conf != NULL);
+  if (!strcmp(u_conf->opt_name, "t2store_gc_stop")) {
+    set_gc_stop(ctx->cache, atoi(u_conf->val));
+  }
+
   return 0;
 }

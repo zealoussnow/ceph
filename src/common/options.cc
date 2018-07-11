@@ -3248,7 +3248,7 @@ std::vector<Option> get_global_options() {
 
     Option("t2store_gc_stop", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("0")
-    .set_enum_allowed({"0", "1", "false", "true"})
+    .set_enum_allowed({"0", "1"})
     .set_description("stop gc"),
 
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
