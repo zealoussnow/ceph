@@ -1207,8 +1207,8 @@ void CacheDevice::handle_conf_change(const struct md_config_t *conf,
       assert(r >= 0);
       u_conf.opt_name = *i;
       u_conf.val = pval;
-      dout(0) << "handle_conf_change " << this << " , opt_name: " << u_conf.opt_name << ", val: " << u_conf.val << dendl;
-      //t2store_handle_conf_change(&cache_ctx, u_conf);
+      dout(5) << "handle_conf_change " << this << " , opt_name: " << u_conf.opt_name << ", val: " << u_conf.val << dendl;
+      t2store_handle_conf_change(&cache_ctx, &u_conf);
     }
   }
 }
