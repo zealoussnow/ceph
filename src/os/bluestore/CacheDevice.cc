@@ -1197,10 +1197,18 @@ const char** CacheDevice::get_tracked_conf_keys() const
 void CacheDevice::handle_conf_change(const struct md_config_t *conf,
       const std::set <std::string> &changed)
 {
-  if (changed.count("t2store_gc_stop")) {
-    // get option value
-    int stop = cct->_conf->t2store_gc_stop;
-    dout(0) << "call t2store_gc_stop, stop is: " << stop << dendl;
-    t2store_set_gc_stop(&cache_ctx, stop);
+  struct update_conf u_conf;
+  memset(&u_conf, 0, sizeof(u_conf));
+
+  for (const char **i = get_tracked_conf_keys(); *i; ++i) {
+    if (changed.count(std::string(*i))) {
+      char *pval = NULL;
+      int r = conf->get_val(*i, &pval, -1);
+      assert(r >= 0);
+      u_conf.opt_name = *i;
+      u_conf.val = pval;
+      dout(0) << "handle_conf_change " << this << " , opt_name: " << u_conf.opt_name << ", val: " << u_conf.val << dendl;
+      //t2store_handle_conf_change(&cache_ctx, u_conf);
+    }
   }
 }
