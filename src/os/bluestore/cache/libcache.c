@@ -135,3 +135,9 @@ int t2store_cache_aio_get_cache_strategy(struct cache_context * ctx, struct ring
   //item->strategy = CACHE_MODE_WRITEBACK;
   return item->strategy;
 }
+
+int t2store_set_gc_stop(struct cache_context *ctx, int stop)
+{
+  set_gc_stop(ctx->cache, stop);
+  return 0;
+}

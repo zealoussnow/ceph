@@ -24,7 +24,7 @@ enum class IOCommand {
 
 class Task;
 
-class CacheDevice : public BlockDevice {
+class CacheDevice : public BlockDevice, public md_config_obs_t  {
   int fd_direct, fd_buffered, fd_cache;
   uint64_t size;
   uint64_t block_size;
@@ -89,6 +89,7 @@ class CacheDevice : public BlockDevice {
 
 public:
   CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv);
+  ~CacheDevice();
   struct cache_context cache_ctx;
   void aio_submit(IOContext *ioc) override;
   aio_callback_t aio_callback;
@@ -128,6 +129,11 @@ public:
   int cache_init(const std::string& path) override;
 
   void close() override;
+
+  // handle conf change
+  const char** get_tracked_conf_keys() const override;
+  void handle_conf_change(const struct md_config_t *conf,
+      const std::set <std::string> &changed) override;
 };
 
 #endif

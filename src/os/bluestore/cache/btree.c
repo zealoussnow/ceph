@@ -1664,14 +1664,9 @@ static bool gc_should_run(struct cache_set *c)
   return false;
 }
 
-void set_gc_stop(struct cache_set *c)
+void set_gc_stop(struct cache_set *c, int stop)
 {
-  atomic_set(&c->gc_stop, 1);
-}
-
-void set_gc_start(struct cache_set *c)
-{
-  atomic_set(&c->gc_stop, 0);
+  atomic_set(&c->gc_stop, stop);
 }
 
 static int bch_gc_thread(void *arg)

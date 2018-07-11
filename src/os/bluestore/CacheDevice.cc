@@ -148,7 +148,15 @@ CacheDevice::CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv)
     injecting_crash(0)
 {
   _init_logger();
+  dout(20) << "add observer..." << ", " << this << dendl;
+  cct->_conf->add_observer(this);
   cache_ctx.registered=false;
+}
+
+CacheDevice::~CacheDevice()
+{
+  dout(20) << "remove CacheDevice observer..." << dendl;
+  cct->_conf->remove_observer(this);
 }
 
 int CacheDevice::_lock()
@@ -1176,3 +1184,23 @@ int CacheDevice::invalidate_region(uint64_t off, uint64_t len)
   return ret;
 }
 
+const char** CacheDevice::get_tracked_conf_keys() const
+{
+  static const char *KEYS[] = {
+    "t2store_gc_stop",
+    NULL
+  };
+
+  return KEYS;
+}
+
+void CacheDevice::handle_conf_change(const struct md_config_t *conf,
+      const std::set <std::string> &changed)
+{
+  if (changed.count("t2store_gc_stop")) {
+    // get option value
+    int stop = cct->_conf->t2store_gc_stop;
+    dout(0) << "call t2store_gc_stop, stop is: " << stop << dendl;
+    t2store_set_gc_stop(&cache_ctx, stop);
+  }
+}
