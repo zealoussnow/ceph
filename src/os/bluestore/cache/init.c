@@ -1622,7 +1622,7 @@ cache_aio_writethrough_batch(struct cache *ca, struct ring_items * items)
     }
   }
 
-  if (aio_enqueue_batch(CACHE_THREAD_CACHE, ca->handler, items) < 0) {
+  if (aio_enqueue_batch(CACHE_THREAD_BACKEND, ca->handler, items) < 0) {
     assert( "writeback aio_enqueue error  " == 0);
   }
   return 0;
