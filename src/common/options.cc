@@ -3246,6 +3246,11 @@ std::vector<Option> get_global_options() {
     .set_default("/var/log/ceph")
     .set_description("cache log path"),
 
+    Option("t2store_gc_stop", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("0")
+    .set_enum_allowed({"0", "1", "false", "true"})
+    .set_description("stop gc"),
+
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")
     .add_tag("mkfs")

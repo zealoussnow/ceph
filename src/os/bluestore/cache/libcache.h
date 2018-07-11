@@ -47,6 +47,12 @@ enum cache_write_strategy {
   CACHE_MODE_NONE,
 };
 
+struct update_conf
+{
+  const char *opt_name;
+  const char *val;
+};
+
 struct ring_items;
 struct ring_item;
 
