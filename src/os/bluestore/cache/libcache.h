@@ -72,6 +72,7 @@ CEPH_CACHE_API int t2store_cache_aio_writethrough_batch(struct cache_context * c
 CEPH_CACHE_API int t2store_cache_aio_writearound_batch(struct cache_context * ctx, struct ring_items* items);
 CEPH_CACHE_API int t2store_cache_aio_thread_init(struct cache_context * ctx);
 CEPH_CACHE_API int t2store_cache_aio_get_cache_strategy(struct cache_context * ctx, struct ring_item *item);
+CEPH_CACHE_API int t2store_set_gc_stop(struct cache_context *ctx, int stop);
 
 #ifdef __cplusplus
 }
