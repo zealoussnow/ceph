@@ -100,7 +100,7 @@ static void update_writeback_rate(void *arg)
 
     /*schedule_delayed_work(&dc->writeback_rate_update,*/
     /*dc->writeback_rate_update_seconds * HZ);*/
-    sleep(1);
+    sleep(dc->writeback_rate_update_seconds);
   }
 }
 
