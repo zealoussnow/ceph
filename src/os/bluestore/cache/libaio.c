@@ -158,24 +158,30 @@ int aio_queue_submit(io_context_t ctx, unsigned len, struct iocb **iocbs)
   int delay = 125;
   int retries = 0;
   int r;
-  while (true) {
-    r = io_submit(ctx, len, iocbs);
-    if (r < 0) {
-      if (r == -EAGAIN && attempts-- > 0) {
-        usleep(delay);
-        delay *= 2;
-        retries++;
-        continue;
-      }
+  unsigned submit_num = len;
+  struct iocb **sbumit_iocbs = iocbs;
+  while (submit_num) {
+    assert(submit_num > 0);
+    assert((sbumit_iocbs + submit_num) == (iocbs + len));
+    r = io_submit(ctx, submit_num, sbumit_iocbs);
+    if (r == -EAGAIN && attempts-- > 0) {
+      usleep(delay);
+      delay *= 2;
+      retries++;
+      continue;
     }
     if (r != len){
-      CACHE_ERRORLOG(CAT_AIO," io_submit len=%u ret=%d retries=%d\n", len, r, retries);
+      CACHE_WARNLOG(CAT_AIO," io_submit len=%u submit=%u ret=%d retries=%d\n", len, submit_num, r, retries);
     }
-    assert(r == len);
-    break;
+    if (r < 0){
+      CACHE_ERRORLOG(CAT_AIO," io_submit len=%u submit=%u ret=%d retries=%d\n", len, submit_num, r, retries);
+      assert(r > 0);
+    }
+    submit_num -= r;
+    sbumit_iocbs += r;
   }
   if (retries){
-    CACHE_ERRORLOG(CAT_AIO," aio submit retries=%d\n", retries);
+    CACHE_WARNLOG(CAT_AIO," aio submit retries=%d\n", retries);
   }
   return r;
 }
