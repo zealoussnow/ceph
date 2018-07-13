@@ -26,6 +26,7 @@ struct ring_item {
     uint64_t o_len;
     atomic_t seq;
     atomic_t need_write_cache;
+    bool need_read_backend;
     struct io_u io;
     void *io_arg;
     io_completion_fn io_completion_cb;

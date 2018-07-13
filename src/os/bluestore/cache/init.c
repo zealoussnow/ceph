@@ -1971,6 +1971,9 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
    else if (KEY_OFFSET(key) - KEY_SIZE(key) > end) {
      return MAP_DONE;
    }
+   // skip not dirty
+   else if (item->need_read_backend && !KEY_DIRTY(key))
+     return MAP_CONTINUE;
    // todo: set a flag to switch read DIRTY
    // if full in cache, wo need to read undirty
    // if not full in cache, wo not need to read undirty
@@ -2082,7 +2085,7 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
     CACHE_DEBUGLOG(CAT_READ,"Read: not all data in cache, goto read backend \n");
     if (cache_read_hits(item))
       atomic_inc(&item->need_write_cache);
-    cache_aio_read_backend(item);
+    item->need_read_backend = true;
     return MAP_DONE;
   }
   // bkey in data
@@ -2092,7 +2095,6 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
     if (item->io.offset >= item->o_offset + item->o_len) {
       // all in ssd
       CACHE_DEBUGLOG(CAT_READ,"Read: all data in cache\n");
-      aio_read_backend_completion(item);
       return MAP_DONE;
     }
 
@@ -2122,6 +2124,7 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   item->iou_arg = item;
   item->ca_handler = ca;
   atomic_set(&item->need_write_cache, 0);
+  item->need_read_backend = false;
   item->start = cache_clock_now();
 
   atomic_add(1 + (len >> 8) / 2, &ca->set->dc->read_iops);
@@ -2129,6 +2132,12 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   bch_btree_op_init(&s.op, -1);
   bch_btree_map_keys(&s.op, ca->set, &KEY(0,(s.item->o_offset >> 9),0),
                         read_is_all_cache_fn, MAP_END_KEY);
+
+  if (item->need_read_backend)
+    cache_aio_read_backend(item);
+  else
+    aio_read_backend_completion(item);
+
   return ret;
 }
 
