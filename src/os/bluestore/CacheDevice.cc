@@ -1188,6 +1188,11 @@ const char** CacheDevice::get_tracked_conf_keys() const
 {
   static const char *KEYS[] = {
     "t2store_gc_stop",
+    "t2store_writeback_stop",
+    "t2store_cache_mode",
+    "t2store_writeback_percent",
+    "t2store_writeback_rate_update_seconds",
+    "t2store_sequential_cutoff",
     NULL
   };
 

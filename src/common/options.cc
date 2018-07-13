@@ -3251,6 +3251,28 @@ std::vector<Option> get_global_options() {
     .set_enum_allowed({"0", "1"})
     .set_description("stop gc"),
 
+    Option("t2store_writeback_stop", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("0")
+    .set_enum_allowed({"0", "1"})
+    .set_description("stop writeback"),
+
+    Option("t2store_cache_mode", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("0")
+    .set_enum_allowed({"0", "1", "2", "3"})
+    .set_description("cache mode"),
+
+    Option("t2store_writeback_percent", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("10")
+    .set_description("cache mode"),
+
+    Option("t2store_writeback_rate_update_seconds", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("5")
+    .set_description("writeback rate update seconds"),
+
+    Option("t2store_sequential_cutoff", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("512")
+    .set_description("sequential cutoff"),
+
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")
     .add_tag("mkfs")

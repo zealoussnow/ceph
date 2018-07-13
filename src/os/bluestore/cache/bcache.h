@@ -413,7 +413,7 @@ struct cached_dev {
   
   unsigned              partial_stripes_expensive:1;
   unsigned              writeback_metadata:1;
-  unsigned              writeback_running:1;
+  atomic_t              writeback_stop;
   unsigned char         writeback_percent;
   unsigned              writeback_delay;
   

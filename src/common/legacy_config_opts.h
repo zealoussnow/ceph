@@ -1027,6 +1027,11 @@ OPTION(t2store_poll_period, OPT_U64)
 OPTION(t2store_cache_thread_core_percent, OPT_FLOAT)
 OPTION(t2store_cache_log_path, OPT_STR)
 OPTION(t2store_gc_stop, OPT_STR)
+OPTION(t2store_writeback_stop, OPT_STR)
+OPTION(t2store_cache_mode, OPT_STR)
+OPTION(t2store_writeback_percent, OPT_STR)
+OPTION(t2store_writeback_rate_update_seconds, OPT_STR)
+OPTION(t2store_sequential_cutoff, OPT_STR)
 
 OPTION(bluestore_block_path, OPT_STR)
 OPTION(bluestore_block_size, OPT_U64)  // 10gb for testing

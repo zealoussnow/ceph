@@ -144,5 +144,25 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
     set_gc_stop(ctx->cache, atoi(u_conf->val));
   }
 
+  if (!strcmp(u_conf->opt_name, "t2store_writeback_stop")) {
+    set_writeback_stop(ctx->cache, atoi(u_conf->val));
+  }
+
+  if (!strcmp(u_conf->opt_name, "t2store_cache_mode")) {
+    set_writeback_stop(ctx->cache, atoi(u_conf->val));
+  }
+
+  if (!strcmp(u_conf->opt_name, "t2store_writeback_percent")) {
+    set_writeback_stop(ctx->cache, atoi(u_conf->val));
+  }
+
+  if (!strcmp(u_conf->opt_name, "t2store_writeback_rate_update_seconds")) {
+    set_writeback_stop(ctx->cache, atoi(u_conf->val));
+  }
+
+  if (!strcmp(u_conf->opt_name, "t2store_sequential_cutoff")) {
+    set_writeback_stop(ctx->cache, atoi(u_conf->val));
+  }
+
   return 0;
 }
