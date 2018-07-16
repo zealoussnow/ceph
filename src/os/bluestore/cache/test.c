@@ -361,6 +361,98 @@ void inorder_test()
   }
 }
 
+struct test_bkeys {
+  struct btree_op	op;
+  int pos;
+  struct bkey bkeys[100];
+};
+
+copy_fn(struct btree_op * op, struct btree *b)
+{
+  struct test_bkeys *tt = container_of(op, struct test_bkeys, op);
+  struct btree_iter iter;
+  struct bkey *k, *p = NULL;
+  printf("             %s \n", __func__);
+  for_each_key(&b->keys, k, &iter) {
+    if (KEY_SIZE(k)) {
+      bkey_copy(&tt->bkeys[tt->pos], k);
+      /*printf("node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",*/
+                        /*b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),*/
+                        /*KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k));*/
+      p = &tt->bkeys[tt->pos];
+      printf("node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
+                        b->level, KEY_OFFSET(&b->key), KEY_OFFSET(p) - KEY_SIZE(p),
+                        KEY_OFFSET(p), KEY_SIZE(p), PTR_OFFSET(p,0), KEY_PTRS(p), KEY_DIRTY(p));
+      tt->pos++;
+    }
+  }
+}
+do_bkey_replace_test(struct cache *ca)
+{
+  /*traverse_btree(ca);*/
+  printf(" ********* %s ********** \n", __func__);
+  void *data = NULL;
+  uint64_t len = 512*10;
+  uint64_t offset = 20*512;
+  uint64_t invalidate_offset = 0;
+
+  posix_memalign((void **)&data, 512, len);
+  memset(data, 'b', len);
+  cache_aio_write(ca, data, offset, len, NULL, NULL);
+  sleep(2);
+  traverse_btree(ca);
+
+  printf("\n ------- copy big bkey ------------\n");
+  struct test_bkeys *op;
+  op = calloc(1, sizeof(struct test_bkeys));
+  bch_btree_map_nodes(&op->op,ca->set,NULL,copy_fn);
+  int i = 0;
+  struct bkey *p= NULL;
+  for(i; i<op->pos; i++) {
+    p = &op->bkeys[i];
+    printf("pos %d : bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
+                        i, KEY_OFFSET(p) - KEY_SIZE(p),
+                        KEY_OFFSET(p), KEY_SIZE(p), PTR_OFFSET(p,0), KEY_PTRS(p), KEY_DIRTY(p));
+  }
+  printf(" ------- copy big bkey end------------\n");
+  printf(" \n---------- change middle bkey -----------\n");
+  cache_aio_write(ca, data, offset+0*512, 512*2, NULL, NULL);
+  cache_aio_write(ca, data, offset+4*512, 512*2, NULL, NULL);
+  cache_aio_write(ca, data, offset+7*512, 512*3, NULL, NULL);
+  sleep(2);
+  traverse_btree(ca);
+  printf(" ---------- change middle bkey end-----------\n");
+
+  printf("\n ---------- now insert origin big bkey and replace bkey -------\n");
+  struct keylist *insert_keys = NULL;
+  struct bkey *replace_key = NULL;
+  insert_keys = calloc(1, sizeof(*insert_keys));
+  replace_key = calloc(1, sizeof(*replace_key));
+  bkey_copy(replace_key, p);
+  SET_KEY_DIRTY(p,false);
+  bch_keylist_init(insert_keys);
+  bkey_copy(insert_keys->keys, p);
+  bch_keylist_push(insert_keys);
+  atomic_t *journal_ref = NULL;
+  journal_ref = bch_journal(ca->set, insert_keys);
+  printf("replace_key -------  bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
+                KEY_OFFSET(replace_key) - KEY_SIZE(replace_key),
+                KEY_OFFSET(replace_key), KEY_SIZE(replace_key), 
+                PTR_OFFSET(replace_key,0), KEY_PTRS(replace_key), KEY_DIRTY(replace_key));
+  struct bkey *ii = insert_keys->keys;
+  printf("insert_bkey -------  bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
+                KEY_OFFSET(ii) - KEY_SIZE(ii),KEY_OFFSET(ii), KEY_SIZE(ii), 
+                PTR_OFFSET(ii,0), KEY_PTRS(ii), KEY_DIRTY(ii));
+
+  bch_btree_insert(ca->set, insert_keys, journal_ref, replace_key);
+  sleep(1);
+  traverse_btree(ca);
+  printf(" ---------- insert origin big bkey and replace bkey end-------\n");
+  
+ 
+  printf(" ********* done write big test ********** \n");
+
+}
 
 void *log_fn(void *cd, int serial, struct timespec start, struct timespec end){
 
@@ -407,6 +499,7 @@ int main()
   /*sleep(5);*/
   /*traverse_btree(ca);*/
 
+  //do_bkey_replace_test(ca);
   while(1) {
     sleep(5);
   }

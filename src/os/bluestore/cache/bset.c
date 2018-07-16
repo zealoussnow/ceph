@@ -848,6 +848,11 @@ void bch_bset_insert(struct btree_keys *b, struct bkey *where,
   dump_bset_tree_binary_tree("inserting", t);
 }
 
+void bkey_move(struct bkey *k, u64 sectors_move){
+  SET_KEY_SIZE(k, KEY_SIZE(k)-sectors_move);
+  SET_PTR_OFFSET(k,0,PTR_OFFSET(k,0)+sectors_move);
+}
+
 unsigned bch_btree_insert_key(struct btree_keys *b, struct bkey *k,
                               struct bkey *replace_key)
 {
@@ -855,44 +860,67 @@ unsigned bch_btree_insert_key(struct btree_keys *b, struct bkey *k,
   struct bset *i = bset_tree_last(b)->data;
   struct bkey *m, *prev = NULL;
   struct btree_iter iter;
+  u64 sectors_move;
 
   BUG_ON(b->ops->is_extents && !KEY_SIZE(k));
-  dump_bkey("inserting", k);
-  m = bch_btree_iter_init(b, &iter, b->ops->is_extents
-      ? PRECEDING_KEY(&START_KEY(k))    
-      : PRECEDING_KEY(k));
-  if (b->ops->insert_fixup(b, k, &iter, replace_key)) {
-    return status;
-  }
-  status = BTREE_INSERT_STATUS_INSERT;
-  while (m != bset_bkey_last(i) &&
-      bkey_cmp(k, b->ops->is_extents ? &START_KEY(m) : m) > 0) {
-    prev = m, m = bkey_next(m);
+  BKEY_PADDED(key) k_cpy;
+  BKEY_PADDED(key) r_cpy;
+  bkey_copy(&k_cpy.key, k);
+  if (replace_key){
+    bkey_copy(&r_cpy.key, replace_key);
+    replace_key = &r_cpy.key;
   }
 
-  /* prev is in the tree, if we merge we're done */
-  status = BTREE_INSERT_STATUS_BACK_MERGE;
-  if (prev && bch_bkey_try_merge(b, prev, k)) {
-    dump_bkey("inserting merged to prev",prev);
-    goto merged;
-  }
+  while (1) {
+    dump_bkey("inserting", k);
+    m = bch_btree_iter_init(b, &iter, b->ops->is_extents
+                                      ? PRECEDING_KEY(&START_KEY(k))
+                                      : PRECEDING_KEY(k));
+    if (b->ops->insert_fixup(b, k, &iter, replace_key, &sectors_move)){
+      goto merged;
+    }
+    status = BTREE_INSERT_STATUS_INSERT;
+    while (m != bset_bkey_last(i) &&
+           bkey_cmp(k, b->ops->is_extents ? &START_KEY(m) : m) > 0) {
+      prev = m, m = bkey_next(m);
+    }
+
+    /* prev is in the tree, if we merge we're done */
+    status = BTREE_INSERT_STATUS_BACK_MERGE;
+    if (prev && bch_bkey_try_merge(b, prev, k)) {
+      dump_bkey("inserting merged to prev", prev);
+      goto merged;
+    }
 #if 0
-  status = BTREE_INSERT_STATUS_OVERWROTE;
-  if (m != bset_bkey_last(i) && KEY_PTRS(m) == KEY_PTRS(k) && !KEY_SIZE(m)) {
-    goto copy;
-  }
+    status = BTREE_INSERT_STATUS_OVERWROTE;
+    if (m != bset_bkey_last(i) && KEY_PTRS(m) == KEY_PTRS(k) && !KEY_SIZE(m)) {
+      goto copy;
+    }
 #endif
-  status = BTREE_INSERT_STATUS_FRONT_MERGE;
-  if (m != bset_bkey_last(i) && bch_bkey_try_merge(b, k, m)) {
-    dump_bkey("inserting copy to",m);
-    goto copy;
-  }
+    status = BTREE_INSERT_STATUS_FRONT_MERGE;
+    if (m != bset_bkey_last(i) && bch_bkey_try_merge(b, k, m)) {
+      dump_bkey("inserting copy to", m);
+      goto copy;
+    }
 
-  bch_bset_insert(b, m, k);
-copy:	
-  bkey_copy(m, k);
-merged:
-  return status;
+    bch_bset_insert(b, m, k);
+  copy:
+    bkey_copy(m, k);
+  merged:
+    bkey_copy(k, &k_cpy.key);
+    if (replace_key && sectors_move < KEY_SIZE(replace_key)) {
+      bkey_move(replace_key, sectors_move);
+      if (KEY_OFFSET(k) <= KEY_START(replace_key)) {
+        return status;
+      }
+      if (KEY_START(k) < KEY_START(replace_key)) {
+        bkey_move(k, KEY_START(replace_key) - KEY_START(k));
+      }
+      continue;
+    } else {
+      return status;
+    }
+  }
 }
 
 /* Lookup */
