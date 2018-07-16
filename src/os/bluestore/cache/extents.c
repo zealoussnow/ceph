@@ -227,8 +227,9 @@ bch_btree_ptr_bad(struct btree_keys *bk, const struct bkey *k)
 
 static bool 
 bch_btree_ptr_insert_fixup(struct btree_keys *bk,struct bkey *insert,
-                                struct btree_iter *iter,
-                                struct bkey *replace_key)
+                           struct btree_iter *iter,
+                           struct bkey *replace_key,
+                           u64 *sectors_move)
 {
   /* 根据结构体变量中某个成员的地址，进而获得整个结构体变量的首地址 */
   struct btree *b = container_of(bk, struct btree, keys);
@@ -321,10 +322,11 @@ bch_subtract_dirty(struct bkey *k,struct cache_set *c,
   }
 }
 
-static bool 
-bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
-                                    struct btree_iter *iter,
-                                    struct bkey *replace_key)
+static bool
+bch_extent_insert_fixup(struct btree_keys *b, struct bkey *insert,
+                        struct btree_iter *iter,
+                        struct bkey *replace_key,
+                        u64 *sectors_move)
 {
   struct cache_set *c = container_of(b, struct btree, keys)->c;
   uint64_t old_offset;
@@ -332,6 +334,8 @@ bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
 
   BUG_ON(!KEY_OFFSET(insert));
   BUG_ON(!KEY_SIZE(insert));
+  // Record the already compared length of replace_key
+  *sectors_move = 0;
 
   dump_bkey("fixup insert", insert);
   while (1) {
@@ -384,22 +388,28 @@ bch_extent_insert_fixup(struct btree_keys *b,struct bkey *insert,
       /* But it must be a subset of the replace key */
       if (KEY_START(k) < KEY_START(replace_key) ||
                         KEY_OFFSET(k) > KEY_OFFSET(replace_key)) {
-	goto check_failed;
+        *sectors_move = KEY_SIZE(replace_key);
+        goto check_failed;
       }
       /* We didn't find a key that we were supposed to */
       if (KEY_START(k) > KEY_START(insert) + sectors_found) {
+        *sectors_move = KEY_SIZE(replace_key);
         goto check_failed;
       }
       if (!bch_bkey_equal_header(k, replace_key)) {
+        *sectors_move = KEY_SIZE(replace_key);
         goto check_failed;
       }
       /* skip past gen */
       offset <<= 8;
       BUG_ON(!KEY_PTRS(replace_key));
       for (i = 0; i < KEY_PTRS(replace_key); i++)
-        if (k->ptr[i] != replace_key->ptr[i] + offset)
+        if (k->ptr[i] != replace_key->ptr[i] + offset){
+          *sectors_move = KEY_OFFSET(k) - KEY_START(replace_key);
           goto check_failed;
+        }
       sectors_found = KEY_OFFSET(k) - KEY_START(insert);
+      *sectors_move = KEY_OFFSET(k) - KEY_START(replace_key);
     }
     if (bkey_cmp(insert, k) < 0 &&
                 bkey_cmp(&START_KEY(insert), &START_KEY(k)) > 0) {

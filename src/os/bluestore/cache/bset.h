@@ -191,7 +191,8 @@ struct btree_keys_ops {
   bool		(*sort_cmp)(struct btree_iter_set, struct btree_iter_set);
   struct bkey	*(*sort_fixup)(struct btree_iter *, struct bkey *);
   bool		(*insert_fixup)(struct btree_keys *, struct bkey *, 
-                                struct btree_iter *, struct bkey *);
+                          struct btree_iter *, struct bkey *,
+                          u64 *sectors_move);
   bool		(*key_invalid)(struct btree_keys *, const struct bkey *);
   bool		(*key_bad)(struct btree_keys *, const struct bkey *);
   bool		(*key_merge)(struct btree_keys *, struct bkey *, struct bkey *);
