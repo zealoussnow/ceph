@@ -596,10 +596,14 @@ static int bch_writeback_thread(void *arg)
     pthread_rwlock_wrlock(&dc->writeback_lock);
 
     /* 如果不为dirty或者writeback机制未运行时，该线程让出CPU控制权 */
-    if (!atomic_read(&dc->has_dirty)) {
+    if (!atomic_read(&dc->has_dirty) || atomic_read(&dc->writeback_stop)) {
+      struct timespec out;
+      gettimeofday(&out, NULL);
+      out.tv_sec+=1;
+
       pthread_rwlock_unlock(&dc->writeback_lock);
       pthread_mutex_lock(&dc->writeback_mut);
-      pthread_cond_wait(&dc->writeback_cond, &dc->writeback_mut);
+      pthread_cond_timedwait(&dc->writeback_cond, &dc->writeback_mut, &out);
       pthread_mutex_unlock(&dc->writeback_mut);
 
       continue;
@@ -674,10 +678,10 @@ void bch_cached_dev_writeback_init(struct cached_dev *dc)
   pthread_rwlock_init(&dc->writeback_lock, NULL);
   bch_keybuf_init(&dc->writeback_keys);
 
-  dc->sequential_cutoff           = 4 << 20;
+  dc->sequential_cutoff           = 512 << 10;
   dc->writeback_metadata		= true;
-  dc->writeback_running		= true;
-  dc->writeback_percent		= 2;
+  atomic_set(&dc->writeback_stop, 0);
+  dc->writeback_percent		= 10;
   dc->writeback_delay		= 3;
   dc->writeback_rate.rate		= 1024;
 

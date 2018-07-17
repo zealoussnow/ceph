@@ -1667,9 +1667,34 @@ static bool gc_should_run(struct cache_set *c)
   return false;
 }
 
-void set_gc_stop(struct cache_set *c, int stop)
+void set_gc_stop(struct cache *ca, int stop)
 {
-  atomic_set(&c->gc_stop, stop);
+  atomic_set(&ca->set->gc_stop, stop);
+}
+
+void set_writeback_stop(struct cache *ca, int stop)
+{
+  atomic_set(&ca->set->dc->writeback_stop, stop);
+}
+
+void set_cache_mode(struct cache *ca, int mode)
+{
+  SET_BDEV_CACHE_MODE(&ca->set->dc->sb, mode);
+}
+
+void set_writeback_percent(struct cache *ca, int percent)
+{
+  ca->set->dc->writeback_percent = percent;
+}
+
+void set_writeback_rate_update_seconds(struct cache *ca, int wb_rate_update_seconds)
+{
+  ca->set->dc->writeback_rate_update_seconds = wb_rate_update_seconds;
+}
+
+void set_sequential_cutoff(struct cache *ca, int sequential_cutoff)
+{
+  ca->set->dc->sequential_cutoff = sequential_cutoff << 10;
 }
 
 static int bch_gc_thread(void *arg)

@@ -845,7 +845,6 @@ static int cached_dev_init(struct cached_dev *dc)
     list_add(&io->lru, &dc->io_lru);
     hlist_add_head(&io->hash, dc->io_hash + RECENT_IO);
   }
-  dc->sequential_cutoff = 4 << 20;
 
   /*if (BDEV_STATE(&dc->c->sb) == BDEV_STATE_DIRTY) {*/
         /*bch_sectors_dirty_init(dc);*/
