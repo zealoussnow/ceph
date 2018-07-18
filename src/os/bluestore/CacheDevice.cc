@@ -26,6 +26,7 @@
 #include "include/types.h"
 #include "include/compat.h"
 #include "include/stringify.h"
+#include "common/admin_socket.h"
 #include "common/errno.h"
 #include "common/debug.h"
 #include "common/blkdev.h"
@@ -204,6 +205,9 @@ int CacheDevice::cache_init(const std::string& path)
 
   if(_aio_start())
     return r;
+
+  // register asok command
+  asok_register();
 
   return r;
 }
@@ -1216,4 +1220,77 @@ void CacheDevice::handle_conf_change(const struct md_config_t *conf,
       t2store_handle_conf_change(&cache_ctx, &u_conf);
     }
   }
+}
+
+
+class CacheSocketHook : public AdminSocketHook {
+public:
+  explicit CacheSocketHook(CacheDevice *cd) : cache_device(cd) { }
+
+  bool call(std::string command, cmdmap_t& cmdmap, std::string format,
+      bufferlist& out) override {
+    stringstream ss;
+    bool r = cache_device->asok_command(command, cmdmap, format, ss);
+    out.append(ss);
+    return r;
+  }
+
+private:
+  CacheDevice *cache_device;
+};
+
+bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
+                               string format, ostream& ss)
+{
+  std::unique_ptr<Formatter> f(Formatter::create(format, "json-pretty", "json"));
+  if (command == "dump_btree_status") {
+    // TODO
+  }
+
+  if (command == "dump_wb_status") {
+    struct wb_status ws;
+    t2store_wb_status(&cache_ctx, &ws);
+    f->open_object_section("wb_status");
+    f->dump_unsigned("dirty_sectors", ws.dirty_sectors);
+    f->dump_int("sequential_cutoff", ws.sequential_cutoff);
+    f->dump_int("writeback_percent", ws.writeback_percent);
+    f->dump_int("writeback_delay(s)", ws.writeback_delay);
+    f->dump_int("real_wb_delay(us)", ws.real_wb_delay);
+    f->dump_int("writeback_rate", ws.writeback_rate);
+    f->dump_int("writeback_rate_d_term", ws.writeback_rate_d_term);
+    f->dump_int("writeback_rate_p_term_inverse", ws.writeback_rate_p_term_inverse);
+    f->dump_int("writeback_rate_update_seconds", ws.writeback_rate_update_seconds);
+    f->close_section();
+  }
+
+  if (command == "dump_gc_status") {
+    struct gc_status gs;
+    t2store_gc_status(&cache_ctx, &gs);
+    f->open_object_section("gc status");
+    f->dump_float("gc_mark_in_use(%)", gs.gc_mark_in_use);
+    f->dump_unsigned("gc_avail_buckets", gs.avail_nbuckets);
+    f->dump_int("sectors_to_gc", gs.sectors_to_gc);
+    f->close_section();
+  }
+
+  f->flush(ss);
+
+  return true;
+}
+
+void CacheDevice::asok_register()
+{
+  AdminSocket *admin_socket = cct->get_admin_socket();
+  asok_hook = new CacheSocketHook(this);
+
+  int r = admin_socket->register_command("dump_btree_status", "dump_btree_status",
+                                     asok_hook, "dump btree status");
+  assert(r == 0);
+
+  r = admin_socket->register_command("dump_wb_status", "dump_wb_status",
+                                     asok_hook, "dump writeback status");
+  assert(r == 0);
+  r = admin_socket->register_command("dump_gc_status", "dump_gc_status",
+                                     asok_hook, "dump gc status");
+  assert(r == 0);
 }

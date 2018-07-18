@@ -416,6 +416,7 @@ struct cached_dev {
   atomic_t              writeback_stop;
   unsigned char         writeback_percent;
   unsigned              writeback_delay;
+  atomic_t              real_wb_delay;
   
   uint64_t              writeback_rate_target;
   int64_t                       writeback_rate_proportional;

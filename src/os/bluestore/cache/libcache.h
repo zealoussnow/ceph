@@ -53,6 +53,26 @@ struct update_conf
   const char *val;
 };
 
+struct wb_status
+{
+  int sequential_cutoff;
+  int writeback_percent;
+  int writeback_delay;
+  int real_wb_delay;
+  int writeback_rate;
+  uint64_t dirty_sectors;
+  unsigned writeback_rate_d_term;
+  unsigned writeback_rate_p_term_inverse;
+  int writeback_rate_update_seconds;
+};
+
+struct gc_status
+{
+  uint64_t avail_nbuckets;
+  int sectors_to_gc;
+  double gc_mark_in_use;
+};
+
 struct ring_items;
 struct ring_item;
 
@@ -79,6 +99,8 @@ CEPH_CACHE_API int t2store_cache_aio_writearound_batch(struct cache_context * ct
 CEPH_CACHE_API int t2store_cache_aio_thread_init(struct cache_context * ctx);
 CEPH_CACHE_API int t2store_cache_aio_get_cache_strategy(struct cache_context * ctx, struct ring_item *item);
 CEPH_CACHE_API int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_conf);
+CEPH_CACHE_API int t2store_wb_status(struct cache_context *ctx, struct wb_status *s);
+CEPH_CACHE_API int t2store_gc_status(struct cache_context *ctx, struct gc_status *s);
 
 #ifdef __cplusplus
 }

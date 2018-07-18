@@ -8,6 +8,7 @@
 #include "libcache.h"
 /*#include "cache.h"*/
 #include "bcache.h"
+#include "writeback.h"
 
 
 int t2store_cache_write_cache_sb(const char *log_path, const char *whoami, const char *dev, 
@@ -163,6 +164,42 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
   if (!strcmp(u_conf->opt_name, "t2store_sequential_cutoff")) {
     set_sequential_cutoff(ctx->cache, atoi(u_conf->val));
   }
+
+  return 0;
+}
+
+static void get_wb_status(struct cached_dev *dc, struct wb_status *s)
+{
+  s->writeback_rate    = dc->writeback_rate.rate;
+  s->dirty_sectors     = get_sectors_dirty(dc);
+  s->writeback_percent = dc->writeback_percent;
+  s->sequential_cutoff = dc->sequential_cutoff;
+  s->writeback_delay   = dc->writeback_delay;
+  s->real_wb_delay     = atomic_read(&dc->real_wb_delay);
+  s->writeback_rate_d_term = dc->writeback_rate_d_term;
+  s->writeback_rate_p_term_inverse = dc->writeback_rate_p_term_inverse;
+  s->writeback_rate_update_seconds = dc->writeback_rate_update_seconds;
+}
+
+static void get_gc_status(struct cache_set *c, struct gc_status *s)
+{
+  s->gc_mark_in_use    = (c->nbuckets - c->avail_nbuckets) * 100.0 / c->nbuckets;
+  s->avail_nbuckets    = c->avail_nbuckets;
+  s->sectors_to_gc     = atomic_read(&c->sectors_to_gc);
+}
+
+int t2store_wb_status(struct cache_context *ctx, struct wb_status *s)
+{
+  struct cache *ca = (struct cache *)ctx->cache;
+  get_wb_status(ca->set->dc, s);
+
+  return 0;
+}
+
+int t2store_gc_status(struct cache_context *ctx, struct gc_status *s)
+{
+  struct cache *ca = (struct cache *)ctx->cache;
+  get_gc_status(ca->set, s);
 
   return 0;
 }

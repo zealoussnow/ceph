@@ -86,6 +86,9 @@ class CacheDevice : public BlockDevice, public md_config_obs_t  {
   utime_t debug_stall_since;
   void debug_aio_link(aio_t& aio);
   void debug_aio_unlink(aio_t& aio);
+  friend class CacheSocketHook;
+  class CacheSocketHook *asok_hook;
+  void asok_register();
 
 public:
   CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv);
@@ -134,6 +137,8 @@ public:
   const char** get_tracked_conf_keys() const override;
   void handle_conf_change(const struct md_config_t *conf,
       const std::set <std::string> &changed) override;
+  // handle new asok command for cache module
+  bool asok_command(string admin_command, cmdmap_t& cmdmap, string format, ostream& ss);
 };
 
 #endif
