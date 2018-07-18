@@ -110,5 +110,6 @@ void bcache_dev_sectors_dirty_add(struct cache_set *, unsigned, uint64_t, int);
 void bch_sectors_dirty_init(struct cached_dev *);
 void bch_cached_dev_writeback_init(struct cached_dev *);
 int bch_cached_dev_writeback_start(struct cached_dev *);
+uint64_t get_sectors_dirty(struct cached_dev *dc);
 
 #endif

@@ -430,6 +430,7 @@ static void read_dirty(struct cached_dev *dc)
     }
 
     delay = writeback_delay(dc, size);
+    atomic_set(&dc->real_wb_delay, delay);
     usleep(delay);
   }
 
@@ -748,4 +749,9 @@ int bch_cached_dev_writeback_start(struct cached_dev *dc)
   /*}*/
 
   return 0;
+}
+
+uint64_t get_sectors_dirty(struct cached_dev *dc)
+{
+  return bcache_dev_sectors_dirty(dc);
 }
