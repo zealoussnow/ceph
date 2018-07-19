@@ -371,6 +371,11 @@ struct cached_dev {
   unsigned              pre_read_wait;
   //struct delayed_work writeback_rate_update;
   
+  // control writeback cutoffs
+  int                   cutoff_writeback;
+  int                   cutoff_writeback_sync;
+  int                   cutoff_cache_add;
+
   /*
   * Internal to the writeback code, so read_dirty() can keep track of
   * where it's at.
@@ -509,6 +514,9 @@ struct cache {
   atomic_long_t         meta_sectors_written;
   atomic_long_t         btree_sectors_written;
   atomic_long_t         sectors_written;
+  uint64_t btree_nodes;
+  uint64_t btree_nbkeys;
+  bool dump_btree_detail;
 };
 
 struct gc_stat {

@@ -32,6 +32,8 @@ extern void cache_zlog(const char *cat_type, const char *file,
 #define MOVINGGC "movinggc"
 #define WRITEBACK "writeback"
 
+#define ZLOG_LEVEL_DUMP 130
+
 #define CACHE_ERRORLOG(cat_type, format, args...) \
         cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
         ZLOG_LEVEL_ERROR, format, ##args)
@@ -51,6 +53,10 @@ extern void cache_zlog(const char *cat_type, const char *file,
 #define CACHE_DEBUGLOG(cat_type, format, args...) \
         cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
         ZLOG_LEVEL_DEBUG, format, ##args)
+
+#define CACHE_DUMPLOG(cat_type, format, args...) \
+        cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
+        ZLOG_LEVEL_DUMP, format, ##args)
 
 #endif
 

@@ -1032,6 +1032,9 @@ OPTION(t2store_cache_mode, OPT_STR)
 OPTION(t2store_writeback_percent, OPT_STR)
 OPTION(t2store_writeback_rate_update_seconds, OPT_STR)
 OPTION(t2store_sequential_cutoff, OPT_STR)
+OPTION(t2store_cutoff_writeback, OPT_STR)
+OPTION(t2store_cutoff_writeback_sync, OPT_STR)
+OPTION(t2store_cutoff_cache_add, OPT_STR)
 
 OPTION(bluestore_block_path, OPT_STR)
 OPTION(bluestore_block_size, OPT_U64)  // 10gb for testing
