@@ -141,6 +141,7 @@ int t2store_cache_aio_get_cache_strategy(struct cache_context * ctx, struct ring
 int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_conf)
 {
   assert(u_conf != NULL);
+  struct cache *ca = (struct cache *)ctx->cache;
   if (!strcmp(u_conf->opt_name, "t2store_gc_stop")) {
     set_gc_stop(ctx->cache, atoi(u_conf->val));
   }
@@ -165,6 +166,18 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
     set_sequential_cutoff(ctx->cache, atoi(u_conf->val));
   }
 
+  if (!strcmp(u_conf->opt_name, "t2store_cutoff_writeback")) {
+    set_writeback_cutoff(ca->set->dc, atoi(u_conf->val));
+  }
+
+  if (!strcmp(u_conf->opt_name, "t2store_cutoff_writeback_sync")) {
+    set_writeback_sync_cutoff(ca->set->dc, atoi(u_conf->val));
+  }
+
+  if (!strcmp(u_conf->opt_name, "t2store_cutoff_cache_add")) {
+    set_cache_add_cutoff(ca->set->dc, atoi(u_conf->val));
+  }
+
   return 0;
 }
 
@@ -179,6 +192,9 @@ static void get_wb_status(struct cached_dev *dc, struct wb_status *s)
   s->writeback_rate_d_term = dc->writeback_rate_d_term;
   s->writeback_rate_p_term_inverse = dc->writeback_rate_p_term_inverse;
   s->writeback_rate_update_seconds = dc->writeback_rate_update_seconds;
+  s->cutoff_writeback      = dc->cutoff_writeback;
+  s->cutoff_writeback_sync = dc->cutoff_writeback_sync;
+  s->cutoff_cache_add      = dc->cutoff_cache_add;
 }
 
 static void get_gc_status(struct cache_set *c, struct gc_status *s)
@@ -202,4 +218,10 @@ int t2store_gc_status(struct cache_context *ctx, struct gc_status *s)
   get_gc_status(ca->set, s);
 
   return 0;
+}
+
+int t2store_set_dump_btree_detail(struct cache_context *ctx, bool detail)
+{
+  struct cache *ca = (struct cache *)ctx->cache;
+  ca->dump_btree_detail = detail;
 }

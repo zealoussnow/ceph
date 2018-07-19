@@ -64,6 +64,9 @@ struct wb_status
   unsigned writeback_rate_d_term;
   unsigned writeback_rate_p_term_inverse;
   int writeback_rate_update_seconds;
+  int cutoff_writeback;
+  int cutoff_writeback_sync;
+  int cutoff_cache_add;
 };
 
 struct gc_status
@@ -71,6 +74,12 @@ struct gc_status
   uint64_t avail_nbuckets;
   int sectors_to_gc;
   double gc_mark_in_use;
+};
+
+struct btree_info
+{
+  int btree_nodes;
+  int btree_nbkeys;
 };
 
 struct ring_items;
@@ -101,6 +110,8 @@ CEPH_CACHE_API int t2store_cache_aio_get_cache_strategy(struct cache_context * c
 CEPH_CACHE_API int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_conf);
 CEPH_CACHE_API int t2store_wb_status(struct cache_context *ctx, struct wb_status *s);
 CEPH_CACHE_API int t2store_gc_status(struct cache_context *ctx, struct gc_status *s);
+CEPH_CACHE_API int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi);
+CEPH_CACHE_API int t2store_set_dump_btree_detail(struct cache_context *ctx, bool detail);
 
 #ifdef __cplusplus
 }

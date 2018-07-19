@@ -1112,12 +1112,24 @@ traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
 {
   CACHE_DEBUGLOG("traverse", ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n", 
                         b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
+  if (b->c->cache[0]->dump_btree_detail)
+    CACHE_DUMPLOG(NULL, ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n",
+                          b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
   struct bkey *k, *p = NULL;
   struct btree_iter iter;
   for_each_key(&b->keys, k, &iter) {
     CACHE_DEBUGLOG("traverse", "node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
                         b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),
                         KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k));
+    if (b->c->cache[0]->dump_btree_detail)
+      CACHE_DUMPLOG(NULL, "node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
+                          b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),
+                          KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k));
+    if (b->level == 0) {
+      b->c->cache[0]->btree_nbkeys++;
+    } else if (b->level == 1) {
+      b->c->cache[0]->btree_nodes++;
+    }
   }
 
   return MAP_CONTINUE;
@@ -1129,6 +1141,41 @@ traverse_btree(struct cache * c)
   struct btree_insert_op op;
   bch_btree_op_init(&op.op, 0);
   bch_btree_map_nodes(&op.op,c->set,NULL,traverse_btree_keys_fn);
+}
+
+int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi)
+{
+  struct cache *ca = ctx->cache;
+  ca->btree_nodes  =  0;
+  ca->btree_nbkeys =  0;
+  traverse_btree(ctx->cache);
+  CACHE_ERRORLOG(NULL, "cache %p btree_nodes: %lu, btree_nbkeys: %lu, dump_btree_detail: %d\n", ca, ca->btree_nodes, ca->btree_nbkeys, ca->dump_btree_detail);
+  if (bi) {
+    bi->btree_nodes  = ca->btree_nodes;
+    bi->btree_nbkeys = ca->btree_nbkeys;
+  }
+}
+
+void set_writeback_cutoff(struct cached_dev *dc, int val)
+{
+  dc->cutoff_writeback = val;
+}
+
+void set_writeback_sync_cutoff(struct cached_dev *dc, int val)
+{
+  dc->cutoff_writeback_sync = val;
+}
+
+void set_cache_add_cutoff(struct cached_dev *dc, int val)
+{
+  dc->cutoff_cache_add = val;
+}
+
+static void set_writeback_cutoffs(struct cached_dev *dc)
+{
+  dc->cutoff_writeback      = CUTOFF_WRITEBACK;
+  dc->cutoff_writeback_sync = CUTOFF_WRITEBACK_SYNC;
+  dc->cutoff_cache_add      = CUTOFF_CACHE_ADD;
 }
 
 int 
@@ -1164,6 +1211,7 @@ init(struct cache * ca)
 
   bch_moving_init_cache_set(ca->set);
   bch_gc_thread_start(ca->set);
+  set_writeback_cutoffs(ca->set->dc);
 
   return 0;
 }
@@ -1655,7 +1703,7 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
 
   struct current_thread *task = NULL;
 
-  if (c->gc_stats.in_use > CUTOFF_CACHE_ADD)
+  if (c->gc_stats.in_use > dc->cutoff_cache_add)
     goto skip;
 
   if (mode == CACHE_MODE_NONE || mode == CACHE_MODE_WRITEAROUND)
@@ -1728,13 +1776,13 @@ static bool should_writeback(struct cached_dev *dc, unsigned int cache_mode, boo
 {
   unsigned in_use = dc->c->gc_stats.in_use;
 
-  if (cache_mode != CACHE_MODE_WRITEBACK || in_use > CUTOFF_WRITEBACK_SYNC)
+  if (cache_mode != CACHE_MODE_WRITEBACK || in_use > dc->cutoff_writeback_sync)
     return false;
 
   if (would_skip)
     return false;
 
-  return in_use <= CUTOFF_WRITEBACK;
+  return in_use <= dc->cutoff_writeback;
 }
 
 int get_cache_strategy(struct cache *ca, struct ring_item *item)

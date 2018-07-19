@@ -1197,6 +1197,9 @@ const char** CacheDevice::get_tracked_conf_keys() const
     "t2store_writeback_percent",
     "t2store_writeback_rate_update_seconds",
     "t2store_sequential_cutoff",
+    "t2store_cutoff_writeback",
+    "t2store_cutoff_writeback_sync",
+    "t2store_cutoff_cache_add",
     NULL
   };
 
@@ -1218,6 +1221,7 @@ void CacheDevice::handle_conf_change(const struct md_config_t *conf,
       u_conf.val = pval;
       dout(5) << "handle_conf_change " << this << " , opt_name: " << u_conf.opt_name << ", val: " << u_conf.val << dendl;
       t2store_handle_conf_change(&cache_ctx, &u_conf);
+      free(pval);
     }
   }
 }
@@ -1243,8 +1247,20 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
                                string format, ostream& ss)
 {
   std::unique_ptr<Formatter> f(Formatter::create(format, "json-pretty", "json"));
-  if (command == "dump_btree_status") {
-    // TODO
+  // dump number of btree nodes and number of bkeys
+  if (command == "dump_btree_info") {
+    struct btree_info bi;
+    t2store_set_dump_btree_detail(&cache_ctx, false);
+    t2store_btree_info(&cache_ctx, &bi);
+    f->open_object_section("wb_status");
+    f->dump_int("btree_nodes", bi.btree_nodes);
+    f->dump_int("btree_nbkeys", bi.btree_nbkeys);
+    f->close_section();
+  }
+
+  if (command == "dump_btree_detail") {
+    t2store_set_dump_btree_detail(&cache_ctx, true);
+    t2store_btree_info(&cache_ctx, NULL);
   }
 
   if (command == "dump_wb_status") {
@@ -1260,6 +1276,9 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->dump_int("writeback_rate_d_term", ws.writeback_rate_d_term);
     f->dump_int("writeback_rate_p_term_inverse", ws.writeback_rate_p_term_inverse);
     f->dump_int("writeback_rate_update_seconds", ws.writeback_rate_update_seconds);
+    f->dump_int("cutoff_writeback", ws.cutoff_writeback);
+    f->dump_int("cutoff_writeback_sync", ws.cutoff_writeback_sync);
+    f->dump_int("cutoff_cache_add", ws.cutoff_cache_add);
     f->close_section();
   }
 
@@ -1283,8 +1302,12 @@ void CacheDevice::asok_register()
   AdminSocket *admin_socket = cct->get_admin_socket();
   asok_hook = new CacheSocketHook(this);
 
-  int r = admin_socket->register_command("dump_btree_status", "dump_btree_status",
-                                     asok_hook, "dump btree status");
+  int r = admin_socket->register_command("dump_btree_info", "dump_btree_info",
+                                     asok_hook, "dump btree overview");
+  assert(r == 0);
+
+  r = admin_socket->register_command("dump_btree_detail", "dump_btree_detail",
+                                     asok_hook, "dump btree detail");
   assert(r == 0);
 
   r = admin_socket->register_command("dump_wb_status", "dump_wb_status",
