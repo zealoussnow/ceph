@@ -1242,10 +1242,10 @@ get_init_bkey(struct keylist *keylist, uint64_t offset, struct cache *ca)
 {
   struct bkey *k = NULL;
 
-  if (bch_keylist_realloc(keylist, 3, ca->set)) {
-    CACHE_ERRORLOG(NULL, "keylist realloc nomem\n");
-    assert("keylist realloc no memory" == 0);
-  }
+  /*if (bch_keylist_realloc(keylist, 3, ca->set)) {*/
+    /*CACHE_ERRORLOG(NULL, "keylist realloc nomem\n");*/
+    /*assert("keylist realloc no memory" == 0);*/
+  /*}*/
 
   k = keylist->top;
   assert(k != NULL);
@@ -1362,7 +1362,11 @@ aio_write_completion(void *cb)
         }
       case CACHE_MODE_WRITEBACK:
         CACHE_DEBUGLOG(CAT_AIO_WRITE,"writeback completion start insert keys \n");
-        assert(bch_keylist_nkeys(item->insert_keys) == 3);
+        if (bch_keylist_nkeys(item->insert_keys) != 3) {
+          CACHE_ERRORLOG(NULL, " nkeys %d error \n", bch_keylist_nkeys(item->insert_keys));
+          assert("nkeys error" == 0);
+        }
+        /*assert(bch_keylist_nkeys(item->insert_keys) == 3);*/
         struct timespec insert_start = cache_clock_now();
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
         ret = bch_data_insert_keys(ca->set, item->insert_keys);
@@ -1563,6 +1567,10 @@ int _prep_writeback(struct ring_item * item){
   item->iou_completion_cb = aio_write_completion;
 
   bch_keylist_push(insert_keys);
+  if (bch_keylist_nkeys(insert_keys) != 3) {
+    CACHE_ERRORLOG(NULL, " nkeys %d error \n", bch_keylist_nkeys(insert_keys));
+    assert("nkeys error" == 0);
+  }
   item->insert_keys = insert_keys;
 
   return ret;
@@ -1937,10 +1945,12 @@ int _write_cache_miss(struct ring_item *item)
   int ret = 0;
   struct cache *ca = item->ca_handler;
 
+  if (item->io.type != CACHE_IO_TYPE_READ ) {
+    CACHE_ERRORLOG(NULL, "not read io got(type %d) \n", item->io.type);
+    assert(item->io.type == CACHE_IO_TYPE_READ);
+  }
   item->io.type=CACHE_IO_TYPE_WRITE;
   item->start = cache_clock_now();
-  struct bkey start = KEY(0, item->o_offset >> 9, 0);
-  struct bkey end = KEY(0, (item->o_offset >> 9) + (item->o_len >> 9), 0);
 
 
   // 读热点数据需要写入到缓存中，如需replace_key，需要在writeback回调中修改
@@ -1955,6 +1965,10 @@ int _write_cache_miss(struct ring_item *item)
     assert( " prep_cache_miss error  " == 0);
   }
 
+  if (bch_keylist_nkeys(item->insert_keys) != 3) {
+    CACHE_ERRORLOG(NULL, " nkeys %d error \n", bch_keylist_nkeys(item->insert_keys));
+    assert("nkeys error" == 0);
+  }
   ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
   if (ret < 0) {
     CACHE_ERRORLOG(NULL,"write hits sync error %d\n", ret);
@@ -1968,18 +1982,26 @@ void
 aio_read_completion(struct ring_item *item)
 {
   struct cache *ca = item->ca_handler;
-  /*printf("<%s>: All read complete. \n", __func__);*/
 
-  if (atomic_read(&item->need_write_cache)) {
-    item->strategy = get_cache_strategy(ca, item);
-    if (item->strategy == CACHE_MODE_WRITEBACK) {
-      _write_cache_miss(item);
-      return;
-    } else {
-      CACHE_WARNLOG(NULL,"cache should not hits by strategy \n");
-      pthread_rwlock_unlock(&ca->set->dc->writeback_lock);
-    }
+  if (item->io.type != CACHE_IO_TYPE_READ ) {
+    CACHE_ERRORLOG(NULL, "aio read completion got not read io got(type %d) \n", item->io.type);
+    assert(item->io.type == CACHE_IO_TYPE_READ);
   }
+
+  /*if (atomic_read(&item->need_write_cache)) {*/
+    /*item->strategy = get_cache_strategy(ca, item);*/
+    /*CACHE_ERRORLOG(NULL," stratege = %d  io type %d \n", */
+                        /*item->strategy, item->io.type);*/
+    /*if (item->strategy == CACHE_MODE_WRITEBACK) {*/
+      /*CACHE_ERRORLOG(NULL,"read start write miss\n");*/
+      /*_write_cache_miss(item);*/
+      /*CACHE_ERRORLOG(NULL,"read end write miss\n");*/
+      /*return;*/
+    /*} else {*/
+      /*CACHE_ERRORLOG(NULL,"cache should not hits by strategy \n");*/
+      /*pthread_rwlock_unlock(&ca->set->dc->writeback_lock);*/
+    /*}*/
+  /*}*/
 
   /*ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_read_lat, item->start, cache_clock_now());*/
   // call callback function
@@ -2047,11 +2069,17 @@ void aio_read_cache_completion(void *cb)
   struct ring_item *item = cb;
   struct cache *ca = item->ca_handler;
   atomic_dec(&item->seq);
+
+  if (item->io.type != CACHE_IO_TYPE_READ ) {
+    CACHE_ERRORLOG(NULL, "aio read cache completion got not read io got(type %d) \n", item->io.type);
+    assert(item->io.type == CACHE_IO_TYPE_READ);
+  }
   if (atomic_read(&item->seq)) {
     /*printf("<%s>: Wait for (%d) cache complete. \n",*/
                         /*__func__, atomic_read(&item->seq));*/
   } else {
     /*printf("<%s>: All cache complete. \n", __func__);*/
+    /*CACHE_ERRORLOG(NULL, "read cache completion ------- \n");*/
     aio_read_completion(cb);
   }
 }
@@ -2062,7 +2090,11 @@ aio_read_backend_completion(void *cb)
   struct ring_item *item = cb;
   struct cache *ca = item->ca_handler;
   struct search s;
-  
+
+  if (item->io.type != CACHE_IO_TYPE_READ ) {
+    assert(item->io.type == CACHE_IO_TYPE_READ);
+  }
+
   item->iou_completion_cb = aio_read_cache_completion;
   atomic_set(&item->seq, 1);
   s.item = item;
@@ -2071,6 +2103,10 @@ aio_read_backend_completion(void *cb)
                         /*__func__, item->o_offset, item->o_len );*/
   bch_btree_map_keys(&s.op, ca->set, &KEY(0,(s.item->o_offset >> 9),0),
                         read_cache_lookup_fn, MAP_END_KEY);
+
+  if (item->io.type != CACHE_IO_TYPE_READ ) {
+    assert(item->io.type == CACHE_IO_TYPE_READ);
+  }
 
   atomic_dec(&item->seq);
   if (atomic_read(&item->seq) == 0 ) {
