@@ -342,7 +342,7 @@ bch_extent_insert_fixup(struct btree_keys *b, struct bkey *insert,
     struct bkey *k = bch_btree_iter_next(iter);
     dump_bkey("fixup iter",k);
     if (!k) {
-      *sectors_move = KEY_SIZE(replace_key);
+      *sectors_move = replace_key? KEY_SIZE(replace_key): 0;
       break;
     }
     /************************
@@ -353,7 +353,7 @@ bch_extent_insert_fixup(struct btree_keys *b, struct bkey *insert,
       // 说明没有重叠的机会
       if (KEY_SIZE(k)) {
         // k以后的bkey都不可能存在重叠
-        *sectors_move = KEY_SIZE(replace_key);
+        *sectors_move = replace_key? KEY_SIZE(replace_key): 0;
         break;
       } else {
         // k是无效的，接着迭代下一个
