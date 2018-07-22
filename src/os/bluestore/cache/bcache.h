@@ -516,6 +516,10 @@ struct cache {
   atomic_long_t         sectors_written;
   uint64_t btree_nodes;
   uint64_t btree_nbkeys;
+  uint64_t btree_bad_nbeys;
+  uint64_t btree_dirty_nbkeys;
+  uint64_t btree_null_nbkeys;
+  uint64_t zero_keysize_nbkeys;
   bool dump_btree_detail;
 };
 
