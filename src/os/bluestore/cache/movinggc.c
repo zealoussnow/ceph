@@ -143,6 +143,7 @@ static void *write_completion(void *arg){
   bch_keylist_free(item->insert_keys);
 
   bch_keybuf_del(&c->moving_gc_keys, w);
+  atomic_dec(&c->gc_seq);
   free(item->data);
   free(item);
   free(d);
@@ -190,9 +191,12 @@ static void *read_completion(void *arg){
     pdump_bkey(WRITEBACK, __func__, &w->key);
     ret = aio_enqueue(CACHE_THREAD_CACHE, c->cache[0]->handler, item);
     if (ret < 0) {
+      atomic_dec(&c->gc_seq);
       bch_keybuf_del(&c->moving_gc_keys, w);
       assert( "dirty aio_enqueue read error  " == 0);
     }
+  } else {
+    atomic_dec(&c->gc_seq);
   }
 }
 
@@ -216,8 +220,10 @@ static void begin_io_read(struct keybuf_key *w, struct cache_set *c)
   item->io.offset = item->o_offset;
   item->io.len = item->o_len;
 
+  atomic_inc(&c->gc_seq);
   ret = aio_enqueue(CACHE_THREAD_CACHE, c->cache[0]->handler, item);
   if (ret < 0) {
+    atomic_dec(&c->gc_seq);
     bch_keybuf_del(&c->moving_gc_keys, w);
     assert( "dirty aio_enqueue read error  " == 0);
   }

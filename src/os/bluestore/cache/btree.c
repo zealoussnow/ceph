@@ -31,6 +31,7 @@
 #include "debug.h"
 #include "extents.h"
 #include "prefetch.h"
+#include "writeback.h"
 
 /*
  * Todo:
@@ -146,9 +147,7 @@
     rw_unlock(_w, _b);                                                                          \
     bch_cannibalize_unlock(c);                                                                  \
     if (_r == -EINTR) {                                                                         \
-      struct timespec out;                                                                      \
-      gettimeofday(&out, NULL);                                                                 \
-      out.tv_sec+=0.5;                                                                          \
+      struct timespec out = time_from_now(0, 100);                                                                      \
       pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
       pthread_cond_timedwait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut,&out);     \
       pthread_mutex_unlock(&(c)->btree_cache_wait_mut);                                         \
@@ -1612,6 +1611,7 @@ static void bch_btree_gc(struct cache_set *c)
 
   btree_gc_start(c);
 
+  c->gc_stats.status = GC_RUNNING;
   do {
     /*ret = btree_root(gc_root, c, &op, &writes, &stats);*/
     /*printf("start btree root\n");*/
@@ -1638,6 +1638,7 @@ static void bch_btree_gc(struct cache_set *c)
 
   //trace_bcache_gc_end(c);
 
+  c->gc_stats.status = GC_READ_MOVING;
   bch_moving_gc(c);
 }
 
@@ -1657,6 +1658,10 @@ static bool gc_should_run(struct cache_set *c)
    *     then she will call invalidate_buckets fuc to fill free_inc. or she will
    *     goto cond wait
   */
+
+  if (c->gc_stats.in_use > CUTOFF_WRITEBACK)
+    return true;
+
   for_each_cache(ca, c, i)
     if (ca->invalidate_needs_gc)
       return true;
@@ -1716,13 +1721,22 @@ static int bch_gc_thread(void *arg)
       if (gc_should_run(c) && !atomic_read(&c->gc_stop)) {
         break;
       }
+      c->gc_stats.status = GC_IDLE;
+      struct timespec out = time_from_now(5, 0);
       pthread_mutex_lock(&c->gc_wait_mut);
-      pthread_cond_wait(&c->gc_wait_cond, &c->gc_wait_mut);
+      pthread_cond_timedwait(&c->gc_wait_cond, &c->gc_wait_mut, &out);
       pthread_mutex_unlock(&c->gc_wait_mut);
     }
     // start set gc
+    c->gc_stats.status = GC_START;
+    atomic_inc(&c->gc_seq);
     set_gc_sectors(c);
     bch_btree_gc(c);
+    atomic_dec(&c->gc_seq);
+
+    while (atomic_read(&c->gc_seq)) {
+      pthread_yield();
+    }
   }
 
   return 0;

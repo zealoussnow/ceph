@@ -525,6 +525,14 @@ struct cache {
   bool dump_btree_detail;
 };
 
+enum gc_running_status {
+  GC_IDLE = 0,
+  GC_START,
+  GC_RUNNING,
+  GC_READ_MOVING,
+  GC_INVALID,
+};
+
 struct gc_stat {
   size_t                        nodes;
   size_t                        key_bytes;
@@ -532,6 +540,7 @@ struct gc_stat {
   size_t                        nkeys;
   uint64_t              data;   /* sectors */
   unsigned              in_use; /* percent */
+  unsigned              status; /* percent */
 };
 
 /*
@@ -699,6 +708,7 @@ struct cache_set {
   //struct list_head    moving_gc_keys;
   //struct bkey             gc_last_scanned;
   struct keybuf           moving_gc_keys;
+  atomic_t              gc_seq;
   /* Number of moving GC bios in flight */
   //struct semaphore    moving_in_flight;
 
