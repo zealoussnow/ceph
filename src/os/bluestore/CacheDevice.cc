@@ -1250,16 +1250,18 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
   // dump number of btree nodes and number of bkeys
   if (command == "dump_btree_info") {
     struct btree_info bi;
-    t2store_set_dump_btree_detail(&cache_ctx, false);
     t2store_btree_info(&cache_ctx, &bi);
-    f->open_object_section("wb_status");
-    f->dump_int("btree_nodes", bi.btree_nodes);
-    f->dump_int("btree_nbkeys", bi.btree_nbkeys);
+    f->open_object_section("btree_info");
+    f->dump_unsigned("btree_nodes", bi.btree_nodes);
+    f->dump_unsigned("btree_nbkeys", bi.btree_nbkeys);
+    f->dump_unsigned("btree_bad_bkeys", bi.btree_bad_nbeys);
+    f->dump_unsigned("btree_dirty_bkeys", bi.btree_dirty_nbkeys);
+    f->dump_unsigned("btree_null_nbkeys", bi.btree_null_nbkeys);
+    f->dump_unsigned("zero_keysize_nbkeys", bi.zero_keysize_nbkeys);
     f->close_section();
   }
 
   if (command == "dump_btree_detail") {
-    t2store_set_dump_btree_detail(&cache_ctx, true);
     t2store_btree_info(&cache_ctx, NULL);
   }
 

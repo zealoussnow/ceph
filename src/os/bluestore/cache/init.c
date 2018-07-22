@@ -1112,24 +1112,17 @@ traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
 {
   CACHE_DEBUGLOG("traverse", ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n", 
                         b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
-  if (b->c->cache[0]->dump_btree_detail)
-    CACHE_DUMPLOG(NULL, ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n",
-                          b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
+  CACHE_DUMPLOG(NULL, ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n",
+                        b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
   struct bkey *k, *p = NULL;
   struct btree_iter iter;
   for_each_key(&b->keys, k, &iter) {
-    CACHE_DEBUGLOG("traverse", "node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
+    CACHE_DEBUGLOG("traverse", "node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,dirty=%u) \n",
                         b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),
                         KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k));
-    if (b->c->cache[0]->dump_btree_detail)
-      CACHE_DUMPLOG(NULL, "node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,diryt=%u) \n",
-                          b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),
-                          KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k));
-    if (b->level == 0) {
-      b->c->cache[0]->btree_nbkeys++;
-    } else if (b->level == 1) {
-      b->c->cache[0]->btree_nodes++;
-    }
+    CACHE_DUMPLOG(NULL, "node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,dirty=%u) \n",
+                        b->level, KEY_OFFSET(&b->key), KEY_OFFSET(k) - KEY_SIZE(k),
+                        KEY_OFFSET(k), KEY_SIZE(k), PTR_OFFSET(k,0), KEY_PTRS(k), KEY_DIRTY(k));
   }
 
   return MAP_CONTINUE;
@@ -1143,17 +1136,58 @@ traverse_btree(struct cache * c)
   bch_btree_map_nodes(&op.op,c->set,NULL,traverse_btree_keys_fn);
 }
 
+int dump_btree_kes_fn(struct btree_op *op, struct btree *b)
+{
+  struct bkey *k = NULL;
+  struct btree_iter iter;
+  for_each_key(&b->keys, k, &iter) {
+    if (b->level == 0) {
+      b->c->cache[0]->btree_nbkeys++;
+      if (bch_ptr_bad(&b->keys, k))
+        b->c->cache[0]->btree_bad_nbeys++;
+      if (KEY_DIRTY(k))
+        b->c->cache[0]->btree_dirty_nbkeys++;
+      if (!bkey_cmp(k, &ZERO_KEY))
+        b->c->cache[0]->btree_null_nbkeys++;
+      if (!KEY_SIZE(k))
+        b->c->cache[0]->zero_keysize_nbkeys++;
+    }
+    else if (b->level == 1)
+      b->c->cache[0]->btree_nodes++;
+  }
+
+  return MAP_CONTINUE;
+}
+
+void dump_btree_info(struct cache *c)
+{
+  struct btree_insert_op op;
+  bch_btree_op_init(&op.op, 0);
+  bch_btree_map_nodes(&op.op, c->set, NULL, dump_btree_kes_fn);
+}
+
 int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi)
 {
   struct cache *ca = ctx->cache;
   ca->btree_nodes  =  0;
   ca->btree_nbkeys =  0;
-  traverse_btree(ctx->cache);
-  CACHE_ERRORLOG(NULL, "cache %p btree_nodes: %lu, btree_nbkeys: %lu, dump_btree_detail: %d\n", ca, ca->btree_nodes, ca->btree_nbkeys, ca->dump_btree_detail);
+  ca->btree_bad_nbeys = 0;
+  ca->btree_dirty_nbkeys = 0;
+  ca->btree_null_nbkeys = 0;
+  ca->zero_keysize_nbkeys = 0;
   if (bi) {
+    dump_btree_info(ca);
     bi->btree_nodes  = ca->btree_nodes;
     bi->btree_nbkeys = ca->btree_nbkeys;
+    bi->btree_bad_nbeys = ca->btree_bad_nbeys;
+    bi->btree_dirty_nbkeys = ca->btree_dirty_nbkeys;
+    bi->btree_null_nbkeys  = ca->btree_null_nbkeys;
+    bi->zero_keysize_nbkeys = ca->zero_keysize_nbkeys;
+  } else {
+    traverse_btree(ca);
   }
+
+  return 0;
 }
 
 void set_writeback_cutoff(struct cached_dev *dc, int val)
@@ -2100,7 +2134,7 @@ cache_aio_read_backend(struct ring_item *item)
   }
 }
 
-static bool cache_read_hits(item)
+static bool cache_read_hits(struct ring_item *item)
 {
   // TODO 判断是否需要缓存
   return true;

@@ -78,8 +78,12 @@ struct gc_status
 
 struct btree_info
 {
-  int btree_nodes;
-  int btree_nbkeys;
+  uint64_t btree_nodes;
+  uint64_t btree_nbkeys;
+  uint64_t btree_bad_nbeys;
+  uint64_t btree_dirty_nbkeys;
+  uint64_t btree_null_nbkeys;
+  uint64_t zero_keysize_nbkeys;
 };
 
 struct ring_items;
@@ -111,7 +115,6 @@ CEPH_CACHE_API int t2store_handle_conf_change(struct cache_context *ctx, struct 
 CEPH_CACHE_API int t2store_wb_status(struct cache_context *ctx, struct wb_status *s);
 CEPH_CACHE_API int t2store_gc_status(struct cache_context *ctx, struct gc_status *s);
 CEPH_CACHE_API int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi);
-CEPH_CACHE_API int t2store_set_dump_btree_detail(struct cache_context *ctx, bool detail);
 
 #ifdef __cplusplus
 }
