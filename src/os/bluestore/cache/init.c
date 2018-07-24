@@ -1381,6 +1381,7 @@ aio_write_completion(void *cb)
     CACHE_DEBUGLOG(CAT_AIO_WRITE,"AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n",
                 item->o_offset/512, item->o_offset, item->o_len/512,
                 item->o_len, item->io.success);
+    struct timespec insert_start = cache_clock_now();
     switch (item->strategy) {
       case CACHE_MODE_WRITEAROUND:
         CACHE_DEBUGLOG(CAT_AIO_WRITE,"writearound completion start insert keys \n");
@@ -1389,6 +1390,7 @@ aio_write_completion(void *cb)
                                 bch_keylist_nkeys(item->insert_keys));
           assert(bch_keylist_nkeys(item->insert_keys) == 2);
         }
+        ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
         ret = bch_data_insert_keys(ca->set, item->insert_keys);
         break;
       case CACHE_MODE_WRITETHROUGH:
@@ -1424,6 +1426,7 @@ aio_write_completion(void *cb)
                         bch_keylist_nkeys(item->insert_keys));
             assert(bch_keylist_nkeys(item->insert_keys) == 3);
           }
+          ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
           ret = bch_data_insert_keys(ca->set, item->insert_keys);
           break;
         }
@@ -1434,7 +1437,6 @@ aio_write_completion(void *cb)
           assert("nkeys error" == 0);
         }
         /*assert(bch_keylist_nkeys(item->insert_keys) == 3);*/
-        struct timespec insert_start = cache_clock_now();
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
         ret = bch_data_insert_keys(ca->set, item->insert_keys);
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_insert_keys, insert_start, cache_clock_now());
@@ -2021,7 +2023,7 @@ int _write_cache_miss(struct ring_item *item)
     assert(item->io.type == CACHE_IO_TYPE_READ);
   }
   item->io.type=CACHE_IO_TYPE_WRITE;
-  item->start = cache_clock_now();
+  item->start = item->aio_start = cache_clock_now();
 
 
   // 读热点数据需要写入到缓存中，如需replace_key，需要在writeback回调中修改
