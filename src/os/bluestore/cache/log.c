@@ -31,7 +31,7 @@ log_init(const char *log_path, const char *log_instant)
     return -1;
   }
 
-  set_log_level(ZLOG_LEVEL_ERROR);
+  set_log_level(ZLOG_LEVEL_INFO);
 
   return 0;
 }
@@ -69,4 +69,9 @@ void cache_zlog(const char *cat_type, const char *file,
   zlog(zc, file, filelen, func, funclen, line, level, "%s", formatted_buf);
 
   va_end(ap);
+}
+
+int log_reload()
+{
+  return zlog_reload(LOG_CONF);
 }

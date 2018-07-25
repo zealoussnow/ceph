@@ -3,6 +3,8 @@
 
 #include <zlog.h>
 
+extern int log_reload();
+extern void set_log_level(int level);
 extern int log_init(const char *log_path, const char *log_instant);
 extern void log_fini();
 extern void cache_zlog(const char *cat_type, const char *file, 
