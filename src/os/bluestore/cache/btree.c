@@ -2404,8 +2404,7 @@ refill_keybuf_fn(struct btree_op *op, struct btree *b, struct bkey *k)
 
     if (RB_INSERT(&buf->keys, w, node, keybuf_cmp)) {
       array_free(&buf->freelist, w);
-      CACHE_ERRORLOG(CAT_BTREE, "RB_INSERT error");
-      assert("rb_insert error" == 0);
+      CACHE_DEBUGLOG(CAT_BTREE, "RB_INSERT dup, skip!\n");
     }
     else
       refill->nr_found++;

@@ -582,6 +582,11 @@ static bool refill_dirty(struct cached_dev *dc)
   return bkey_cmp(&buf->last_scanned, &start_pos) >= 0;
 }
 
+static bool refill_should_wait(struct cached_dev *dc)
+{
+  return !RB_EMPTY_ROOT(&dc->writeback_keys.keys) && dc->c->gc_stats.in_use < dc->cutoff_writeback;
+}
+
 /* writeback线程 */
 static int bch_writeback_thread(void *arg)
 {
@@ -599,7 +604,8 @@ static int bch_writeback_thread(void *arg)
     pthread_rwlock_wrlock(&dc->writeback_lock);
 
     /* 如果不为dirty或者writeback机制未运行时，该线程让出CPU控制权 */
-    if (!atomic_read(&dc->has_dirty) || atomic_read(&dc->writeback_stop)) {
+    if (!atomic_read(&dc->has_dirty) || atomic_read(&dc->writeback_stop) 
+        || refill_should_wait(dc)) {
       dc->wb_status = WB_IDLE;
       struct timespec out = time_from_now(1, 0);
       pthread_rwlock_unlock(&dc->writeback_lock);
