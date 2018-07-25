@@ -155,6 +155,7 @@ static __always_inline int atomic_add_return(int i, atomic_t *v)
 }
 
 #define atomic_inc_return(v)  (atomic_add_return(1, v))
+#define atomic_dec_return(v)  (atomic_sub_return(1, v))
 
 #define xchg(ptr, v)    __xchg_op((ptr), (v), xchg, "")
 

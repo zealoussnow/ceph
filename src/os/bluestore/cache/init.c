@@ -2022,22 +2022,22 @@ aio_read_completion(struct ring_item *item)
     assert(item->io.type == CACHE_IO_TYPE_READ);
   }
 
-  /*if (atomic_read(&item->need_write_cache)) {*/
-    /*item->strategy = get_cache_strategy(ca, item);*/
-    /*CACHE_ERRORLOG(NULL," stratege = %d  io type %d \n", */
-                        /*item->strategy, item->io.type);*/
-    /*if (item->strategy == CACHE_MODE_WRITEBACK) {*/
-      /*CACHE_ERRORLOG(NULL,"read start write miss\n");*/
-      /*_write_cache_miss(item);*/
-      /*CACHE_ERRORLOG(NULL,"read end write miss\n");*/
-      /*return;*/
-    /*} else {*/
-      /*CACHE_ERRORLOG(NULL,"cache should not hits by strategy \n");*/
-      /*pthread_rwlock_unlock(&ca->set->dc->writeback_lock);*/
-    /*}*/
-  /*}*/
+  if (atomic_read(&item->need_write_cache)) {
+    item->strategy = get_cache_strategy(ca, item);
+    CACHE_ERRORLOG(NULL," stratege = %d  io type %d \n", 
+                        item->strategy, item->io.type);
+    if (item->strategy == CACHE_MODE_WRITEBACK) {
+      CACHE_ERRORLOG(NULL,"read start write miss\n");
+      _write_cache_miss(item);
+      CACHE_ERRORLOG(NULL,"read end write miss\n");
+      return;
+    } else {
+      CACHE_ERRORLOG(NULL,"cache should not hits by strategy \n");
+      pthread_rwlock_unlock(&ca->set->dc->writeback_lock);
+    }
+  }
 
-  /*ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_read_lat, item->start, cache_clock_now());*/
+  ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_read_lat, item->start, cache_clock_now());
   // call callback function
   if (item->io_completion_cb) {
     item->io_completion_cb(item->io_arg);

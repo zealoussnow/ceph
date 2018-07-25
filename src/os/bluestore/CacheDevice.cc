@@ -137,11 +137,9 @@ CacheDevice::CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv)
     fd_direct(-1),
     fd_buffered(-1),
     size(0), block_size(0),
-    fs(NULL), aio(false), dio(false),
+    aio(false), dio(false),
     debug_lock("CacheDevice::debug_lock"),
     queue_lock("CacheDevice::queue_lock"),
-    queue_op_seq(0),
-    completed_op_seq(0),
     aio_queue(cct->_conf->bdev_aio_max_queue_depth),
     aio_callback(cb),
     aio_callback_priv(cbpriv),
@@ -365,9 +363,6 @@ int CacheDevice::open(const string& p, const string& c_path)
     }
   }
 
-  fs = FS::create_by_fd(fd_direct);
-  assert(fs);
-
   // round size down to an even block
   size &= ~(block_size - 1);
 
@@ -483,9 +478,6 @@ int CacheDevice::open(const string& p)
     }
   }
 
-  fs = FS::create_by_fd(fd_direct);
-  assert(fs);
-
   // round size down to an even block
   size &= ~(block_size - 1);
 
@@ -512,10 +504,6 @@ void CacheDevice::close()
 {
   dout(1) << __func__ << dendl;
   _aio_stop();
-
-  assert(fs);
-  delete fs;
-  fs = NULL;
 
   _shutdown_logger();
   assert(fd_direct >= 0);
@@ -701,26 +689,34 @@ void CacheDevice::_aio_stop()
 
 void io_complete(void *t)
 {
+#undef dout_prefix
+#define dout_prefix *_dout << "cdev "
+
   Task *task = static_cast<Task*>(t);
   CacheDevice *cache_device = task->device;
-  ++cache_device->completed_op_seq;
   IOContext *ctx = task->ctx;
 
   assert(ctx != NULL);
+  assert(cache_device != NULL);
   utime_t dur = ceph_clock_now() - task->start;
   if (task->command == IOCommand::WRITE_COMMAND) {
     cache_device->logger->tinc(l_bluestore_cachedevice_aio_write_lat, dur);
+    ldout(g_ceph_context, 5) << __func__ << " write 0x" << std::hex << task->offset
+                << "~" << task->len << std::dec << " priv " << ctx->priv
+                << " num_running " << ctx->num_running << dendl;
     if (ctx->priv) {
-      //TODO: need add a aio finish log
       if (!--ctx->num_running) {
         task->device->aio_callback(task->device->aio_callback_priv, ctx->priv);
       }
     } else {
       ctx->try_aio_wake();
     }
-  delete task;
+    delete task;
   } else if (task->command == IOCommand::READ_COMMAND) {
-    //task->fill_cb();
+    ldout(g_ceph_context, 5) << __func__ << " read 0x" << std::hex << task->offset
+                << "~" << task->len << std::dec << " priv " << ctx->priv
+                << " num_running " << ctx->num_running << " return_code "
+                << task->return_code << dendl;
     cache_device->logger->tinc(l_bluestore_cachedevice_aio_read_lat, dur);
     if(!task->return_code) {
       if (ctx->priv) {
@@ -730,18 +726,20 @@ void io_complete(void *t)
       } else {
         ctx->try_aio_wake();
       }
-    delete task;
+      delete task;
     } else {
       task->return_code = 0;
-        if (!--ctx->num_running) {
-          task->io_wake();
-        }
+      if (!--ctx->num_running) {
+        task->io_wake();
+      }
     }
   } else {
     assert(task->command == IOCommand::FLUSH_COMMAND);
     cache_device->logger->tinc(l_bluestore_cachedevice_flush_lat, dur);
     task->return_code = 0;
   }
+#undef dout_prefix
+#define dout_prefix *_dout << "cdev(" << this << " " << path << ") "
 }
 
 void CacheDevice::_aio_writeback(struct ring_items *items)
@@ -811,7 +809,6 @@ void CacheDevice::_aio_thread()
 
   dout(5) << __func__ << " start aio thread" << dendl;
   while (true) {
-    //bool inflight = queue_op_seq.load() - completed_op_seq.load();
     for (; t; t = t->next) {
       off = t->offset;
       len = t->len;
@@ -1035,7 +1032,6 @@ int CacheDevice::write(
 void CacheDevice::queue_task(Task *t, uint64_t ops)
 {
   // TODO
-  queue_op_seq += ops;
   Mutex::Locker l(queue_lock);
   task_queue.push(t);
   queue_cond.Signal();
@@ -1048,7 +1044,7 @@ int CacheDevice::aio_write(
   bool buffered)
 {
   uint64_t len = bl.length();
-  dout(20) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
+  dout(5) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
            << (buffered ? " (buffered)" : " (direct)")
            << dendl;
   assert(off % block_size == 0);
@@ -1061,9 +1057,9 @@ int CacheDevice::aio_write(
     bl.rebuild_aligned_size_and_memory(block_size, block_size)) {
     dout(20) << __func__ << " rebuilding buffer to be aligned" << dendl;
   }
-  //dout(20) << "data: ";
-  //bl.hexdump(*_dout);
-  //*_dout << dendl;
+  dout(40) << "data: ";
+  bl.hexdump(*_dout);
+  *_dout << dendl;
 
   Task *task = new Task(this, IOCommand::WRITE_COMMAND, off, len);
   task->write_bl = std::move(bl);
@@ -1095,6 +1091,9 @@ int CacheDevice::read(uint64_t off, uint64_t len, bufferlist *pbl,
   dout(5) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
           << (buffered ? " (buffered)" : " (direct)")
           << dendl;
+
+  assert("using aio_read instead of sync read, still have bug of dead lock" == 0);
+
   int r;
   assert(off % block_size == 0);
   assert(len % block_size == 0);
@@ -1149,6 +1148,8 @@ int CacheDevice::aio_read(
     ioc->cache_task_first = t;
   ioc->cache_task_last = t;
   ++ioc->num_pending;
+
+  _aio_log_start(ioc, off, len);
 
   return 0;
 }

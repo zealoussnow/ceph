@@ -30,7 +30,6 @@ class CacheDevice : public BlockDevice, public md_config_obs_t  {
   uint64_t block_size;
   std::string path;
   std::string cache_path;
-  FS *fs;
   bool aio, dio;
   string bdev_path;
 
