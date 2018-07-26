@@ -1245,6 +1245,24 @@ private:
   CacheDevice *cache_device;
 };
 
+static string bytes_unit(uint64_t size)
+{
+  stringstream out;
+  static const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+  static const int max_units = sizeof(units)/sizeof(*units);
+
+  int unit = 0;
+  while (size >= 1024 && unit < max_units) {
+    if (size < 1048576 && (size % 1024 != 0))
+      break;
+    size >>= 10;
+    unit++;
+  }
+
+  out << size << " " << units[unit];
+  return out.str();
+}
+
 bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
                                string format, ostream& ss)
 {
@@ -1260,6 +1278,8 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->dump_unsigned("btree_null_nbkeys", bi.btree_null_nbkeys);
     f->dump_unsigned("zero_keysize_nbkeys", bi.zero_keysize_nbkeys);
     f->dump_unsigned("btree_dirty_bkeys", bi.btree_dirty_nbkeys);
+    f->dump_string("total_size", bytes_unit(bi.total_size));
+    f->dump_string("dirty_size", bytes_unit(bi.dirty_size));
     f->close_section();
   }
 
