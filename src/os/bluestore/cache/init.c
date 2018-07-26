@@ -2105,18 +2105,13 @@ void aio_read_cache_completion(void *cb)
 {
   struct ring_item *item = cb;
   struct cache *ca = item->ca_handler;
-  atomic_dec(&item->seq);
 
   if (item->io.type != CACHE_IO_TYPE_READ ) {
     CACHE_ERRORLOG(NULL, "aio read cache completion got not read io got(type %d) \n", item->io.type);
     assert(item->io.type == CACHE_IO_TYPE_READ);
   }
-  if (atomic_read(&item->seq)) {
-    /*printf("<%s>: Wait for (%d) cache complete. \n",*/
-                        /*__func__, atomic_read(&item->seq));*/
+  if (atomic_dec_return(&item->seq)) {
   } else {
-    /*printf("<%s>: All cache complete. \n", __func__);*/
-    /*CACHE_ERRORLOG(NULL, "read cache completion ------- \n");*/
     aio_read_completion(cb);
   }
 }
@@ -2145,8 +2140,7 @@ aio_read_backend_completion(void *cb)
     assert(item->io.type == CACHE_IO_TYPE_READ);
   }
 
-  atomic_dec(&item->seq);
-  if (atomic_read(&item->seq) == 0 ) {
+  if (atomic_dec_return(&item->seq) == 0 ) {
     aio_read_completion(item);
   }
 
