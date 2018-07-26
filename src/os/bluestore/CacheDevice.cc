@@ -156,6 +156,7 @@ CacheDevice::~CacheDevice()
 {
   dout(20) << "remove CacheDevice observer..." << dendl;
   cct->_conf->remove_observer(this);
+  asok_unregister();
 }
 
 int CacheDevice::_lock()
@@ -1256,13 +1257,15 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->dump_unsigned("btree_nodes", bi.btree_nodes);
     f->dump_unsigned("btree_nbkeys", bi.btree_nbkeys);
     f->dump_unsigned("btree_bad_bkeys", bi.btree_bad_nbeys);
-    f->dump_unsigned("btree_dirty_bkeys", bi.btree_dirty_nbkeys);
     f->dump_unsigned("btree_null_nbkeys", bi.btree_null_nbkeys);
     f->dump_unsigned("zero_keysize_nbkeys", bi.zero_keysize_nbkeys);
+    f->dump_unsigned("btree_dirty_bkeys", bi.btree_dirty_nbkeys);
     f->close_section();
   }
 
   if (command == "dump_btree_detail") {
+    int ret = t2store_reload_zlog_config();
+    assert(ret == 0);
     t2store_btree_info(&cache_ctx, NULL);
   }
 
@@ -1295,6 +1298,33 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->close_section();
   }
 
+  if (command == "reload_zlog_config") {
+    int ret = t2store_reload_zlog_config();
+    assert(ret == 0);
+  }
+
+  if (command == "set_log_level") {
+    string log_level;
+    string error;
+    bool success = false;
+    for (auto item : cmdmap)
+      dout(0) << item.first << dendl;
+    if (!cmd_getval(cct, cmdmap, "level", log_level)) {
+      error = "unable to get log level";
+      success = false;
+    } else {
+      if (t2store_set_log_level(log_level.c_str())) {
+        error = "log level is not specified";
+        success = false;
+      } else
+        success = true;
+    }
+    f->open_object_section("result");
+    f->dump_string("error", error);
+    f->dump_bool("success", success);
+    f->close_section();
+  }
+
   f->flush(ss);
 
   return true;
@@ -1319,4 +1349,23 @@ void CacheDevice::asok_register()
   r = admin_socket->register_command("dump_gc_status", "dump_gc_status",
                                      asok_hook, "dump gc status");
   assert(r == 0);
+  r = admin_socket->register_command("reload_zlog_config", "reload_zlog_config",
+                                     asok_hook, "reload zlog config");
+  assert(r == 0);
+  r = admin_socket->register_command("set_log_level",
+                                     "set_log_level name=level,type=CephString",
+                                     asok_hook, "set zlog level");
+  assert(r == 0);
+}
+
+void CacheDevice::asok_unregister()
+{
+  cct->get_admin_socket()->unregister_command("dump_btree_info");
+  cct->get_admin_socket()->unregister_command("dump_btree_detail");
+  cct->get_admin_socket()->unregister_command("dump_wb_status");
+  cct->get_admin_socket()->unregister_command("dump_gc_status");
+  cct->get_admin_socket()->unregister_command("reload_zlog_config");
+  cct->get_admin_socket()->unregister_command("set_log_level");
+  delete asok_hook;
+  asok_hook = NULL;
 }

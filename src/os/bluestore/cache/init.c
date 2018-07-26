@@ -1143,14 +1143,17 @@ int dump_btree_kes_fn(struct btree_op *op, struct btree *b)
   for_each_key(&b->keys, k, &iter) {
     if (b->level == 0) {
       b->c->cache[0]->btree_nbkeys++;
-      if (bch_ptr_bad(&b->keys, k))
+      if (bch_ptr_bad(&b->keys, k)) {
         b->c->cache[0]->btree_bad_nbeys++;
-      if (KEY_DIRTY(k))
-        b->c->cache[0]->btree_dirty_nbkeys++;
-      if (!bkey_cmp(k, &ZERO_KEY))
-        b->c->cache[0]->btree_null_nbkeys++;
-      if (!KEY_SIZE(k))
-        b->c->cache[0]->zero_keysize_nbkeys++;
+        if (!bkey_cmp(k, &ZERO_KEY))
+          b->c->cache[0]->btree_null_nbkeys++;
+        if (!KEY_SIZE(k))
+          b->c->cache[0]->zero_keysize_nbkeys++;
+      }
+      else {
+        if (KEY_DIRTY(k))
+          b->c->cache[0]->btree_dirty_nbkeys++;
+      }
     }
     else if (b->level == 1)
       b->c->cache[0]->btree_nodes++;

@@ -6,7 +6,7 @@
 #include <libaio.h>
 
 #include "libcache.h"
-/*#include "cache.h"*/
+#include "log.h"
 #include "bcache.h"
 #include "writeback.h"
 
@@ -224,4 +224,33 @@ int t2store_set_dump_btree_detail(struct cache_context *ctx, bool detail)
 {
   struct cache *ca = (struct cache *)ctx->cache;
   ca->dump_btree_detail = detail;
+}
+
+int t2store_reload_zlog_config()
+{
+  return log_reload();
+}
+
+int t2store_set_log_level(const char *level)
+{
+  int log_level;
+
+  CACHE_ERRORLOG(NULL, "log_level: %s\n", level);
+  if (!strcmp(level, "DEBUG"))
+    log_level = ZLOG_LEVEL_DEBUG;
+  else if (!strcmp(level, "INFO"))
+    log_level = ZLOG_LEVEL_INFO;
+  else if (!strcmp(level, "NOTICE"))
+    log_level = ZLOG_LEVEL_NOTICE;
+  else if (!strcmp(level, "WARN"))
+    log_level = ZLOG_LEVEL_WARN;
+  else if (!strcmp(level, "ERROR"))
+    log_level = ZLOG_LEVEL_ERROR;
+  else if (!strcmp(level, "DUMP"))
+    log_level = ZLOG_LEVEL_DUMP;
+  else
+    return -1;
+  set_log_level(log_level);
+
+  return 0;
 }

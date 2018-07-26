@@ -88,6 +88,7 @@ class CacheDevice : public BlockDevice, public md_config_obs_t  {
   friend class CacheSocketHook;
   class CacheSocketHook *asok_hook;
   void asok_register();
+  void asok_unregister();
 
 public:
   CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv);

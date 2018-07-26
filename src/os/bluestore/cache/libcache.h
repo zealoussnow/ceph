@@ -115,6 +115,8 @@ CEPH_CACHE_API int t2store_handle_conf_change(struct cache_context *ctx, struct 
 CEPH_CACHE_API int t2store_wb_status(struct cache_context *ctx, struct wb_status *s);
 CEPH_CACHE_API int t2store_gc_status(struct cache_context *ctx, struct gc_status *s);
 CEPH_CACHE_API int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi);
+CEPH_CACHE_API int t2store_reload_zlog_config();
+CEPH_CACHE_API int t2store_set_log_level(const char *level);
 
 #ifdef __cplusplus
 }
