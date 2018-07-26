@@ -1072,12 +1072,14 @@ __bch_btree_mark_key(struct cache_set *c, int level,struct bkey *k)
         c, "inconsistent ptrs: mark = %llu, level = %i",
         GC_MARK(g), level);
 
-    if (level)
+    if (level) {
       SET_GC_MARK(g, GC_MARK_METADATA);
-    else if (KEY_DIRTY(k))
+    } else if (KEY_DIRTY(k)) {
       SET_GC_MARK(g, GC_MARK_DIRTY);
-    else if (!GC_MARK(g))
+      g->dirty_keys++;
+    } else if (!GC_MARK(g)) {
       SET_GC_MARK(g, GC_MARK_RECLAIMABLE);
+    }
     /* guard against overflow */
     SET_GC_SECTORS_USED(g, min(GC_SECTORS_USED(g) + KEY_SIZE(k), MAX_GC_SECTORS_USED));
     CACHE_DEBUGLOG(CAT_MARK_BUCKET, " mark bucket %p ( %ld GC_MOVE %d GC_MARK %d prio %d gc_sectors_used %lu pin %d) \n",
@@ -1523,6 +1525,7 @@ static void btree_gc_start(struct cache_set *c)
   for_each_cache(ca, c, i)
     for_each_bucket(b, ca) {
       b->last_gc = b->gen;
+      b->dirty_keys = 0;
 
       /* 清除bucket关联的gc flag */
       if (!atomic_read(&b->pin)) {
@@ -1721,7 +1724,7 @@ static bool gc_should_run(struct cache_set *c)
    *     goto cond wait
   */
 
-  if (c->gc_stats.in_use > c->dc->cutoff_writeback)
+  if (c->gc_stats.in_use > c->dc->cutoff_gc)
     return true;
 
   for_each_cache(ca, c, i)
@@ -1780,14 +1783,16 @@ static int bch_gc_thread(void *arg)
     for (;;) {
       // if gc needed, out loop cond
       // if gc_stop == true always loop cond
-      if (gc_should_run(c) && !atomic_read(&c->gc_stop)) {
-        break;
-      }
       c->gc_stats.status = GC_IDLE;
       struct timespec out = time_from_now(5, 0);
       pthread_mutex_lock(&c->gc_wait_mut);
       pthread_cond_timedwait(&c->gc_wait_cond, &c->gc_wait_mut, &out);
       pthread_mutex_unlock(&c->gc_wait_mut);
+
+      if (gc_should_run(c) && !atomic_read(&c->gc_stop)) {
+        break;
+      }
+
     }
     // start set gc
     c->gc_stats.status = GC_START;

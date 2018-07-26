@@ -3285,6 +3285,18 @@ std::vector<Option> get_global_options() {
     .set_default("95")
     .set_description("cache add cutoff"),
 
+    Option("t2store_cutoff_gc", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("40")
+    .set_description("gc cutoff"),
+
+    Option("t2store_gc_mode", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("1")
+    .set_description("gc mode"),
+
+    Option("t2store_max_gc_keys_onetime", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("512")
+    .set_description("max gc keys onetime"),
+
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")
     .add_tag("mkfs")

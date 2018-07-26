@@ -178,6 +178,18 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
     set_cache_add_cutoff(ca->set->dc, atoi(u_conf->val));
   }
 
+  if (!strcmp(u_conf->opt_name, "t2store_cutoff_gc")) {
+    set_gc_cutoff(ca->set->dc, atoi(u_conf->val));
+  }
+
+  if (!strcmp(u_conf->opt_name, "t2store_gc_mode")) {
+    set_gc_mode(ca->set->dc, atoi(u_conf->val));
+  }
+
+  if (!strcmp(u_conf->opt_name, "t2store_set_max_gc_keys_onetime")) {
+    set_max_gc_keys_onetime(ca->set->dc, atoi(u_conf->val));
+  }
+
   return 0;
 }
 
@@ -241,6 +253,9 @@ static void get_gc_status(struct cache_set *c, struct gc_status *s)
   s->sectors_to_gc     = atomic_read(&c->sectors_to_gc);
   s->gc_running_state  = get_gc_running_state(c->gc_stats.status);
   s->invalidate_needs_gc = c->cache[0]->invalidate_needs_gc;
+  s->cutoff_gc = c->dc->cutoff_gc;
+  s->cutoff_gc_busy = c->dc->cutoff_gc_busy;
+  s->max_gc_keys_onetime = c->dc->max_gc_keys_onetime;
 
   // all bucket include pin+avail+unavail
   s->gc_all_buckets    = c->gc_stats.gc_all_buckets;
@@ -264,6 +279,8 @@ static void get_gc_status(struct cache_set *c, struct gc_status *s)
   
   // moving
   s->gc_moving_buckets = c->gc_stats.gc_moving_buckets;
+  s->gc_empty_buckets = c->gc_stats.gc_empty_buckets;
+  s->gc_full_buckets = c->gc_stats.gc_full_buckets;
 
   CACHE_DEBUGLOG(NULL, "gc_running_state: %s, invalidate_needs_gc: %u\n",
       get_gc_running_state(c->gc_stats.status), c->cache[0]->invalidate_needs_gc);

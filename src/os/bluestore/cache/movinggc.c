@@ -26,10 +26,15 @@ static bool moving_pred(struct keybuf *buf, struct bkey *k)
       moving_gc_keys);
   unsigned i;
 
-  for (i = 0; i < KEY_PTRS(k); i++)
+  for (i = 0; i < KEY_PTRS(k); i++) {
     if (ptr_available(c, k, i) &&
-        GC_MOVE(PTR_BUCKET(c, k, i)))
-      return true;
+        GC_MOVE(PTR_BUCKET(c, k, i))) {
+      if (PTR_BUCKET(c, k, i)->move_dirty_only && !KEY_DIRTY(k))
+        return false;
+      else
+        return true;
+    }
+  }
 
   return false;
 }
@@ -170,10 +175,9 @@ static void *read_completion(void *arg){
     SET_KEY_OFFSET(new_key, KEY_START(&w->key));
 
     // wirte moving gc to moving buckets
-    if (!bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 1, 1)) {
+    if (!bch_alloc_sectors(c, new_key, KEY_SIZE(&w->key), 0, 1, 0)) {
       CACHE_ERRORLOG(MOVINGGC, "bch_alloc_sectors failed!\n");
-      bch_keybuf_del(&c->moving_gc_keys, w);
-      assert("bch_alloc_sectors" == 0);
+      goto out;
     }
 
     if (KEY_DIRTY(&w->key)){
@@ -191,13 +195,18 @@ static void *read_completion(void *arg){
     pdump_bkey(WRITEBACK, __func__, &w->key);
     ret = aio_enqueue(CACHE_THREAD_CACHE, c->cache[0]->handler, item);
     if (ret < 0) {
-      atomic_dec(&c->gc_seq);
-      bch_keybuf_del(&c->moving_gc_keys, w);
       assert( "dirty aio_enqueue read error  " == 0);
+      goto out;
     }
   } else {
-    atomic_dec(&c->gc_seq);
+    goto out;
   }
+  return;
+
+out:
+  bch_keybuf_del(&c->moving_gc_keys, w);
+  atomic_dec(&c->gc_seq);
+  return;
 }
 
 static void begin_io_read(struct keybuf_key *w, struct cache_set *c)
@@ -261,10 +270,29 @@ static bool bucket_cmp(struct bucket *l, struct bucket *r)
   return GC_SECTORS_USED(l) < GC_SECTORS_USED(r);
 }
 
+static bool bucket_dirty_cmp(struct bucket *l, struct bucket *r)
+{
+  return l->dirty_keys < r->dirty_keys;
+}
+
 static unsigned bucket_heap_top(struct cache *ca)
 {
   struct bucket *b;
   return (b = heap_peek(&ca->heap)) ? GC_SECTORS_USED(b) : 0;
+}
+
+static unsigned bucket_heap_top_keys(struct cache *ca)
+{
+  struct bucket *b;
+  return (b = heap_peek(&ca->heap)) ? b->dirty_keys : 0;
+}
+
+void calc_bucket_state(struct cache *ca, struct cache_set *c, struct bucket *b)
+{
+  if (GC_SECTORS_USED(b) == ca->sb.bucket_size)
+    c->gc_stats.gc_full_buckets++;
+  if (!GC_SECTORS_USED(b))
+    c->gc_stats.gc_empty_buckets++;
 }
 
 /* 根据bucket的标志位做实际回收  */
@@ -281,50 +309,106 @@ void bch_moving_gc(struct cache_set *c)
   CACHE_DEBUGLOG(MOVINGGC, "Begin moving gc. \n");
 
   c->gc_stats.gc_moving_buckets = 0;
-  for_each_cache(ca, c, i) {
-    unsigned sectors_to_move = 0;
-    unsigned reserve_sectors = ca->sb.bucket_size *
-      fifo_used(&ca->free[RESERVE_MOVINGGC]);
+  c->gc_stats.gc_pin_buckets = 0;
+  c->gc_stats.gc_empty_buckets = 0;
+  c->gc_stats.gc_full_buckets = 0;
 
-    ca->heap.used = 0;
+  if (c->gc_stats.in_use > c->dc->cutoff_gc_busy) {
+    for_each_cache(ca, c, i) {
+      unsigned keys_to_move = 0;
+      unsigned reserve_keys = c->dc->max_gc_keys_onetime;
 
-    /* 遍历cached disk的bucket */
-    for_each_bucket(b, ca) {
-      /* 如果为元数据或数据占用量为bucket_size，则continue */
-      if (GC_MARK(b) == GC_MARK_METADATA ||
-          !GC_SECTORS_USED(b) ||
-          GC_SECTORS_USED(b) == ca->sb.bucket_size ||
-          atomic_read(&b->pin))
-        continue;
+      ca->heap.used = 0;
 
-      if (!heap_full(&ca->heap)) {
-        sectors_to_move += GC_SECTORS_USED(b);
-        heap_add(&ca->heap, b, bucket_cmp);
-      } else if (bucket_cmp(b, heap_peek(&ca->heap))) {
-        sectors_to_move -= bucket_heap_top(ca);
-        sectors_to_move += GC_SECTORS_USED(b);
+      /* 遍历cached disk的bucket */
+      for_each_bucket(b, ca) {
+        /* 如果为元数据或数据占用量为bucket_size，则continue */
 
-        ca->heap.data[0] = b;
-        heap_sift(&ca->heap, 0, bucket_cmp);
+        calc_bucket_state(ca, c, b);
+        if (GC_MARK(b) == GC_MARK_METADATA ||
+            !GC_SECTORS_USED(b) ||
+            !b->dirty_keys ||
+            atomic_read(&b->pin))
+          continue;
+
+        if (!heap_full(&ca->heap)) {
+          keys_to_move += b->dirty_keys;
+          heap_add(&ca->heap, b, bucket_dirty_cmp);
+        } else if (bucket_dirty_cmp(b, heap_peek(&ca->heap))) {
+          keys_to_move -= bucket_heap_top_keys(ca);
+          keys_to_move += b->dirty_keys;
+
+          ca->heap.data[0] = b;
+          heap_sift(&ca->heap, 0, bucket_dirty_cmp);
+        }
       }
-    }
 
-    while (sectors_to_move > reserve_sectors) {
-      heap_pop(&ca->heap, b, bucket_cmp);
-      sectors_to_move -= GC_SECTORS_USED(b);
-    }
+      while (keys_to_move > reserve_keys) {
+        heap_pop(&ca->heap, b, bucket_cmp);
+        keys_to_move -= b->dirty_keys;
+      }
+      /*
+       * 统计哪些bucket可以通过移动来合并bucket的使用
+       * 标记这些bucket为SET_GC_MOVE(b, 1);
+       */
+      CACHE_INFOLOG(NULL, "moving dirty gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
 
-    /*
-     * 统计哪些bucket可以通过移动来合并bucket的使用
-     * 标记这些bucket为SET_GC_MOVE(b, 1);
-     */
-    CACHE_INFOLOG(NULL, "moving gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
-        
-    while (heap_pop(&ca->heap, b, bucket_cmp)) {
-      SET_GC_MOVE(b, 1);
-      c->gc_stats.gc_moving_buckets++;
+      while (heap_pop(&ca->heap, b, bucket_dirty_cmp)) {
+        SET_GC_MOVE(b, 1);
+        b->move_dirty_only = true;
+        c->gc_stats.gc_moving_buckets++;
+      }
+      CACHE_INFOLOG(NULL, " need to gc dirty moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
     }
-    CACHE_INFOLOG(NULL, " need to gc moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
+  } else {
+    for_each_cache(ca, c, i) {
+      unsigned sectors_to_move = 0;
+      unsigned reserve_sectors = ca->sb.bucket_size *
+        fifo_used(&ca->free[RESERVE_MOVINGGC]);
+
+      ca->heap.used = 0;
+
+      /* 遍历cached disk的bucket */
+      for_each_bucket(b, ca) {
+        /* 如果为元数据或数据占用量为bucket_size，则continue */
+
+        calc_bucket_state(ca, c, b);
+        if (GC_MARK(b) == GC_MARK_METADATA ||
+            !GC_SECTORS_USED(b) ||
+            GC_SECTORS_USED(b) == ca->sb.bucket_size ||
+            atomic_read(&b->pin))
+          continue;
+
+        if (!heap_full(&ca->heap)) {
+          sectors_to_move += GC_SECTORS_USED(b);
+          heap_add(&ca->heap, b, bucket_cmp);
+        } else if (bucket_cmp(b, heap_peek(&ca->heap))) {
+          sectors_to_move -= bucket_heap_top(ca);
+          sectors_to_move += GC_SECTORS_USED(b);
+
+          ca->heap.data[0] = b;
+          heap_sift(&ca->heap, 0, bucket_cmp);
+        }
+      }
+
+      while (sectors_to_move > reserve_sectors) {
+        heap_pop(&ca->heap, b, bucket_cmp);
+        sectors_to_move -= GC_SECTORS_USED(b);
+      }
+
+      /*
+       * 统计哪些bucket可以通过移动来合并bucket的使用
+       * 标记这些bucket为SET_GC_MOVE(b, 1);
+       */
+      CACHE_INFOLOG(NULL, "moving gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
+
+      while (heap_pop(&ca->heap, b, bucket_cmp)) {
+        SET_GC_MOVE(b, 1);
+        b->move_dirty_only = false;
+        c->gc_stats.gc_moving_buckets++;
+      }
+      CACHE_INFOLOG(NULL, " need to gc moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
+    }
   }
 
   pthread_mutex_unlock(&c->bucket_lock);

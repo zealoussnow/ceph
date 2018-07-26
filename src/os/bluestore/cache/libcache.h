@@ -47,6 +47,12 @@ enum cache_write_strategy {
   CACHE_MODE_NONE,
 };
 
+enum cache_gc_strategy {
+  GC_MODE_READ_PRIO = 0,
+  GC_MODE_WRITE_PRIO,
+  GC_MODE_INVALID,
+};
+
 struct update_conf
 {
   const char *opt_name;
@@ -79,10 +85,12 @@ struct gc_status
   int sectors_to_gc;
   const char *gc_running_state;
   unsigned  invalidate_needs_gc;
+  unsigned cutoff_gc;
+  unsigned cutoff_gc_busy;
+  unsigned max_gc_keys_onetime;
 
   // all bucket include pin+avail+unavail
   uint64_t gc_all_buckets;
-  uint64_t gc_pin_buckets;
   uint64_t gc_avail_buckets;
   uint64_t gc_unavail_buckets;
 
@@ -102,6 +110,9 @@ struct gc_status
 
   // moving
   uint64_t gc_moving_buckets;
+  uint64_t gc_pin_buckets;
+  uint64_t gc_empty_buckets;
+  uint64_t gc_full_buckets;
 };
 
 struct btree_info
