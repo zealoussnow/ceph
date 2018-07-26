@@ -190,6 +190,10 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
     set_max_gc_keys_onetime(ca->set->dc, atoi(u_conf->val));
   }
 
+  if (!strcmp(u_conf->opt_name, "t2store_cached_hits")) {
+    set_cached_hits(ctx->cache, atoi(u_conf->val));
+  }
+
   return 0;
 }
 
@@ -213,6 +217,7 @@ static void get_wb_status(struct cached_dev *dc, struct wb_status *s)
 {
   s->wb_running_state  = get_wb_running_state(dc->wb_status);
   s->writeback_stop    = atomic_read(&dc->writeback_stop);
+  s->cached_hits       = atomic_read(&dc->c->cached_hits);
   s->has_dirty         = atomic_read(&dc->has_dirty);
   s->writeback_rate    = dc->writeback_rate.rate;
   s->dirty_sectors     = get_sectors_dirty(dc);

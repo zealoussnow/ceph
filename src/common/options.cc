@@ -3261,6 +3261,11 @@ std::vector<Option> get_global_options() {
     .set_enum_allowed({"0", "1", "2", "3"})
     .set_description("cache mode"),
 
+    Option("t2store_cached_hits", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("0")
+    .set_enum_allowed({"0", "1"})
+    .set_description("cached hit data"),
+
     Option("t2store_writeback_percent", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("10")
     .set_description("cache mode"),

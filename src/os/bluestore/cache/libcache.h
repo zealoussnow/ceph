@@ -75,6 +75,7 @@ struct wb_status
   int cutoff_cache_add;
   int has_dirty;
   int writeback_stop;
+  int cached_hits;
   const char *wb_running_state;
 };
 
