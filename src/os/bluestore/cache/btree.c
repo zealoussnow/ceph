@@ -2559,6 +2559,6 @@ void bch_keybuf_init(struct keybuf *buf)
   buf->last_scanned	= MAX_KEY;
   buf->keys		= RB_ROOT;
 
-  pthread_spin_init(&buf->lock, PTHREAD_PROCESS_SHARED);
+  pthread_spin_init(&buf->lock, 0);
   array_allocator_init(&buf->freelist);
 }
