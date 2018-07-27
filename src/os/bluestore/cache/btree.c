@@ -137,6 +137,7 @@
 #define btree_root(fn, c, op, ...)                                                              \
 ({                                                                                              \
   int _r = -EINTR;                                                                              \
+  int count = 0;                                                                                \
   do {                                                                                          \
     struct btree *_b = (c)->root;                                                               \
     bool _w = insert_lock(op, _b);                                                              \
@@ -147,7 +148,11 @@
     rw_unlock(_w, _b);                                                                          \
     bch_cannibalize_unlock(c);                                                                  \
     if (_r == -EINTR) {                                                                         \
-      struct timespec out = time_from_now(0, 100);                                                                      \
+      count++;                                                                                  \
+      if (count > 50) {                                                                         \
+        assert("timeout for btree cache wait" == 0);                                            \
+      }                                                                                         \
+      struct timespec out = time_from_now(0, 100);                                              \
       pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
       pthread_cond_timedwait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut,&out);     \
       pthread_mutex_unlock(&(c)->btree_cache_wait_mut);                                         \
