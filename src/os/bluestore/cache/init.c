@@ -1143,6 +1143,7 @@ int dump_btree_kes_fn(struct btree_op *op, struct btree *b)
   for_each_key(&b->keys, k, &iter) {
     if (b->level == 0) {
       b->c->cache[0]->btree_nbkeys++;
+      b->c->cache[0]->total_size += (KEY_SIZE(k) << 9);
       if (bch_ptr_bad(&b->keys, k)) {
         b->c->cache[0]->btree_bad_nbeys++;
         if (!bkey_cmp(k, &ZERO_KEY))
@@ -1151,8 +1152,10 @@ int dump_btree_kes_fn(struct btree_op *op, struct btree *b)
           b->c->cache[0]->zero_keysize_nbkeys++;
       }
       else {
-        if (KEY_DIRTY(k))
+        if (KEY_DIRTY(k)) {
           b->c->cache[0]->btree_dirty_nbkeys++;
+          b->c->cache[0]->dirty_size += (KEY_SIZE(k) << 9);
+        }
       }
     }
     else if (b->level == 1)
@@ -1174,6 +1177,8 @@ int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi)
   struct cache *ca = ctx->cache;
   ca->btree_nodes  =  0;
   ca->btree_nbkeys =  0;
+  ca->total_size   = 0;
+  ca->dirty_size   = 0;
   ca->btree_bad_nbeys = 0;
   ca->btree_dirty_nbkeys = 0;
   ca->btree_null_nbkeys = 0;
@@ -1182,6 +1187,8 @@ int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi)
     dump_btree_info(ca);
     bi->btree_nodes  = ca->btree_nodes;
     bi->btree_nbkeys = ca->btree_nbkeys;
+    bi->total_size   = ca->total_size;
+    bi->dirty_size   = ca->dirty_size;
     bi->btree_bad_nbeys = ca->btree_bad_nbeys;
     bi->btree_dirty_nbkeys = ca->btree_dirty_nbkeys;
     bi->btree_null_nbkeys  = ca->btree_null_nbkeys;
