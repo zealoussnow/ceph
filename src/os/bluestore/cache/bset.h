@@ -542,6 +542,10 @@ bch_keylist_push(struct keylist *l)
 static inline void 
 bch_keylist_add(struct keylist *l, struct bkey *k)
 {
+  if (__bch_keylist_realloc(l, bkey_u64s(k))){
+    //CACHE_DEBUGLOG(CAT_BKEY, "keylist realloc failed!\n");
+    assert("keylist realloc failed" == 0);
+  }
   bkey_copy(l->top, k);
   bch_keylist_push(l);
 }
