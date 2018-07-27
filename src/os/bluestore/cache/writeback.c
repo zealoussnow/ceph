@@ -425,7 +425,12 @@ static void read_dirty(struct cached_dev *dc)
 
       dc->last_read = KEY_OFFSET(&w->key);
 
-      BUG_ON(ptr_stale(dc->c, &w->key, 0));
+      if (ptr_stale(dc->c, &w->key, 0)) {
+        CACHE_ERRORLOG(NULL, "writeback key stale bucket gen = %d, ptr gen = %d\n", PTR_BUCKET(dc->c, &w->key, 0)->gen, PTR_GEN(&w->key, 0));
+        dump_bkey("writeback stale key", &w->key);
+        assert("writeback stale key" == 0);
+      }
+      /*BUG_ON(ptr_stale(dc->c, &w->key, 0));*/
 
       dirty_io_read(w, d);
     }

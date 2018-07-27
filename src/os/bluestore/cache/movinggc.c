@@ -257,6 +257,11 @@ static void read_moving(struct cache_set *c)
       break;
 
     if (ptr_stale(c, &w->key, 0)) {
+      if (KEY_DIRTY(&w->key)) {
+        CACHE_ERRORLOG(NULL, "moving dirty key stale bucket gen = %d, ptr gen = %d\n", PTR_BUCKET(c, &w->key, 0)->gen, PTR_GEN(&w->key, 0));
+        dump_bkey("moving dirty stale key", &w->key);
+        assert("moving dirty stale key" == 0);
+      }
       bch_keybuf_del(&c->moving_gc_keys, w);
       continue;
     }
