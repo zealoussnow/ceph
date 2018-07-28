@@ -136,6 +136,17 @@ struct moving_item {
   struct cache_set *c;
 };
 
+static void free_moving_item(struct moving_item *d)
+{
+  if (d->item) {
+    if (d->item->data)
+      free(d->item->data);
+    free_ring_item(d->item);
+  }
+
+  free(d);
+}
+
 static void *write_completion(void *arg){
   struct moving_item *d = (struct moving_item *)arg;
   struct ring_item *item = d->item;
@@ -145,13 +156,10 @@ static void *write_completion(void *arg){
   CACHE_DEBUGLOG(MOVINGGC, "Write completion key(%p) \n", &w->key);
   bch_keylist_push(item->insert_keys);
   bch_btree_insert(c, item->insert_keys, NULL, &w->key);
-  bch_keylist_free(item->insert_keys);
 
   bch_keybuf_del(&c->moving_gc_keys, w);
   atomic_dec(&c->gc_seq);
-  free(item->data);
-  free(item);
-  free(d);
+  free_moving_item(d);
 }
 
 static void *read_completion(void *arg){
@@ -206,6 +214,7 @@ static void *read_completion(void *arg){
 out:
   bch_keybuf_del(&c->moving_gc_keys, w);
   atomic_dec(&c->gc_seq);
+  free_moving_item(d);
   return;
 }
 
