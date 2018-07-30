@@ -2108,10 +2108,10 @@ int _do_read_cache(struct ring_item *item){
   struct bkey *old_bkey = item->insert_keys->keys;
   BKEY_PADDED(key) _bkey;
   struct bkey *tmp = &_bkey;
-  struct keylist caches;
-  struct keylist backends;
-  bch_keylist_init(&caches);
-  bch_keylist_init(&backends);
+  struct keylist *caches = calloc(1, sizeof(struct keylist));
+  struct keylist *backends = calloc(1, sizeof(struct keylist));
+  bch_keylist_init(caches);
+  bch_keylist_init(backends);
   int io_num = 0;
   int ret;
 
@@ -2141,11 +2141,11 @@ int _do_read_cache(struct ring_item *item){
       //top = caches->top;
       bkey_copy(tmp, new_bkey);
       bkey_cut_invalid(tmp, KEY_START(old_bkey), KEY_SIZE(old_bkey));
-      bch_keylist_add(&caches, tmp);
+      bch_keylist_add(caches, tmp);
     } else {
       // cache not found and read backend
       CACHE_WARNLOG(CAT_READ, "Cache not found and push io to backend\n");
-      bch_keylist_add(&backends, old_bkey);
+      bch_keylist_add(backends, old_bkey);
     }
     io_num ++;
   }
@@ -2156,7 +2156,14 @@ int _do_read_cache(struct ring_item *item){
   }
 
   atomic_set(&item->seq, io_num);
-  for (new_bkey = caches.keys; new_bkey != caches.top; new_bkey = bkey_next(new_bkey)){
+  bch_keylist_free(item->insert_keys);
+  T2Free(item->insert_keys);
+  item->insert_keys = backends;
+  bch_keylist_free(item->read_new_keys);
+  T2Free(item->read_new_keys);
+  item->read_new_keys = caches;
+
+  for (new_bkey = caches->keys; new_bkey != caches->top; new_bkey = bkey_next(new_bkey)){
     set_item_io(item, new_bkey);
     ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
     if (ret < 0) {
@@ -2164,7 +2171,7 @@ int _do_read_cache(struct ring_item *item){
       assert("read cache aio_enqueue error  " == 0);
     }
   }
-  for (new_bkey = backends.keys; new_bkey != backends.top; new_bkey = bkey_next(new_bkey)){
+  for (new_bkey = backends->keys; new_bkey != backends->top; new_bkey = bkey_next(new_bkey)){
     item->io.len = KEY_SIZE(new_bkey) << 9;
     item->io.offset = KEY_START(new_bkey) << 9;
     item->io.pos = item->data + (KEY_START(new_bkey) << 9 - item->o_offset);
@@ -2174,9 +2181,6 @@ int _do_read_cache(struct ring_item *item){
       assert("read cache aio_enqueue error  " == 0);
     }
   }
-
-  bch_keylist_free(&caches);
-  bch_keylist_free(&backends);
   return 0;
 }
 
@@ -2210,6 +2214,17 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
    return MAP_CONTINUE;
 }
 
+void _read_check_bkey(struct ring_item *item){
+  struct bkey *iter;
+  struct cache *ca = item->ca_handler;
+  for (iter = item->read_new_keys->keys; iter!= item->read_new_keys->top; iter = bkey_next(iter)){
+    if(ptr_stale(ca->set, iter, 0)){
+      CACHE_ERRORLOG(CAT_READ, "aio read cache completion but key stable \n");
+      assert("aio read cache completion but key stable " == 0);
+    }
+  }
+}
+
 void aio_read_cache_completion(void *cb)
 {
   struct ring_item *item = cb;
@@ -2225,6 +2240,7 @@ void aio_read_cache_completion(void *cb)
     assert(item->io.type == CACHE_IO_TYPE_READ);
   }
   if (!atomic_dec_return(&item->seq)) {
+    _read_check_bkey(item);
     aio_read_completion(item);
   }
 }
