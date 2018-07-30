@@ -123,7 +123,8 @@ get_thread_data(uint16_t type, struct aio_handler *handler) {
   }
 
   //for random  select io_context
-  CACHE_WARNLOG(NULL, " random  select io_context \n");
+  // CACHE_WARNLOG(NULL, " random  select io_context \n");
+  //Todo: not go here when cache poller write backend
   switch (type) {
     case CACHE_THREAD_CACHE:
       need_seq = pthread_id % handler->nr_cache;
