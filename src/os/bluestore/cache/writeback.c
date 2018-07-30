@@ -314,7 +314,6 @@ static void dirty_io_write(struct dirty_item *d){
 static void *read_completion(void *arg){
   struct dirty_item *d = (struct dirty_item *)arg;
   struct ring_item *item = d->item;
-  struct keybuf_key *w;
 
   if (!atomic_dec_return(&item->seq)){
     dirty_io_write(d);
