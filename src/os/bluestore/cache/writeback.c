@@ -316,9 +316,7 @@ static void *read_completion(void *arg){
   struct ring_item *item = d->item;
   struct keybuf_key *w;
 
-  atomic_dec(&item->seq);
-  if (!atomic_read(&item->seq)){
-    atomic_dec(&item->seq);
+  if (!atomic_dec_return(&item->seq)){
     dirty_io_write(d);
   }
 }
@@ -335,7 +333,6 @@ static void dirty_io_read(struct keybuf_key *w, struct dirty_item *d)
   item->io.pos = item->data + ((KEY_START(&w->key) << 9) - item->o_offset);
   item->io.offset = PTR_OFFSET(&w->key, 0) << 9;
   item->io.len = KEY_SIZE(&w->key) << 9;
-  atomic_inc(&item->seq);
 
   CACHE_DEBUGLOG(WRITEBACK, "Item(%p) o_offset=%lu, o_len=%lu, data=%p, io offset=%lu, len=%lu, pos=%p\n",
                  item, item->o_offset, item->o_len, item->data, item->io.offset, item->io.len, item->io.pos);
@@ -418,7 +415,7 @@ static void read_dirty(struct cached_dev *dc)
       assert("Memory error for data" == 0);
     }
     item = get_ring_item(data, KEY_START(&d->keys[0]->key) << 9, size << 9);
-    atomic_set(&item->seq, 1);
+    atomic_set(&item->seq, nk);
     d->item = item;
 
 
@@ -431,11 +428,6 @@ static void read_dirty(struct cached_dev *dc)
       BUG_ON(ptr_stale(dc->c, &w->key, 0));
 
       dirty_io_read(w, d);
-    }
-    atomic_dec(&item->seq);
-    if (!atomic_read(&item->seq)){
-      atomic_dec(&item->seq);
-      dirty_io_write(d);
     }
 
     delay = writeback_delay(dc, size);
