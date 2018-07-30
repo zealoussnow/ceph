@@ -611,6 +611,7 @@ uint64_t bch_crc64(const void *, size_t);
 
 void * T2Molloc(size_t size);
 #define T2Free(data)            \
-        free(data);             \
-        data = NULL
+  memset(data, 0, sizeof(*data)); \
+  free(data);             \
+	data = NULL
 #endif /* _BCACHE_UTIL_H */

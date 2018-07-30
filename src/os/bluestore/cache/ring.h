@@ -18,24 +18,26 @@ struct io_sync_write {
   pthread_cond_t         sync_io_cond;
 };
 struct ring_item {
-    bool write_through_done;
-    void *ca_handler;
-    uint8_t strategy;
-    void * data;
-    uint64_t o_offset;
-    uint64_t o_len;
-    atomic_t seq;
-    atomic_t need_write_cache;
-    bool need_read_backend;
-    struct io_u io;
-    void *io_arg;
-    io_completion_fn io_completion_cb;
-    void *iou_arg;
-    io_completion_fn iou_completion_cb;
-    struct keylist *insert_keys;
-    struct io_sync_write *sync_io;
-    struct timespec start;
-    struct timespec aio_start;
+  bool write_through_done;
+  void *ca_handler;
+  uint8_t strategy;
+  void *data;
+  uint64_t o_offset;
+  uint64_t o_len;
+  atomic_t seq;
+  bool need_write_cache;
+  bool need_read_backend;
+  bool need_read_cache;
+  struct io_u io;
+  void *io_arg;
+  io_completion_fn io_completion_cb;
+  void *iou_arg;
+  io_completion_fn iou_completion_cb;
+  struct keylist *insert_keys;
+  struct keylist *read_new_keys;
+  struct io_sync_write *sync_io;
+  struct timespec start;
+  struct timespec aio_start;
 };
 
 struct ring_items {
