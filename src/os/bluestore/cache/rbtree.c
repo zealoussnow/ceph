@@ -455,8 +455,6 @@ void rb_insert_color(struct rb_node *node, struct rb_root *root)
 void rb_erase(struct rb_node *node, struct rb_root *root)
 {
 	struct rb_node *rebalance;
-        if (!node->__rb_parent_color && node != root->rb_node)
-          return;
 
 	rebalance = __rb_erase_augmented(node, root,
 					 NULL, &dummy_callbacks);

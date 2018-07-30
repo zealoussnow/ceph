@@ -277,6 +277,10 @@ static void *write_completion(void *arg){
   for (i = 0; i < d->nk; i++){
     w = d->keys[i];
     dirty_io_complete(w, dc);
+    if (w < &dc->writeback_rate_update_thread || w > dc->io) {
+      CACHE_ERRORLOG(NULL, "del error keybuf_key addr = %p, before = %p, after = %p\n", w, &dc->writeback_rate_update_thread, dc->io);
+      assert("del error keybuf_key addr" == 0);
+    }
     bch_keybuf_del(&dc->writeback_keys, w);
   }
 
@@ -393,6 +397,11 @@ static void read_dirty(struct cached_dev *dc)
       if ((nk != 0) && bkey_cmp(&d->keys[nk-1]->key,
                                 &START_KEY(&next->key)))
         break;
+
+      if (next < &dc->writeback_rate_update_thread || next > dc->io) {
+        CACHE_ERRORLOG(NULL, "get error keybuf_key addr = %p, before = %p, after = %p\n", next, &dc->writeback_rate_update_thread, dc->io);
+        assert("get error keybuf_key addr" == 0);
+      }
 
       size += KEY_SIZE(&next->key);
       d->keys[nk++] = next;
