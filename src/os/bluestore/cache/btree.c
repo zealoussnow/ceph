@@ -138,7 +138,7 @@
 #define btree_root(fn, c, op, ...)                                                              \
 ({                                                                                              \
   int _r = -EINTR;                                                                              \
-  int count = 0;                                                                                \
+  uint64_t delay = time(NULL) + BTREE_OP_MAX_TIMEOUT;                                           \
   do {                                                                                          \
     struct btree *_b = (c)->root;                                                               \
     bool _w = insert_lock(op, _b);                                                              \
@@ -149,12 +149,10 @@
     rw_unlock(_w, _b);                                                                          \
     bch_cannibalize_unlock(c);                                                                  \
     if (_r == -EINTR) {                                                                         \
-      count++;                                                                                  \
-      if (count > 50) {                                                                         \
-        CACHE_ERRORLOG(NULL, "timeout for btree cache wait");                                   \
-        assert("timeout for btree cache wait" == 0);                                            \
+      if (time_after64((uint64_t)time(NULL), delay)) {                                          \
+        btree_bug(_b, "btree op timeout more than %lu\n", BTREE_OP_MAX_TIMEOUT);                \
       }                                                                                         \
-      struct timespec out = time_from_now(0, 100);                                              \
+      struct timespec out = time_from_now(0, 10);                                               \
       pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
       pthread_cond_timedwait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut,&out);     \
       pthread_mutex_unlock(&(c)->btree_cache_wait_mut);                                         \
@@ -1178,8 +1176,10 @@ static int btree_gc_coalesce(struct btree *b, struct btree_op *op,
 
   bch_keylist_init(&keylist);
 
-  if (btree_check_reserve(b, NULL))
+  if (btree_check_reserve(b, NULL)) {
+    CACHE_WARNLOG(CAT_GC, "gc coalesce check bucket reserve failed\n");
     return 0;
+  }
 
   memset(new_nodes, 0, sizeof(new_nodes));
 
@@ -1399,6 +1399,7 @@ static int btree_gc_recurse(struct btree *b, struct btree_op *op,
       r->b = bch_btree_node_get(b->c, op, k, b->level - 1,
           true, b);
       if (IS_ERR(r->b)) {
+        bkey_bug(k, "gc get btree node error\n");
         ret = PTR_ERR(r->b);
         break;
       }
@@ -1480,6 +1481,7 @@ static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
       btree_node_free(b);
       rw_unlock(true, n);
 
+      CACHE_WARNLOG(CAT_GC, "gc rewrite btree root\n");
       return -EINTR;
     }
   }
@@ -1489,8 +1491,10 @@ static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
   if (b->level) {
     /*ret = btree_gc_recurse(b, op, writes, gc);*/
     ret = btree_gc_recurse(b, op, gc);
-    if (ret)
+    if (ret) {
+      CACHE_WARNLOG(CAT_GC, "gc rewrite btree nodes return %d\n", ret);
       return ret;
+    }
   }
 
   bkey_copy_key(&b->c->gc_done, &b->key);
