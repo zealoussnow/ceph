@@ -1313,10 +1313,31 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     t2store_gc_status(&cache_ctx, &gs);
     f->open_object_section("gc status");
     f->dump_float("gc_mark_in_use(%)", gs.gc_mark_in_use);
-    f->dump_unsigned("gc_avail_buckets", gs.avail_nbuckets);
     f->dump_int("sectors_to_gc", gs.sectors_to_gc);
-    f->dump_int("invalidate_needs_gc", gs.invalidate_needs_gc);
     f->dump_string("gc_running_state", gs.gc_running_state);
+    f->dump_int("invalidate_needs_gc", gs.invalidate_needs_gc);
+    f->close_section();
+    f->open_object_section("all buckets");
+    f->dump_unsigned("gc_all_buckets", gs.gc_all_buckets);
+    f->dump_unsigned("gc_pin_bucket", gs.gc_pin_buckets);
+    f->dump_unsigned("gc_avail_buckets", gs.gc_avail_buckets);
+    f->dump_unsigned("gc_unavail_buckets", gs.gc_unavail_buckets);
+    f->close_section();
+    f->open_object_section("availbale buckets");
+    f->dump_unsigned("gc_init_buckets", gs.gc_init_buckets);
+    f->dump_unsigned("gc_reclaimable_buckets", gs.gc_reclaimable_buckets);
+    f->close_section();
+    f->open_object_section("unavailbale buckets");
+    f->dump_unsigned("gc_meta_buckets", gs.gc_meta_buckets);
+    f->dump_unsigned("gc_dirty_buckets", gs.gc_dirty_buckets);
+    f->close_section();
+    f->open_object_section("meta buckets");
+    f->dump_unsigned("gc_uuids_buckets", gs.gc_uuids_buckets);
+    f->dump_unsigned("gc_writeback_dirty_buckets", gs.gc_writeback_dirty_buckets);
+    f->dump_unsigned("gc_journal_buckets", gs.gc_journal_buckets);
+    f->close_section();
+    f->open_object_section("gc moving");
+    f->dump_unsigned("gc_moving_buckets", gs.gc_moving_buckets);
     f->close_section();
   }
 

@@ -71,11 +71,33 @@ struct wb_status
 
 struct gc_status
 {
-  uint64_t avail_nbuckets;
-  int sectors_to_gc;
+  // gc status
   double gc_mark_in_use;
-  unsigned  invalidate_needs_gc;
+  int sectors_to_gc;
   const char *gc_running_state;
+  unsigned  invalidate_needs_gc;
+
+  // all bucket include pin+avail+unavail
+  uint64_t gc_all_buckets;
+  uint64_t gc_pin_buckets;
+  uint64_t gc_avail_buckets;
+  uint64_t gc_unavail_buckets;
+
+  // avail = init + reclaimable
+  uint64_t gc_init_buckets;
+  uint64_t gc_reclaimable_buckets;
+
+  // unavail = dirty + meta
+  uint64_t gc_dirty_buckets;
+  uint64_t gc_meta_buckets;
+
+  // meta = uuids + writeback_dirty + journal + others(btree nodes)
+  uint64_t gc_uuids_buckets;
+  uint64_t gc_writeback_dirty_buckets;
+  uint64_t gc_journal_buckets;
+
+  // moving
+  uint64_t gc_moving_buckets;
 };
 
 struct btree_info

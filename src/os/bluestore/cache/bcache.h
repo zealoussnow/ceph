@@ -219,6 +219,7 @@ struct bucket {
  */
 
 BITMASK(GC_MARK,                struct bucket, gc_mark, 0, 2);
+#define GC_MARK_INIT            0
 #define GC_MARK_RECLAIMABLE     1
 #define GC_MARK_DIRTY           2
 #define GC_MARK_METADATA        3
@@ -543,13 +544,34 @@ enum gc_running_status {
 };
 
 struct gc_stat {
-  size_t                        nodes;
-  size_t                        key_bytes;
+  size_t                nodes;
+  size_t                key_bytes;
 
-  size_t                        nkeys;
+  size_t                nkeys;
   uint64_t              data;   /* sectors */
   unsigned              in_use; /* percent */
-  unsigned              status; /* percent */
+  // all bucket include pin+avail+unavail
+  uint64_t              gc_all_buckets; 
+
+  uint64_t              gc_pin_buckets; 
+  // avail = init + reclaimable
+  uint64_t              gc_avail_buckets; 
+  uint64_t              gc_init_buckets; 
+  uint64_t              gc_reclaimable_buckets; 
+  // unavail = dirty + meta
+  uint64_t              gc_unavail_buckets; 
+  uint64_t              gc_dirty_buckets; 
+  uint64_t              gc_meta_buckets; 
+  // meta = uuids + writeback_dirty + journal 
+  uint64_t              gc_uuids_buckets; 
+  uint64_t              gc_writeback_dirty_buckets; 
+  uint64_t              gc_journal_buckets; 
+  uint64_t              gc_prio_buckets; 
+
+  // moving is need to read and write to new
+  uint64_t              gc_moving_buckets; 
+
+  unsigned              status; 
 };
 
 /*

@@ -280,6 +280,7 @@ void bch_moving_gc(struct cache_set *c)
   pthread_mutex_lock(&c->bucket_lock);
   CACHE_DEBUGLOG(MOVINGGC, "Begin moving gc. \n");
 
+  c->gc_stats.gc_moving_buckets = 0;
   for_each_cache(ca, c, i) {
     unsigned sectors_to_move = 0;
     unsigned reserve_sectors = ca->sb.bucket_size *
@@ -317,8 +318,13 @@ void bch_moving_gc(struct cache_set *c)
      * 统计哪些bucket可以通过移动来合并bucket的使用
      * 标记这些bucket为SET_GC_MOVE(b, 1);
      */
-    while (heap_pop(&ca->heap, b, bucket_cmp))
+    CACHE_INFOLOG(NULL, "moving gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
+        
+    while (heap_pop(&ca->heap, b, bucket_cmp)) {
       SET_GC_MOVE(b, 1);
+      c->gc_stats.gc_moving_buckets++;
+    }
+    CACHE_INFOLOG(NULL, " need to gc moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
   }
 
   pthread_mutex_unlock(&c->bucket_lock);

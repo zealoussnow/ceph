@@ -217,11 +217,34 @@ static const char *get_gc_running_state(int state)
 
 static void get_gc_status(struct cache_set *c, struct gc_status *s)
 {
+  // gc status
   s->gc_mark_in_use    = (c->nbuckets - c->avail_nbuckets) * 100.0 / c->nbuckets;
-  s->avail_nbuckets    = c->avail_nbuckets;
   s->sectors_to_gc     = atomic_read(&c->sectors_to_gc);
   s->gc_running_state  = get_gc_running_state(c->gc_stats.status);
   s->invalidate_needs_gc = c->cache[0]->invalidate_needs_gc;
+
+  // all bucket include pin+avail+unavail
+  s->gc_all_buckets    = c->gc_stats.gc_all_buckets;
+  s->gc_pin_buckets    = c->gc_stats.gc_pin_buckets;
+  s->gc_avail_buckets    = c->gc_stats.gc_avail_buckets;
+  s->gc_unavail_buckets    = c->gc_stats.gc_unavail_buckets;
+
+  // avail = init + reclaimable
+  s->gc_init_buckets    = c->gc_stats.gc_init_buckets;
+  s->gc_reclaimable_buckets    = c->gc_stats.gc_reclaimable_buckets;
+
+  // unavail = dirty + meta
+  s->gc_meta_buckets    = c->gc_stats.gc_meta_buckets;
+  s->gc_dirty_buckets    = c->gc_stats.gc_dirty_buckets;
+  
+  // meta = uuids + writeback_dirty + journal + others(btree nodes)
+  s->gc_uuids_buckets    = c->gc_stats.gc_uuids_buckets;
+  s->gc_writeback_dirty_buckets    = c->gc_stats.gc_writeback_dirty_buckets;
+  s->gc_journal_buckets    = c->gc_stats.gc_journal_buckets;
+  
+  // moving
+  s->gc_moving_buckets = c->gc_stats.gc_moving_buckets;
+
   CACHE_DEBUGLOG(NULL, "gc_running_state: %s, invalidate_needs_gc: %u\n",
       get_gc_running_state(c->gc_stats.status), c->cache[0]->invalidate_needs_gc);
 }
