@@ -191,6 +191,7 @@
 #include <pthread.h>
 
 #include "bcache_types.h"
+#include "delayed_work.h"
 #include "bset.h"
 #include "util.h"
 #include "journal.h"
@@ -227,6 +228,11 @@ BITMASK(GC_SECTORS_USED, struct bucket, gc_mark, 2, GC_SECTORS_USED_SIZE);
 BITMASK(GC_MOVE, struct bucket, gc_mark, 15, 1);
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
+
+// used for gc
+#define UPDATE_GC_SIZE_WM_SECONDS 5
+#define WAKE_UP_GC_SIZE_WM  1073741824 // 1GB
+#define WAKE_UP_GC_WM 80
 
 struct search;
 struct btree;
@@ -523,6 +529,9 @@ struct cache {
   uint64_t btree_null_nbkeys;
   uint64_t zero_keysize_nbkeys;
   bool dump_btree_detail;
+  struct event ev_update_gc_wm;
+  uint64_t wake_up_gc_size_wm;
+  bool need_wakeup_gc;
 };
 
 enum gc_running_status {

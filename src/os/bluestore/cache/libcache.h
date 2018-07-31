@@ -74,6 +74,8 @@ struct gc_status
   uint64_t avail_nbuckets;
   int sectors_to_gc;
   double gc_mark_in_use;
+  unsigned  invalidate_needs_gc;
+  const char *gc_running_state;
 };
 
 struct btree_info

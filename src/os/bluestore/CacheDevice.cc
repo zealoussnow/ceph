@@ -1315,6 +1315,8 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->dump_float("gc_mark_in_use(%)", gs.gc_mark_in_use);
     f->dump_unsigned("gc_avail_buckets", gs.avail_nbuckets);
     f->dump_int("sectors_to_gc", gs.sectors_to_gc);
+    f->dump_int("invalidate_needs_gc", gs.invalidate_needs_gc);
+    f->dump_string("gc_running_state", gs.gc_running_state);
     f->close_section();
   }
 

@@ -559,7 +559,7 @@ static struct btree *mca_bucket_alloc(struct cache_set *c, struct bkey *k)
   pthread_mutex_init(&b->write_lock, NULL);	
   //lockdep_set_novalidate_class(&b->write_lock);
   INIT_LIST_HEAD(&b->list);
-  delayed_work_assign(&b->ev_node_write, c->ev_base, btree_node_write_work, (void*)b);
+  delayed_work_assign(&b->ev_node_write, c->ev_base, btree_node_write_work, (void*)b, 0);
   //INIT_DELAYED_WORK(&b->work, btree_node_write_work);
   b->c = c;
   //sema_init(&b->io_mutex, 1);
@@ -1675,6 +1675,12 @@ static bool gc_should_run(struct cache_set *c)
 void set_gc_stop(struct cache *ca, int stop)
 {
   atomic_set(&ca->set->gc_stop, stop);
+
+  // if stop is false, force wake up gc
+  if (stop == false) {
+    ca->invalidate_needs_gc = true;
+    wake_up_gc(ca->set);
+  }
 }
 
 void set_writeback_stop(struct cache *ca, int stop)

@@ -197,11 +197,33 @@ static void get_wb_status(struct cached_dev *dc, struct wb_status *s)
   s->cutoff_cache_add      = dc->cutoff_cache_add;
 }
 
+static const char *get_gc_running_state(int state)
+{
+  switch (state) {
+  case GC_IDLE:
+    return "gc_idle";
+  case GC_START:
+    return "gc_start";
+  case GC_RUNNING:
+    return "gc_running";
+  case GC_READ_MOVING:
+    return "gc_read_moving";
+  case GC_INVALID:
+    return "gc_invalid";
+  default:
+    return "unknown";
+  }
+}
+
 static void get_gc_status(struct cache_set *c, struct gc_status *s)
 {
   s->gc_mark_in_use    = (c->nbuckets - c->avail_nbuckets) * 100.0 / c->nbuckets;
   s->avail_nbuckets    = c->avail_nbuckets;
   s->sectors_to_gc     = atomic_read(&c->sectors_to_gc);
+  s->gc_running_state  = get_gc_running_state(c->gc_stats.status);
+  s->invalidate_needs_gc = c->cache[0]->invalidate_needs_gc;
+  CACHE_DEBUGLOG(NULL, "gc_running_state: %s, invalidate_needs_gc: %u\n",
+      get_gc_running_state(c->gc_stats.status), c->cache[0]->invalidate_needs_gc);
 }
 
 int t2store_wb_status(struct cache_context *ctx, struct wb_status *s)
