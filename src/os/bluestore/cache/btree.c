@@ -1734,12 +1734,6 @@ static bool gc_should_run(struct cache_set *c)
 void set_gc_stop(struct cache *ca, int stop)
 {
   atomic_set(&ca->set->gc_stop, stop);
-
-  // if stop is false, force wake up gc
-  if (stop == false) {
-    ca->invalidate_needs_gc = true;
-    wake_up_gc(ca->set);
-  }
 }
 
 void set_writeback_stop(struct cache *ca, int stop)

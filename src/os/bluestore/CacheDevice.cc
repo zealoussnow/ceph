@@ -1368,6 +1368,17 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->close_section();
   }
 
+  if (command == "set_gc_stop") {
+    int64_t stop = 0;
+    cmd_getval(cct, cmdmap, "stop", stop);
+    dout(0) << "set_gc_stop: " << stop << dendl;
+    t2store_set_gc_stop(&cache_ctx, stop);
+  }
+
+  if (command == "wake_up_gc") {
+    t2store_wakeup_gc(&cache_ctx);
+  }
+
   f->flush(ss);
 
   return true;
@@ -1399,6 +1410,13 @@ void CacheDevice::asok_register()
                                      "set_log_level name=level,type=CephString",
                                      asok_hook, "set zlog level");
   assert(r == 0);
+  r = admin_socket->register_command("set_gc_stop",
+                                     "set_gc_stop name=stop,type=CephInt",
+                                     asok_hook, "set gc stop");
+  assert(r == 0);
+  r = admin_socket->register_command("wake_up_gc", "wake_up_gc",
+                                     asok_hook, "forced wakeup gc");
+  assert(r == 0);
 }
 
 void CacheDevice::asok_unregister()
@@ -1409,6 +1427,8 @@ void CacheDevice::asok_unregister()
   cct->get_admin_socket()->unregister_command("dump_gc_status");
   cct->get_admin_socket()->unregister_command("reload_zlog_config");
   cct->get_admin_socket()->unregister_command("set_log_level");
+  cct->get_admin_socket()->unregister_command("set_gc_stop");
+  cct->get_admin_socket()->unregister_command("wake_up_gc");
   delete asok_hook;
   asok_hook = NULL;
 }

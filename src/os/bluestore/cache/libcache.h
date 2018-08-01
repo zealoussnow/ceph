@@ -143,6 +143,8 @@ CEPH_CACHE_API int t2store_gc_status(struct cache_context *ctx, struct gc_status
 CEPH_CACHE_API int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi);
 CEPH_CACHE_API int t2store_reload_zlog_config();
 CEPH_CACHE_API int t2store_set_log_level(const char *level);
+CEPH_CACHE_API void t2store_set_gc_stop(struct cache_context *ctx, int stop);
+CEPH_CACHE_API void t2store_wakeup_gc(struct cache_context *ctx);
 
 #ifdef __cplusplus
 }
