@@ -91,10 +91,11 @@ struct gc_status
   uint64_t gc_dirty_buckets;
   uint64_t gc_meta_buckets;
 
-  // meta = uuids + writeback_dirty + journal + others(btree nodes)
+  // meta = uuids + writeback_dirty + journal + prio+others(btree nodes)
   uint64_t gc_uuids_buckets;
   uint64_t gc_writeback_dirty_buckets;
   uint64_t gc_journal_buckets;
+  uint64_t gc_prio_buckets;
 
   // moving
   uint64_t gc_moving_buckets;

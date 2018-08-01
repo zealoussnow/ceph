@@ -71,7 +71,6 @@
 #include <stdlib.h>
 
 #define MAX_OPEN_BUCKETS 128
-
 /* Bucket heap / gen */
 
 uint8_t bch_inc_gen(struct cache *ca, struct bucket *b)
@@ -142,6 +141,8 @@ bool bch_can_invalidate_bucket(struct cache *ca, struct bucket *b)
 void __bch_invalidate_one_bucket(struct cache *ca, struct bucket *b)
 {
   //lockdep_assert_held(&ca->set->bucket_lock);
+  CACHE_DEBUGLOG(CAT_RELEASE_BUCKET, "release bucket %p ( %ld GC_MOVE %d GC_MARK %d prio %d gc_sectors_used %lu pin %d) \n",
+                b, (b-ca->buckets), GC_MOVE(b), GC_MARK(b), b->prio, GC_SECTORS_USED(b), atomic_read(&b->pin));
   BUG_ON(GC_MARK(b) && GC_MARK(b) != GC_MARK_RECLAIMABLE);
 
   //if (GC_SECTORS_USED(b))
@@ -498,6 +499,9 @@ out:
     bch_update_bucket_in_use(ca->set, &ca->set->gc_stats);
   }
 
+  CACHE_DEBUGLOG(CAT_ALLOC_BUCKET, "alloc bucket %p ( %ld GC_MOVE %d GC_MARK %d prio %d gc_sectors_used %lu pin %d) \n",
+                 b, r, GC_MOVE(b), GC_MARK(b), b->prio, GC_SECTORS_USED(b), atomic_read(&b->pin));
+
   return r;
 }
 
@@ -531,7 +535,7 @@ int __bch_bucket_alloc_set(struct cache_set *c, unsigned reserve,
   for (i = 0; i < n; i++) {
     struct cache *ca = c->cache_by_alloc[i];
     long b = bch_bucket_alloc(ca, reserve, wait);
-    CACHE_DEBUGLOG(CAT_BTREE, "alloc bucket %ld \n", b);
+
     if (b == -1) {
       goto err;
     }
@@ -630,7 +634,7 @@ pick_data_bucket(struct cache_set *c, const struct bkey *search,
 
   min_bkt = list_last_entry(&c->data_buckets, struct open_bucket, list);
 
-  list_for_each_entry_reverse(ret, &c->data_buckets, list){
+  list_for_each_entry_reverse(ret, &c->data_buckets, list) {
     if (ret->wait){
       continue;
     }

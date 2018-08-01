@@ -1335,6 +1335,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->dump_unsigned("gc_uuids_buckets", gs.gc_uuids_buckets);
     f->dump_unsigned("gc_writeback_dirty_buckets", gs.gc_writeback_dirty_buckets);
     f->dump_unsigned("gc_journal_buckets", gs.gc_journal_buckets);
+    f->dump_unsigned("gc_prio_buckets", gs.gc_prio_buckets);
     f->close_section();
     f->open_object_section("gc moving");
     f->dump_unsigned("gc_moving_buckets", gs.gc_moving_buckets);

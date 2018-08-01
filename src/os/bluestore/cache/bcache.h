@@ -562,7 +562,7 @@ struct gc_stat {
   uint64_t              gc_unavail_buckets; 
   uint64_t              gc_dirty_buckets; 
   uint64_t              gc_meta_buckets; 
-  // meta = uuids + writeback_dirty + journal 
+  // meta = uuids + writeback_dirty + journal +prio
   uint64_t              gc_uuids_buckets; 
   uint64_t              gc_writeback_dirty_buckets; 
   uint64_t              gc_journal_buckets; 

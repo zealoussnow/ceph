@@ -1079,6 +1079,9 @@ __bch_btree_mark_key(struct cache_set *c, int level,struct bkey *k)
       SET_GC_MARK(g, GC_MARK_RECLAIMABLE);
     /* guard against overflow */
     SET_GC_SECTORS_USED(g, min(GC_SECTORS_USED(g) + KEY_SIZE(k), MAX_GC_SECTORS_USED));
+    CACHE_DEBUGLOG(CAT_MARK_BUCKET, " mark bucket %p ( %ld GC_MOVE %d GC_MARK %d prio %d gc_sectors_used %lu pin %d) \n",
+                g, (g-c->cache[0]->buckets), GC_MOVE(g), GC_MARK(g), g->prio, GC_SECTORS_USED(g), atomic_read(&g->pin));
+
     BUG_ON(!GC_SECTORS_USED(g));
   }
 
@@ -1579,19 +1582,18 @@ void bch_btree_gc_finish(struct cache_set *c)
   }
 
   /*rcu_read_lock();*/
-  for (i = 0; i < c->nr_uuids; i++) {
-    struct cached_dev *dc = c->dc;
-    struct keybuf_key *w, *n;
-    unsigned j;
+  struct cached_dev *dc = c->dc;
+  struct keybuf_key *w, *n;
+  unsigned j;
 
-    pthread_spin_lock(&dc->writeback_keys.lock);
-    rbtree_postorder_for_each_entry_safe(w, n, &dc->writeback_keys.keys, node)
+  pthread_spin_lock(&dc->writeback_keys.lock);
+  rbtree_postorder_for_each_entry_safe(w, n, &dc->writeback_keys.keys, node) {
     for (j = 0; j < KEY_PTRS(&w->key); j++) {
       SET_GC_MARK(PTR_BUCKET(c, &w->key, j), GC_MARK_DIRTY);
       c->gc_stats.gc_writeback_dirty_buckets++;
     }
-    pthread_spin_unlock(&dc->writeback_keys.lock);
   }
+  pthread_spin_unlock(&dc->writeback_keys.lock);
   //rcu_read_unlock();
 
   for_each_cache(ca, c, i) {
