@@ -300,3 +300,18 @@ int t2store_set_log_level(const char *level)
 
   return 0;
 }
+
+void t2store_set_gc_stop(struct cache_context *ctx, int stop)
+{
+  set_gc_stop(ctx->cache, stop);
+  CACHE_INFOLOG(NULL, "set gc stop: %d\n", stop);
+}
+
+void t2store_wakeup_gc(struct cache_context *ctx)
+{
+  struct cache *ca  = (struct cache *)ctx->cache;
+  set_gc_stop(ca, false);
+  ca->invalidate_needs_gc = true;
+  wake_up_gc(ca->set);
+  CACHE_INFOLOG(NULL, "force wakeup gc");
+}
