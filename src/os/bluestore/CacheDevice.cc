@@ -1246,6 +1246,7 @@ const char** CacheDevice::get_tracked_conf_keys() const
 {
   static const char *KEYS[] = {
     "t2store_gc_stop",
+    "t2store_gc_moving_stop",
     "t2store_writeback_stop",
     "t2store_cache_mode",
     "t2store_writeback_percent",
@@ -1400,6 +1401,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->dump_unsigned("gc_prio_buckets", gs.gc_prio_buckets);
     f->close_section();
     f->open_object_section("gc moving");
+    f->dump_int("gc_moving_stop", gs.gc_moving_stop);
     f->dump_unsigned("gc_moving_buckets", gs.gc_moving_buckets);
     f->dump_unsigned("gc_pin_buckets", gs.gc_pin_buckets);
     f->dump_unsigned("gc_empty_buckets", gs.gc_empty_buckets);

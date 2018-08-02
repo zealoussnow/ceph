@@ -356,6 +356,7 @@ struct btree_insert_op {
   struct bkey   *replace_key;
 };
 void set_gc_stop(struct cache *ca, int stop);
+void set_gc_moving_stop(struct cache *ca, int stop);
 void set_writeback_stop(struct cache *ca, int stop);
 void set_cache_mode(struct cache *ca, int mode);
 void set_writeback_percent(struct cache *ca, int percent);
