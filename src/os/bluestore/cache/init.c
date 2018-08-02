@@ -118,10 +118,10 @@ static void prio_read(struct cache *ca, uint64_t bucket)
       bucket_nr++;
       prio_io(ca, bucket, REQ_OP_READ, 0);
       if (p->csum != bch_crc64(&p->magic, bucket_bytes(ca) - 8)) {
-        CACHE_ERRORLOG(CAT_READ,"check csum error \n");
+        cache_bug(ca->set ,"check csum error \n");
       }
       if (p->magic != pset_magic(&ca->sb)) {
-        CACHE_ERRORLOG(CAT_READ,"check prio_set magic error \n");
+        cache_bug(ca->set, "check prio_set magic error \n");
       }
       bucket = p->next_bucket;
       d = p->data;

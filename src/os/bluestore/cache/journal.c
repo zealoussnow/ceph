@@ -66,7 +66,7 @@ reread:	left = ca->sb.bucket_size - offset;
             return ret;
           }
           if (bytes > left << 9 || bytes > PAGE_SIZE << JSET_BITS) {
-            CACHE_INFOLOG(CAT_JOURNAL, "%u: too big, %zu bytes, offset %u \n",
+            cache_bug(ca->set, "%u: too big, %zu bytes, offset %u \n",
                                         bucket_index, bytes, offset);
             return ret;
           }
@@ -76,7 +76,7 @@ reread:	left = ca->sb.bucket_size - offset;
             goto reread;
           }
           if (j->csum != csum_set(j)) {
-            CACHE_INFOLOG(CAT_JOURNAL, "%u: bad csum, %zu bytes, offset %u\n",
+            cache_bug(ca->set, "%u: bad csum, %zu bytes, offset %u\n",
                                     bucket_index, bytes, offset);
             return ret;
           }
