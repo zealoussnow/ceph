@@ -2029,6 +2029,8 @@ void
 aio_read_completion(struct ring_item *item)
 {
   struct cache *ca = item->ca_handler;
+  CACHE_DEBUGLOG("debug", "free item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+                 item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
   if (item->io.type != CACHE_IO_TYPE_READ ) {
     CACHE_ERRORLOG(NULL, "aio read completion got not read io got(type %d) \n", item->io.type);
@@ -2115,8 +2117,8 @@ int _do_read_cache(struct ring_item *item){
   int io_num = 0;
   int ret;
 
-//  CACHE_ERRORLOG("debug", "calloc item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
-//                 item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
+  CACHE_DEBUGLOG("debug", "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+                 item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
   for (; old_bkey != item->insert_keys->top; old_bkey = bkey_next(old_bkey)){
     // skip useless bkey
@@ -2214,24 +2216,48 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
    return MAP_CONTINUE;
 }
 
-void _read_check_bkey(struct ring_item *item){
+int _read_check_bkey(struct ring_item *item){
   struct bkey *iter;
   struct cache *ca = item->ca_handler;
+  int seq = 0;
+  int ret;
+  struct keylist *backends = item->insert_keys;
+
+  bch_keylist_reset(backends);
+
   for (iter = item->read_new_keys->keys; iter!= item->read_new_keys->top; iter = bkey_next(iter)){
     if(ptr_stale(ca->set, iter, 0)){
-      CACHE_ERRORLOG(CAT_READ, "aio read cache completion but key stable \n");
-      assert("aio read cache completion but key stable " == 0);
+      CACHE_WARNLOG(CAT_READ, "aio read cache completion but key stable \n");
+      bch_keylist_add(backends, iter);
+      seq ++;
     }
   }
+
+  bch_keylist_free(item->read_new_keys);
+  free(item->read_new_keys);
+  item->read_new_keys = NULL;
+
+  atomic_set(&item->seq, seq);
+  for (iter = backends->keys; iter != backends->top; iter = bkey_next(iter)){
+    item->io.len = KEY_SIZE(iter) << 9;
+    item->io.offset = KEY_START(iter) << 9;
+    item->io.pos = item->data + (KEY_START(iter) << 9 - item->o_offset);
+    ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
+    if (ret < 0) {
+      CACHE_ERRORLOG(CAT_READ, "read cache aio_enqueue error  \n");
+      assert("read cache aio_enqueue error  " == 0);
+    }
+  }
+
+  return seq;
 }
 
 void aio_read_cache_completion(void *cb)
 {
   struct ring_item *item = cb;
   struct cache *ca = item->ca_handler;
-
-//  CACHE_ERRORLOG("debug", "calloc item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
-//                 item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
+  CACHE_DEBUGLOG("debug", "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+                 item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
   CACHE_DEBUGLOG(NULL, "read cache completion item(%p) wait for %d io(s)------- \n", item, atomic_read(&item->seq));
 
@@ -2240,17 +2266,17 @@ void aio_read_cache_completion(void *cb)
     assert(item->io.type == CACHE_IO_TYPE_READ);
   }
   if (!atomic_dec_return(&item->seq)) {
-    _read_check_bkey(item);
-    aio_read_completion(item);
+    if(!_read_check_bkey(item)){
+      aio_read_completion(item);
+    }
   }
 }
 
 void aio_read_cache(struct ring_item *item){
   struct cache *ca = item->ca_handler;
   struct search s;
-
-//  CACHE_ERRORLOG("debug", "calloc item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
-//                 item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
+  CACHE_DEBUGLOG("debug", "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+                 item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
   if (item->io.type != CACHE_IO_TYPE_READ ) {
     assert(item->io.type == CACHE_IO_TYPE_READ);
@@ -2277,8 +2303,8 @@ void
 aio_read_backend_completion(void *cb)
 {
   struct ring_item *item = cb;
-//  CACHE_ERRORLOG("debug", "calloc item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
-//                 item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
+  CACHE_DEBUGLOG("debug", "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+                 item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
   if (item->need_read_cache)
     aio_read_cache(item);
   else{
@@ -2386,8 +2412,8 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
     CACHE_ERRORLOG(CAT_READ, "Calloc memory for item error\n");
     assert(item);
   }
-//  CACHE_ERRORLOG("debug", "calloc item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
-//                 item, offset/512, offset, len/512, len);
+  CACHE_DEBUGLOG("debug", "calloc item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+                 item, offset/512, offset, len/512, len);
   item->o_len = len;
   item->o_offset = offset;
   item->data = data;
