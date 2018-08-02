@@ -7918,9 +7918,9 @@ void BlueStore::_txc_state_proc(TransContext *txc)
             r = -1;
           if (r != 0) {
             for (auto& p : txc->ioc.writing_aios) {
-              dout(0) << __func__ << "db failed writing start = " << p.offset << " len = " << p.length
+              dout(0) << __func__ << "db failed writing start = " << p.first << " len = " << p.second
                 << dendl;
-              bdev->invalidate_region(p.offset, p.length);
+              bdev->invalidate_region(p.first, p.second);
             }
             assert(r == 0);
           }
@@ -8581,9 +8581,9 @@ void BlueStore::_kv_sync_thread()
             r = -1;
           if (r != 0) {
             for (auto& p : txc->ioc.writing_aios) {
-              dout(0) << __func__ << "db failed writing start = " << p.offset << " len = " << p.length
+              dout(0) << __func__ << "db failed writing start = " << p.first << " len = " << p.second
                 << dendl;
-              bdev->invalidate_region(p.offset, p.length);
+              bdev->invalidate_region(p.first, p.second);
             }
             assert(r == 0);
           }

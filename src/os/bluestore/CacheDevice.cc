@@ -711,6 +711,15 @@ void io_complete(void *t)
     } else {
       ctx->try_aio_wake();
     }
+
+    auto i = ctx->writing_aios.find(task->offset);
+    assert(i != ctx->writing_aios.end());
+    if (task->len != i->second) {
+      lderr(g_ceph_context) << __func__ << " task io in ioctx err off 0x" << std::hex
+        << task->offset << "~" << task->len << dendl;
+      assert("task io err" == 0);
+    }
+
     ldout(g_ceph_context, 6) << __func__ << "io complete, now release task " << task << dendl;
     delete task;
   } else if (task->command == IOCommand::READ_COMMAND) {
@@ -1114,7 +1123,7 @@ int CacheDevice::aio_write(
       << " (write_bl[" << t->write_bl << "] 0x" << std::hex
       << t->offset << "~" << t->len << std::dec << ")" << dendl;
 
-  ioc->writing_aios.push_back(write_aio(off, len));
+  ioc->writing_aios.insert(pair<uint64_t, uint64_t>(off, len));
   _aio_log_start(ioc, off, len);
 
   return 0;
