@@ -328,6 +328,7 @@ private:
   /**
    * Client IO
    */
+  std::mutex in_process_op_lock;
   struct InProgressOp {
     ceph_tid_t tid;
     set<pg_shard_t> waiting_for_commit;

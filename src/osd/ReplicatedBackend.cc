@@ -593,6 +593,7 @@ void ReplicatedBackend::op_applied(
     op->op->pg_trace.event("op applied");
   }
 
+  std::lock_guard<std::mutex> l(in_process_op_lock);
   op->waiting_for_applied.erase(get_parent()->whoami_shard());
   parent->op_applied(op->v);
 
@@ -617,6 +618,7 @@ void ReplicatedBackend::op_commit(
     op->op->pg_trace.event("op commit");
   }
 
+  std::lock_guard<std::mutex> l(in_process_op_lock);
   op->waiting_for_commit.erase(get_parent()->whoami_shard());
 
   if (op->waiting_for_commit.empty()) {
@@ -662,6 +664,7 @@ void ReplicatedBackend::do_repop_reply(OpRequestRef op)
 
     // oh, good.
 
+    std::lock_guard<std::mutex> l(in_process_op_lock);
     if (r->ack_type & CEPH_OSD_FLAG_ONDISK) {
       assert(ip_op.waiting_for_commit.count(from));
       ip_op.waiting_for_commit.erase(from);
