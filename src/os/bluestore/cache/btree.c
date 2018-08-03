@@ -31,6 +31,7 @@
 #include "debug.h"
 #include "extents.h"
 #include "prefetch.h"
+#include "writeback.h"
 
 /*
  * Todo:
@@ -146,9 +147,7 @@
     rw_unlock(_w, _b);                                                                          \
     bch_cannibalize_unlock(c);                                                                  \
     if (_r == -EINTR) {                                                                         \
-      struct timespec out;                                                                      \
-      gettimeofday(&out, NULL);                                                                 \
-      out.tv_sec+=0.5;                                                                          \
+      struct timespec out = time_from_now(0, 100);                                                                      \
       pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
       pthread_cond_timedwait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut,&out);     \
       pthread_mutex_unlock(&(c)->btree_cache_wait_mut);                                         \
@@ -560,7 +559,7 @@ static struct btree *mca_bucket_alloc(struct cache_set *c, struct bkey *k)
   pthread_mutex_init(&b->write_lock, NULL);	
   //lockdep_set_novalidate_class(&b->write_lock);
   INIT_LIST_HEAD(&b->list);
-  delayed_work_assign(&b->ev_node_write, c->ev_base, btree_node_write_work, (void*)b);
+  delayed_work_assign(&b->ev_node_write, c->ev_base, btree_node_write_work, (void*)b, 0);
   //INIT_DELAYED_WORK(&b->work, btree_node_write_work);
   b->c = c;
   //sema_init(&b->io_mutex, 1);
@@ -1080,6 +1079,9 @@ __bch_btree_mark_key(struct cache_set *c, int level,struct bkey *k)
       SET_GC_MARK(g, GC_MARK_RECLAIMABLE);
     /* guard against overflow */
     SET_GC_SECTORS_USED(g, min(GC_SECTORS_USED(g) + KEY_SIZE(k), MAX_GC_SECTORS_USED));
+    CACHE_DEBUGLOG(CAT_MARK_BUCKET, " mark bucket %p ( %ld GC_MOVE %d GC_MARK %d prio %d gc_sectors_used %lu pin %d) \n",
+                g, (g-c->cache[0]->buckets), GC_MOVE(g), GC_MARK(g), g->prio, GC_SECTORS_USED(g), atomic_read(&g->pin));
+
     BUG_ON(!GC_SECTORS_USED(g));
   }
 
@@ -1531,6 +1533,30 @@ static void btree_gc_start(struct cache_set *c)
   pthread_mutex_unlock(&c->bucket_lock);
 }
 
+void bch_btree_gc_stats_gc_mark(struct cache_set *c, struct bucket *b)
+{
+  assert( c != NULL);
+  assert( b != NULL);
+
+  switch (GC_MARK(b)) {
+    case GC_MARK_INIT:
+      c->gc_stats.gc_init_buckets++;
+      break;
+    case GC_MARK_RECLAIMABLE:
+      c->gc_stats.gc_reclaimable_buckets++;
+      break;
+    case GC_MARK_DIRTY:
+      c->gc_stats.gc_dirty_buckets++;
+      break;
+    case GC_MARK_METADATA:
+      c->gc_stats.gc_meta_buckets++;
+      break;
+    default:
+      CACHE_ERRORLOG(CAT_GC, "collect gc mark got unknown gc_mark %d", GC_MARK);
+      assert("collect gc mark got unknown gc_mark" == 0);
+  }
+}
+
 void bch_btree_gc_finish(struct cache_set *c)
 {
   struct bucket *b;
@@ -1540,28 +1566,34 @@ void bch_btree_gc_finish(struct cache_set *c)
   pthread_mutex_lock(&c->bucket_lock);
 
   set_gc_sectors(c);
+  /*CACHE_INFOLOG(NULL," update gc sectors = %d \n", atomic_read(&c->sectors_to_gc));*/
   c->gc_mark_valid = 1;
   c->need_gc	= 0;
 
-  /*printf(" PTR_BUCKET(c, &c->uuid_bucket, i) = %d \n", PTR_BUCKET(c, &c->uuid_bucket, 0) - c-->bucket);*/
-  for (i = 0; i < KEY_PTRS(&c->uuid_bucket); i++)
-    SET_GC_MARK(PTR_BUCKET(c, &c->uuid_bucket, i),
-        GC_MARK_METADATA);
+  c->gc_stats.gc_journal_buckets = 0;
+  c->gc_stats.gc_uuids_buckets = 0;
+  c->gc_stats.gc_writeback_dirty_buckets = 0;
+  c->gc_stats.gc_prio_buckets = 0;
+
+
+  for (i = 0; i < KEY_PTRS(&c->uuid_bucket); i++) {
+    SET_GC_MARK(PTR_BUCKET(c, &c->uuid_bucket, i), GC_MARK_METADATA);
+    c->gc_stats.gc_uuids_buckets++;
+  }
 
   /*rcu_read_lock();*/
-  for (i = 0; i < c->nr_uuids; i++) {
-    struct cached_dev *dc = c->dc;
-    struct keybuf_key *w, *n;
-    unsigned j;
+  struct cached_dev *dc = c->dc;
+  struct keybuf_key *w, *n;
+  unsigned j;
 
-    pthread_spin_lock(&dc->writeback_keys.lock);
-    rbtree_postorder_for_each_entry_safe(w, n,
-        &dc->writeback_keys.keys, node)
-      for (j = 0; j < KEY_PTRS(&w->key); j++)
-        SET_GC_MARK(PTR_BUCKET(c, &w->key, j),
-            GC_MARK_DIRTY);
-    pthread_spin_unlock(&dc->writeback_keys.lock);
+  pthread_spin_lock(&dc->writeback_keys.lock);
+  rbtree_postorder_for_each_entry_safe(w, n, &dc->writeback_keys.keys, node) {
+    for (j = 0; j < KEY_PTRS(&w->key); j++) {
+      SET_GC_MARK(PTR_BUCKET(c, &w->key, j), GC_MARK_DIRTY);
+      c->gc_stats.gc_writeback_dirty_buckets++;
+    }
   }
+  pthread_spin_unlock(&dc->writeback_keys.lock);
   //rcu_read_unlock();
 
   for_each_cache(ca, c, i) {
@@ -1569,27 +1601,50 @@ void bch_btree_gc_finish(struct cache_set *c)
 
     ca->invalidate_needs_gc = 0;
 
-    for (i = ca->sb.d; i < ca->sb.d + ca->sb.keys; i++){
+    for (i = ca->sb.d; i < ca->sb.d + ca->sb.keys; i++) {
       SET_GC_MARK(ca->buckets + *i, GC_MARK_METADATA);
+      c->gc_stats.gc_journal_buckets++;
     }
 
-    for (i = ca->prio_buckets;
-        i < ca->prio_buckets + prio_buckets(ca) * 2; i++)
-    {
+    for (i = ca->prio_buckets; i<ca->prio_buckets+prio_buckets(ca)*2; i++) {
       SET_GC_MARK(ca->buckets + (*i), GC_MARK_METADATA);
+      c->gc_stats.gc_prio_buckets++;
     }
 
     c->avail_nbuckets = 0;
-    for_each_bucket(b, ca) {
-      c->need_gc	= max(c->need_gc, bucket_gc_gen(b));
 
-      if (atomic_read(&b->pin))
+    c->gc_stats.gc_all_buckets = 0; 
+    c->gc_stats.gc_pin_buckets = 0;
+    c->gc_stats.gc_unavail_buckets = 0;
+    c->gc_stats.gc_avail_buckets = 0;
+
+    // unavail_buckets include below 
+    c->gc_stats.gc_meta_buckets = 0;
+    c->gc_stats.gc_dirty_buckets = 0;
+
+    // avail_bucket include below
+    c->gc_stats.gc_init_buckets = 0;
+    c->gc_stats.gc_reclaimable_buckets = 0;
+
+    for_each_bucket(b, ca) {
+      c->gc_stats.gc_all_buckets++; 
+      c->need_gc = max(c->need_gc, bucket_gc_gen(b));
+
+      if (atomic_read(&b->pin)) {
+        c->gc_stats.gc_pin_buckets++;
         continue;
+      }
 
       BUG_ON(!GC_MARK(b) && GC_SECTORS_USED(b));
 
-      if (!GC_MARK(b) || GC_MARK(b) == GC_MARK_RECLAIMABLE)
+      if (!GC_MARK(b) || GC_MARK(b) == GC_MARK_RECLAIMABLE) {
         c->avail_nbuckets++;
+        c->gc_stats.gc_avail_buckets++;
+        bch_btree_gc_stats_gc_mark(c, b);
+      } else {
+        c->gc_stats.gc_unavail_buckets++;
+        bch_btree_gc_stats_gc_mark(c, b);
+      }
     }
   }
 
@@ -1599,23 +1654,25 @@ void bch_btree_gc_finish(struct cache_set *c)
 static void bch_btree_gc(struct cache_set *c)
 {
   int ret;
-  struct gc_stat stats;
+  /*struct gc_stat stats;*/
   //struct closure writes;
   struct btree_op op;
   uint64_t start_time = time(NULL); //local_clock();
 
   /*trace_bcache_gc_start(c);*/
 
-  memset(&stats, 0, sizeof(struct gc_stat));
+  /*memset(&stats, 0, sizeof(struct gc_stat));*/
+  memset(&c->gc_stats, 0, sizeof(struct gc_stat));
   //closure_init_stack(&writes);
   bch_btree_op_init(&op, SHRT_MAX);
 
   btree_gc_start(c);
 
+  c->gc_stats.status = GC_RUNNING;
   do {
     /*ret = btree_root(gc_root, c, &op, &writes, &stats);*/
     /*printf("start btree root\n");*/
-    ret = btree_root(gc_root, c, &op, &stats);
+    ret = btree_root(gc_root, c, &op, &c->gc_stats);
 
     //closure_sync(&writes);
     //cond_resched();
@@ -1631,13 +1688,18 @@ static void bch_btree_gc(struct cache_set *c)
 
   bch_time_stats_update(&c->btree_gc_time, start_time);
 
-  stats.key_bytes *= sizeof(uint64_t);
-  stats.data	<<= 9;
-  bch_update_bucket_in_use(c, &stats);
-  memcpy(&c->gc_stats, &stats, sizeof(struct gc_stat));
+  c->gc_stats.key_bytes *= sizeof(uint64_t);
+  c->gc_stats.data	<<= 9;
+  bch_update_bucket_in_use(c, &c->gc_stats);
+  /*stats.key_bytes *= sizeof(uint64_t);*/
+  /*stats.key_bytes *= sizeof(uint64_t);*/
+  /*stats.data	<<= 9;*/
+  /*bch_update_bucket_in_use(c, &stats);*/
+  /*memcpy(&c->gc_stats, &stats, sizeof(struct gc_stat));*/
 
   //trace_bcache_gc_end(c);
 
+  c->gc_stats.status = GC_READ_MOVING;
   bch_moving_gc(c);
 }
 
@@ -1657,6 +1719,10 @@ static bool gc_should_run(struct cache_set *c)
    *     then she will call invalidate_buckets fuc to fill free_inc. or she will
    *     goto cond wait
   */
+
+  if (c->gc_stats.in_use > c->dc->cutoff_writeback)
+    return true;
+
   for_each_cache(ca, c, i)
     if (ca->invalidate_needs_gc)
       return true;
@@ -1716,13 +1782,22 @@ static int bch_gc_thread(void *arg)
       if (gc_should_run(c) && !atomic_read(&c->gc_stop)) {
         break;
       }
+      c->gc_stats.status = GC_IDLE;
+      struct timespec out = time_from_now(5, 0);
       pthread_mutex_lock(&c->gc_wait_mut);
-      pthread_cond_wait(&c->gc_wait_cond, &c->gc_wait_mut);
+      pthread_cond_timedwait(&c->gc_wait_cond, &c->gc_wait_mut, &out);
       pthread_mutex_unlock(&c->gc_wait_mut);
     }
     // start set gc
+    c->gc_stats.status = GC_START;
+    atomic_inc(&c->gc_seq);
     set_gc_sectors(c);
     bch_btree_gc(c);
+    atomic_dec(&c->gc_seq);
+    while (atomic_read(&c->gc_seq)) {
+      pthread_yield();
+    }
+    c->gc_stats.status = GC_IDLE;
   }
 
   return 0;

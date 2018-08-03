@@ -191,6 +191,7 @@
 #include <pthread.h>
 
 #include "bcache_types.h"
+#include "delayed_work.h"
 #include "bset.h"
 #include "util.h"
 #include "journal.h"
@@ -218,6 +219,7 @@ struct bucket {
  */
 
 BITMASK(GC_MARK,                struct bucket, gc_mark, 0, 2);
+#define GC_MARK_INIT            0
 #define GC_MARK_RECLAIMABLE     1
 #define GC_MARK_DIRTY           2
 #define GC_MARK_METADATA        3
@@ -227,6 +229,11 @@ BITMASK(GC_SECTORS_USED, struct bucket, gc_mark, 2, GC_SECTORS_USED_SIZE);
 BITMASK(GC_MOVE, struct bucket, gc_mark, 15, 1);
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
+
+// used for gc
+#define UPDATE_GC_SIZE_WM_SECONDS 5
+#define WAKE_UP_GC_SIZE_WM  1073741824 // 1GB
+#define WAKE_UP_GC_WM 80
 
 struct search;
 struct btree;
@@ -523,15 +530,48 @@ struct cache {
   uint64_t btree_null_nbkeys;
   uint64_t zero_keysize_nbkeys;
   bool dump_btree_detail;
+  struct event ev_update_gc_wm;
+  uint64_t wake_up_gc_size_wm;
+  bool need_wakeup_gc;
+};
+
+enum gc_running_status {
+  GC_IDLE = 0,
+  GC_START,
+  GC_RUNNING,
+  GC_READ_MOVING,
+  GC_INVALID,
 };
 
 struct gc_stat {
-  size_t                        nodes;
-  size_t                        key_bytes;
+  size_t                nodes;
+  size_t                key_bytes;
 
-  size_t                        nkeys;
+  size_t                nkeys;
   uint64_t              data;   /* sectors */
   unsigned              in_use; /* percent */
+  // all bucket include pin+avail+unavail
+  uint64_t              gc_all_buckets; 
+
+  uint64_t              gc_pin_buckets; 
+  // avail = init + reclaimable
+  uint64_t              gc_avail_buckets; 
+  uint64_t              gc_init_buckets; 
+  uint64_t              gc_reclaimable_buckets; 
+  // unavail = dirty + meta
+  uint64_t              gc_unavail_buckets; 
+  uint64_t              gc_dirty_buckets; 
+  uint64_t              gc_meta_buckets; 
+  // meta = uuids + writeback_dirty + journal +prio
+  uint64_t              gc_uuids_buckets; 
+  uint64_t              gc_writeback_dirty_buckets; 
+  uint64_t              gc_journal_buckets; 
+  uint64_t              gc_prio_buckets; 
+
+  // moving is need to read and write to new
+  uint64_t              gc_moving_buckets; 
+
+  unsigned              status; 
 };
 
 /*
@@ -699,6 +739,7 @@ struct cache_set {
   //struct list_head    moving_gc_keys;
   //struct bkey             gc_last_scanned;
   struct keybuf           moving_gc_keys;
+  atomic_t              gc_seq;
   /* Number of moving GC bios in flight */
   //struct semaphore    moving_in_flight;
 

@@ -1222,6 +1222,23 @@ static void set_writeback_cutoffs(struct cached_dev *dc)
   dc->cutoff_cache_add      = CUTOFF_CACHE_ADD;
 }
 
+static void update_gc_size_wm(evutil_socket_t fd, short events, void *arg)
+{
+  struct cache *ca = (struct cache *)arg;
+  struct gc_stat gs;;
+  bch_update_bucket_in_use(ca->set, &gs);
+
+  CACHE_DEBUGLOG(NULL, "update_gc_size_wm, gc.in_use: %u, gc_size_wm: %lu\n",
+                       gs.in_use, ca->wake_up_gc_size_wm);
+  if (!(gs.status == GC_RUNNING) && (gs.in_use >= WAKE_UP_GC_WM ||
+        ca->wake_up_gc_size_wm >= WAKE_UP_GC_SIZE_WM)) {
+    ca->invalidate_needs_gc = true;
+    wake_up_gc(ca->set);
+    CACHE_DEBUGLOG(NULL, "will wake up gc now...\n");
+  }
+  ca->wake_up_gc_size_wm = 0;
+}
+
 int 
 init(struct cache * ca)
 {
@@ -1256,6 +1273,12 @@ init(struct cache * ca)
   bch_moving_init_cache_set(ca->set);
   bch_gc_thread_start(ca->set);
   set_writeback_cutoffs(ca->set->dc);
+
+  struct timeval tv;
+  evutil_timerclear(&tv);
+  tv.tv_sec = UPDATE_GC_SIZE_WM_SECONDS;
+  delayed_work_assign(&ca->ev_update_gc_wm, ca->set->ev_base, update_gc_size_wm, (void*)ca, EV_PERSIST);
+  delayed_work_add(&ca->ev_update_gc_wm, &tv);
 
   return 0;
 }
@@ -1497,6 +1520,7 @@ int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
     assert("Invaliedate region error"==0);
   }
 
+  ca->wake_up_gc_size_wm += len;
   ret = 0;
 
 free_keylist:

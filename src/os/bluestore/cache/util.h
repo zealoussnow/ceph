@@ -36,6 +36,20 @@ static struct timespec cache_clock_now()
   return tp;
 }
 
+static struct timespec time_from_now(uint64_t sec, uint64_t msec)
+{
+  struct timeval now;
+  struct timespec out;
+  gettimeofday(&now, NULL);
+  out.tv_sec = now.tv_sec + sec;
+  out.tv_nsec = now.tv_usec * NSEC_PER_USEC + msec * NSEC_PER_MSEC;
+
+  out.tv_sec += out.tv_nsec / NSEC_PER_SEC;
+  out.tv_nsec = out.tv_nsec % NSEC_PER_SEC;
+
+  return out;
+}
+
 static uint64_t cache_realtime_u64()
 {
   struct timespec now = cache_clock_now();

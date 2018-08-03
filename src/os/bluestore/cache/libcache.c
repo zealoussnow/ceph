@@ -197,11 +197,57 @@ static void get_wb_status(struct cached_dev *dc, struct wb_status *s)
   s->cutoff_cache_add      = dc->cutoff_cache_add;
 }
 
+static const char *get_gc_running_state(int state)
+{
+  switch (state) {
+  case GC_IDLE:
+    return "gc_idle";
+  case GC_START:
+    return "gc_start";
+  case GC_RUNNING:
+    return "gc_running";
+  case GC_READ_MOVING:
+    return "gc_read_moving";
+  case GC_INVALID:
+    return "gc_invalid";
+  default:
+    return "unknown";
+  }
+}
+
 static void get_gc_status(struct cache_set *c, struct gc_status *s)
 {
+  // gc status
   s->gc_mark_in_use    = (c->nbuckets - c->avail_nbuckets) * 100.0 / c->nbuckets;
-  s->avail_nbuckets    = c->avail_nbuckets;
   s->sectors_to_gc     = atomic_read(&c->sectors_to_gc);
+  s->gc_running_state  = get_gc_running_state(c->gc_stats.status);
+  s->invalidate_needs_gc = c->cache[0]->invalidate_needs_gc;
+
+  // all bucket include pin+avail+unavail
+  s->gc_all_buckets    = c->gc_stats.gc_all_buckets;
+  s->gc_pin_buckets    = c->gc_stats.gc_pin_buckets;
+  s->gc_avail_buckets    = c->gc_stats.gc_avail_buckets;
+  s->gc_unavail_buckets    = c->gc_stats.gc_unavail_buckets;
+
+  // avail = init + reclaimable
+  s->gc_init_buckets    = c->gc_stats.gc_init_buckets;
+  s->gc_reclaimable_buckets    = c->gc_stats.gc_reclaimable_buckets;
+
+  // unavail = dirty + meta
+  s->gc_meta_buckets    = c->gc_stats.gc_meta_buckets;
+  s->gc_dirty_buckets    = c->gc_stats.gc_dirty_buckets;
+  
+  // meta = uuids + writeback_dirty + journal + others(btree nodes)
+  s->gc_uuids_buckets    = c->gc_stats.gc_uuids_buckets;
+  s->gc_writeback_dirty_buckets    = c->gc_stats.gc_writeback_dirty_buckets;
+  s->gc_journal_buckets    = c->gc_stats.gc_journal_buckets;
+  s->gc_prio_buckets    = c->gc_stats.gc_prio_buckets;
+  
+  // moving
+  s->gc_moving_buckets = c->gc_stats.gc_moving_buckets;
+
+  CACHE_DEBUGLOG(NULL, "gc_running_state: %s, invalidate_needs_gc: %u\n",
+      get_gc_running_state(c->gc_stats.status), c->cache[0]->invalidate_needs_gc);
 }
 
 int t2store_wb_status(struct cache_context *ctx, struct wb_status *s)
@@ -253,4 +299,19 @@ int t2store_set_log_level(const char *level)
   set_log_level(log_level);
 
   return 0;
+}
+
+void t2store_set_gc_stop(struct cache_context *ctx, int stop)
+{
+  set_gc_stop(ctx->cache, stop);
+  CACHE_INFOLOG(NULL, "set gc stop: %d\n", stop);
+}
+
+void t2store_wakeup_gc(struct cache_context *ctx)
+{
+  struct cache *ca  = (struct cache *)ctx->cache;
+  set_gc_stop(ca, false);
+  ca->invalidate_needs_gc = true;
+  wake_up_gc(ca->set);
+  CACHE_INFOLOG(NULL, "force wakeup gc");
 }

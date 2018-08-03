@@ -13,10 +13,10 @@ void delayed_work_del(struct event *ev)
   event_del(ev);
 }
 
-void delayed_work_assign(struct event *ev, struct event_base *base, void (*callback)(evutil_socket_t, short, void *), void *arg)
+void delayed_work_assign(struct event *ev, struct event_base *base, void (*callback)(evutil_socket_t, short, void *), void *arg, int flags)
 {
   CACHE_DEBUGLOG(CAT_EVENT, "assign delay event\n");
-  event_assign(ev, base, -1, 0, callback, arg);
+  event_assign(ev, base, -1, flags, callback, arg);
 }
 
 static void timeout_cb(evutil_socket_t fd, short events, void *arg) {

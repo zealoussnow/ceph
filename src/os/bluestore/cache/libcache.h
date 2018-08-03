@@ -71,9 +71,34 @@ struct wb_status
 
 struct gc_status
 {
-  uint64_t avail_nbuckets;
-  int sectors_to_gc;
+  // gc status
   double gc_mark_in_use;
+  int sectors_to_gc;
+  const char *gc_running_state;
+  unsigned  invalidate_needs_gc;
+
+  // all bucket include pin+avail+unavail
+  uint64_t gc_all_buckets;
+  uint64_t gc_pin_buckets;
+  uint64_t gc_avail_buckets;
+  uint64_t gc_unavail_buckets;
+
+  // avail = init + reclaimable
+  uint64_t gc_init_buckets;
+  uint64_t gc_reclaimable_buckets;
+
+  // unavail = dirty + meta
+  uint64_t gc_dirty_buckets;
+  uint64_t gc_meta_buckets;
+
+  // meta = uuids + writeback_dirty + journal + prio+others(btree nodes)
+  uint64_t gc_uuids_buckets;
+  uint64_t gc_writeback_dirty_buckets;
+  uint64_t gc_journal_buckets;
+  uint64_t gc_prio_buckets;
+
+  // moving
+  uint64_t gc_moving_buckets;
 };
 
 struct btree_info
@@ -119,6 +144,8 @@ CEPH_CACHE_API int t2store_gc_status(struct cache_context *ctx, struct gc_status
 CEPH_CACHE_API int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi);
 CEPH_CACHE_API int t2store_reload_zlog_config();
 CEPH_CACHE_API int t2store_set_log_level(const char *level);
+CEPH_CACHE_API void t2store_set_gc_stop(struct cache_context *ctx, int stop);
+CEPH_CACHE_API void t2store_wakeup_gc(struct cache_context *ctx);
 
 #ifdef __cplusplus
 }

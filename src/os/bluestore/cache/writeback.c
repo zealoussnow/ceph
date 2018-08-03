@@ -598,10 +598,7 @@ static int bch_writeback_thread(void *arg)
 
     /* 如果不为dirty或者writeback机制未运行时，该线程让出CPU控制权 */
     if (!atomic_read(&dc->has_dirty) || atomic_read(&dc->writeback_stop)) {
-      struct timespec out;
-      gettimeofday(&out, NULL);
-      out.tv_sec+=1;
-
+      struct timespec out = time_from_now(1, 0);
       pthread_rwlock_unlock(&dc->writeback_lock);
       pthread_mutex_lock(&dc->writeback_mut);
       pthread_cond_timedwait(&dc->writeback_cond, &dc->writeback_mut, &out);
