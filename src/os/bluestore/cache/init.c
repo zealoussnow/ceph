@@ -2166,10 +2166,14 @@ int _do_read_cache(struct ring_item *item){
   for (new_bkey = caches->keys; new_bkey != caches->top; new_bkey = bkey_next(new_bkey)){
     set_item_io(item, new_bkey);
     ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
+    io_num --;
     if (ret < 0) {
       CACHE_ERRORLOG(CAT_READ, "read cache aio_enqueue error  \n");
       assert("read cache aio_enqueue error  " == 0);
     }
+  }
+  if (!io_num){
+    return 0;
   }
   for (new_bkey = backends->keys; new_bkey != backends->top; new_bkey = bkey_next(new_bkey)){
     item->io.len = KEY_SIZE(new_bkey) << 9;
