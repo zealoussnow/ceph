@@ -704,6 +704,16 @@ void io_complete(void *t)
         << ctx->priv <<") task " << task << " (write_bl[" << task->write_bl
         << "] 0x" << std::hex << task->offset << "~" << task->len << std::dec
         << " return_code " << task->return_code << ")" << dendl;
+
+    auto i = ctx->writing_aios.find(task->offset);
+    if (i == ctx->writing_aios.end() || task->len != i->second) {
+      lderr(g_ceph_context) << __func__ << " task io err off 0x" << std::hex
+        << task->offset << "~" << task->len << " ioctx off 0x" <<
+        i->first << "~" << i->second << "error aios" << ctx->writing_aios
+        << std::dec << dendl;
+      assert("task io err" == 0);
+    }
+
     if (ctx->priv) {
       if (!--ctx->num_running) {
         task->device->aio_callback(task->device->aio_callback_priv, ctx->priv);
@@ -712,13 +722,6 @@ void io_complete(void *t)
       ctx->try_aio_wake();
     }
 
-    auto i = ctx->writing_aios.find(task->offset);
-    assert(i != ctx->writing_aios.end());
-    if (task->len != i->second) {
-      lderr(g_ceph_context) << __func__ << " task io in ioctx err off 0x" << std::hex
-        << task->offset << "~" << task->len << dendl;
-      assert("task io err" == 0);
-    }
 
     ldout(g_ceph_context, 6) << __func__ << "io complete, now release task " << task << dendl;
     delete task;
@@ -1123,7 +1126,12 @@ int CacheDevice::aio_write(
       << " (write_bl[" << t->write_bl << "] 0x" << std::hex
       << t->offset << "~" << t->len << std::dec << ")" << dendl;
 
-  ioc->writing_aios.insert(pair<uint64_t, uint64_t>(off, len));
+  auto ret = ioc->writing_aios.insert(pair<uint64_t, uint64_t>(off, len));
+  if (!ret.second) {
+    derr << __func__ << " 0x" << std::hex << off << "~" << len << " error aios: "
+      << ioc->writing_aios << std::dec <<dendl;
+    assert("writing aios insert failed" == 0);
+  }
   _aio_log_start(ioc, off, len);
 
   return 0;
