@@ -11,7 +11,7 @@
 
 
 #define LOG_CONF "/etc/ceph/t2store_cachelog.conf"
-int g_log_level = ZLOG_LEVEL_DEBUG;
+int g_log_level = ZLOG_LEVEL_INFO;
 
 void set_log_level(int level)
 {
