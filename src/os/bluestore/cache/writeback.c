@@ -294,6 +294,7 @@ static void dirty_io_write(struct dirty_item *d){
   struct cached_dev *dc = d->dc;
   int ret, i;
 
+  dc->wb_status = WB_WRITING_DIRTY;
   item->io.offset = item->o_offset;
   item->io.len = item->o_len;
   item->io.pos = item->data;
@@ -326,6 +327,7 @@ static void dirty_io_read(struct keybuf_key *w, struct dirty_item *d)
   struct cached_dev *dc = d->dc;
   struct ring_item *item = d->item;
 
+  dc->wb_status = WB_READING_DIRTY;
   item->iou_completion_cb = read_completion;
   item->iou_arg = d;
   item->io.type=CACHE_IO_TYPE_READ;
@@ -416,7 +418,6 @@ static void read_dirty(struct cached_dev *dc)
     item = get_ring_item(data, KEY_START(&d->keys[0]->key) << 9, size << 9);
     atomic_set(&item->seq, nk);
     d->item = item;
-
 
     for (i = 0; i < nk; i++) {
       w = d->keys[i];
@@ -575,6 +576,7 @@ static bool refill_dirty(struct cached_dev *dc)
    * only scan up to where we initially started scanning from:
    */
   buf->last_scanned = start;
+  dc->wb_status = WB_REFILL_DIRTY;
   bch_refill_keybuf(dc->c, buf, &start_pos, dirty_pred);
 
   return bkey_cmp(&buf->last_scanned, &start_pos) >= 0;
@@ -598,6 +600,7 @@ static int bch_writeback_thread(void *arg)
 
     /* 如果不为dirty或者writeback机制未运行时，该线程让出CPU控制权 */
     if (!atomic_read(&dc->has_dirty) || atomic_read(&dc->writeback_stop)) {
+      dc->wb_status = WB_IDLE;
       struct timespec out = time_from_now(1, 0);
       pthread_rwlock_unlock(&dc->writeback_lock);
       pthread_mutex_lock(&dc->writeback_mut);
@@ -613,7 +616,9 @@ static int bch_writeback_thread(void *arg)
     if (searched_full_index && RB_EMPTY_ROOT(&dc->writeback_keys.keys)) {
       atomic_set(&dc->has_dirty, 0);
       SET_BDEV_STATE(&dc->sb, BDEV_STATE_CLEAN);
+      pthread_rwlock_unlock(&dc->writeback_lock);
       /*bch_write_bdev_super(dc, NULL);*/
+      goto sleep;
     }
 
     pthread_rwlock_unlock(&dc->writeback_lock);
@@ -623,6 +628,7 @@ static int bch_writeback_thread(void *arg)
     read_dirty(dc);
 
     if (searched_full_index) {
+sleep:
       sleep(dc->writeback_delay);
       //bch_ratelimit_reset(&dc->writeback_rate);
     }

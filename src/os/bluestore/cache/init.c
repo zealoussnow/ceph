@@ -1230,7 +1230,7 @@ static void update_gc_size_wm(evutil_socket_t fd, short events, void *arg)
 
   CACHE_DEBUGLOG(NULL, "update_gc_size_wm, gc.in_use: %u, gc_size_wm: %lu\n",
                        gs.in_use, ca->wake_up_gc_size_wm);
-  if (!(gs.status == GC_RUNNING) && (gs.in_use >= WAKE_UP_GC_WM ||
+  if (gs.status == GC_IDLE && (gs.in_use >= WAKE_UP_GC_WM ||
         ca->wake_up_gc_size_wm >= WAKE_UP_GC_SIZE_WM)) {
     ca->invalidate_needs_gc = true;
     wake_up_gc(ca->set);
