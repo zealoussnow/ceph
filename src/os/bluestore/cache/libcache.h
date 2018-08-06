@@ -67,6 +67,9 @@ struct wb_status
   int cutoff_writeback;
   int cutoff_writeback_sync;
   int cutoff_cache_add;
+  int has_dirty;
+  int writeback_stop;
+  const char *wb_running_state;
 };
 
 struct gc_status

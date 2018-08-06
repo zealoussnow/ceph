@@ -438,6 +438,7 @@ struct cached_dev {
   unsigned              writeback_rate_update_seconds;
   unsigned              writeback_rate_d_term;
   unsigned              writeback_rate_p_term_inverse;
+  unsigned              wb_status;
 };
 
 enum alloc_reserve {
@@ -541,6 +542,13 @@ enum gc_running_status {
   GC_RUNNING,
   GC_READ_MOVING,
   GC_INVALID,
+};
+
+enum wb_running_status {
+  WB_IDLE = 0,
+  WB_REFILL_DIRTY,
+  WB_READING_DIRTY,
+  WB_WRITING_DIRTY,
 };
 
 struct gc_stat {

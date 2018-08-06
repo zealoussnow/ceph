@@ -1293,11 +1293,14 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     struct wb_status ws;
     t2store_wb_status(&cache_ctx, &ws);
     f->open_object_section("wb_status");
+    f->dump_string("wb_running_state", ws.wb_running_state);
+    f->dump_int("writeback_stop", ws.writeback_stop);
+    f->dump_int("has_dirty", ws.has_dirty);
     f->dump_unsigned("dirty_sectors", ws.dirty_sectors);
     f->dump_int("sequential_cutoff", ws.sequential_cutoff);
     f->dump_int("writeback_percent", ws.writeback_percent);
-    f->dump_int("writeback_delay(s)", ws.writeback_delay);
-    f->dump_int("real_wb_delay(us)", ws.real_wb_delay);
+    f->dump_int("writeback_delay", ws.writeback_delay);
+    f->dump_int("real_wb_delay", ws.real_wb_delay);
     f->dump_int("writeback_rate", ws.writeback_rate);
     f->dump_int("writeback_rate_d_term", ws.writeback_rate_d_term);
     f->dump_int("writeback_rate_p_term_inverse", ws.writeback_rate_p_term_inverse);
@@ -1312,7 +1315,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     struct gc_status gs;
     t2store_gc_status(&cache_ctx, &gs);
     f->open_object_section("gc status");
-    f->dump_float("gc_mark_in_use(%)", gs.gc_mark_in_use);
+    f->dump_float("gc_mark_in_use", gs.gc_mark_in_use);
     f->dump_int("sectors_to_gc", gs.sectors_to_gc);
     f->dump_string("gc_running_state", gs.gc_running_state);
     f->dump_int("invalidate_needs_gc", gs.invalidate_needs_gc);

@@ -181,8 +181,27 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
   return 0;
 }
 
+static const char *get_wb_running_state(int state)
+{
+  switch (state) {
+  case WB_IDLE:
+    return "wb_idle";
+  case WB_REFILL_DIRTY:
+    return "wb_refill_dirty";
+  case WB_READING_DIRTY:
+    return "wb_reading_dirty";
+  case WB_WRITING_DIRTY:
+    return "wb_writing_dirty";
+  default:
+    return "unknown";
+  }
+}
+
 static void get_wb_status(struct cached_dev *dc, struct wb_status *s)
 {
+  s->wb_running_state  = get_wb_running_state(dc->wb_status);
+  s->writeback_stop    = atomic_read(&dc->writeback_stop);
+  s->has_dirty         = atomic_read(&dc->has_dirty);
   s->writeback_rate    = dc->writeback_rate.rate;
   s->dirty_sectors     = get_sectors_dirty(dc);
   s->writeback_percent = dc->writeback_percent;
@@ -281,7 +300,7 @@ int t2store_set_log_level(const char *level)
 {
   int log_level;
 
-  CACHE_ERRORLOG(NULL, "log_level: %s\n", level);
+  CACHE_INFOLOG(NULL, "set log_level to: %s\n", level);
   if (!strcmp(level, "DEBUG"))
     log_level = ZLOG_LEVEL_DEBUG;
   else if (!strcmp(level, "INFO"))
