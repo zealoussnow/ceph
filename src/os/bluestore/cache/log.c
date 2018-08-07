@@ -1,5 +1,6 @@
 #include <zlog.h>
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +12,11 @@
 
 
 #define LOG_CONF "/etc/ceph/t2store_cachelog.conf"
+#define NAME_MAX 255
+
+#define LOG_PAT_LEN 24
+#define LOG_PAT "%s/ceph-cache.osd.%s.log"
+
 int g_log_level = ZLOG_LEVEL_INFO;
 
 void set_log_level(int level)
@@ -18,22 +24,19 @@ void set_log_level(int level)
   g_log_level = level;
 }
 
-int 
-log_init(const char *log_path, const char *log_instant)
+void log_init(const char *log_path, const char *log_instant)
 {
-  char env_val[BUFSIZ];
-  memset(env_val, 0, BUFSIZ);
-  snprintf(env_val, BUFSIZ, "%s/ceph-cache.osd.%s.log", log_path, log_instant);
+  char env_val[NAME_MAX + 1] = {0};
+
+  if (strlen(log_path) > NAME_MAX - LOG_PAT_LEN)
+    assert("log path too long" == 0);
+  snprintf(env_val, NAME_MAX + 1, LOG_PAT, log_path, log_instant);
   setenv("LOG_FILENAME", env_val, 1);
 
-  int rc = zlog_init(LOG_CONF);
-  if (rc) {
-    return -1;
-  }
-
   set_log_level(ZLOG_LEVEL_INFO);
-
-  return 0;
+  int rc = zlog_init(LOG_CONF);
+  if (rc)
+    assert("log init failed" == 0);
 }
 
 void log_fini()
