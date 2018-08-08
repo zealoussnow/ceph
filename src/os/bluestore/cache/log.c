@@ -35,8 +35,11 @@ void log_init(const char *log_path, const char *log_instant)
 
   set_log_level(ZLOG_LEVEL_INFO);
   int rc = zlog_init(LOG_CONF);
-  if (rc)
-    assert("log init failed" == 0);
+
+  // maybe reinit will arrive hear, so we need reload
+  if (rc) {
+    assert(log_reload() == 0);
+  }
 }
 
 void log_fini()
