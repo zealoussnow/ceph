@@ -78,6 +78,7 @@ struct wb_status
   int writeback_stop;
   int cached_hits;
   const char *wb_running_state;
+  const char *cache_mode;
 };
 
 struct gc_status

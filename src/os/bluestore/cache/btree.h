@@ -358,7 +358,7 @@ struct btree_insert_op {
 void set_gc_pause(struct cache *ca, int pause);
 void set_gc_moving_stop(struct cache *ca, int stop);
 void set_writeback_stop(struct cache *ca, int stop);
-void set_cache_mode(struct cache *ca, int mode);
+void set_cache_mode(struct cache *ca, const char *mode);
 void set_writeback_percent(struct cache *ca, int percent);
 void set_writeback_rate_update_seconds(struct cache *ca, int wb_rate_update_seconds);
 void set_sequential_cutoff(struct cache *ca, int sequential_cutoff);

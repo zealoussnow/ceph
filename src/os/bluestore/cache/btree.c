@@ -33,6 +33,7 @@
 #include "prefetch.h"
 #include "writeback.h"
 #include "util.h"
+#include "libcache.h"
 
 /*
  * Todo:
@@ -1769,9 +1770,19 @@ void set_writeback_stop(struct cache *ca, int stop)
   atomic_set(&ca->set->dc->writeback_stop, stop);
 }
 
-void set_cache_mode(struct cache *ca, int mode)
+void set_cache_mode(struct cache *ca, const char *mode)
 {
-  SET_BDEV_CACHE_MODE(&ca->set->dc->sb, mode);
+  if (!strcmp(mode, "writeback")) {
+    SET_BDEV_CACHE_MODE(&ca->set->dc->sb, CACHE_MODE_WRITEBACK);
+  } else if (!strcmp(mode, "writearound")) {
+    SET_BDEV_CACHE_MODE(&ca->set->dc->sb, CACHE_MODE_WRITEAROUND);
+  } else if (!strcmp(mode, "writethrough")) {
+    SET_BDEV_CACHE_MODE(&ca->set->dc->sb, CACHE_MODE_WRITETHROUGH);
+  } else if (!strcmp(mode, "none")) {
+    SET_BDEV_CACHE_MODE(&ca->set->dc->sb, CACHE_MODE_NONE);
+  } else {
+    CACHE_ERRORLOG(DEFAULT_CAT_TYPE, "error cache mode set %s", mode);
+  }
 }
 
 void set_cache_expensive_debug_checks(struct cache *ca, bool state)

@@ -1369,6 +1369,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     struct wb_status ws;
     t2store_wb_status(&cache_ctx, &ws);
     f->open_object_section("wb_status");
+    f->dump_string("cache_mode", ws.cache_mode);
     f->dump_string("wb_running_state", ws.wb_running_state);
     f->dump_int("writeback_stop", ws.writeback_stop);
     f->dump_int("cached_hits", ws.cached_hits);
