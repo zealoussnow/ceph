@@ -994,7 +994,6 @@ int CacheDevice::write(
 {
   IOContext ioc(cct, NULL);
   uint64_t len = bl.length();
-  int r;
   dout(20) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
            << (buffered ? " (buffered)" : " (direct)")
            << dendl;
@@ -1021,13 +1020,10 @@ int CacheDevice::write(
 
   queue_task(t);
 
-  while ( t->return_code > 0 ) {
-    t->io_wait();
-  }
-  r = t->return_code;
+  ioc.aio_wait();
 
   delete t;
-  return r;
+  return 0;
 }
 
 void CacheDevice::queue_task(Task *t, uint64_t ops)
