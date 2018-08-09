@@ -290,7 +290,7 @@ bch_data_insert_start(struct cache *ca, struct keylist *insert_keys)
   }
   printf( " \n");
   printf( " main.c FUN %s: >>>>>>>>>>>  Start Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
-  bch_data_insert_keys(ca->set, insert_keys);
+  bch_data_insert_keys(ca->set, insert_keys, NULL);
   printf( " main.c FUN %s: >>>>>>>>>>>  End Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
   printf(" \n");
   return;
@@ -317,7 +317,7 @@ bch_data_insert_start(struct cache *ca, struct keylist *insert_keys)
   }
   printf(" \n");
   printf( " main.c FUN %s: >>>>>>>>>>>  Start Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
-  bch_data_insert_keys(ca->set, &insert_keys2);
+  bch_data_insert_keys(ca->set, &insert_keys2, NULL);
   printf( " main.c FUN %s: >>>>>>>>>>>  End Insert keylist <<<<<<<<<<<<<<<<\n", __func__);
   return ;
 
