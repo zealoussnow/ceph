@@ -14,7 +14,29 @@ get_ring_item(void *data, uint64_t offset, uint64_t len)
     item->o_offset = offset;
     item->o_len = len;
   }
+  SAFE_FREE_INIT(item);
+  SAFE_FREE_INC(item);
   return item;
+}
+
+void free_ring_item(struct ring_item *item)
+{
+  if (item->read_new_keys){
+    bch_keylist_free(item->read_new_keys);
+    T2Free(item->read_new_keys);
+  }
+
+  if (item->insert_keys){
+    bch_keylist_free(item->insert_keys);
+    T2Free(item->insert_keys);
+  }
+
+  if (item->read_keys){
+    bch_keylist_free(item->read_keys);
+    T2Free(item->read_keys);
+  }
+
+  T2Free(item);
 }
 
 

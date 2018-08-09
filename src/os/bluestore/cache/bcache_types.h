@@ -714,4 +714,12 @@ struct uuid_entry_v0 {
 	__u32		pad;
 };
 
+#define SAFE_FREE_INIT(item) atomic_set(&item->gc, 0)
+#define SAFE_FREE_INC(item) atomic_inc(&item->gc)
+#define SAFE_FREE_DEC(item, fn) \
+{ \
+  int r = atomic_dec_return(&item->gc); \
+  if (!r) fn(item); \
+}
+
 #endif /* _LINUX_BCACHE_H */

@@ -25,6 +25,7 @@ struct ring_item {
   uint64_t o_offset;
   uint64_t o_len;
   atomic_t seq;
+  atomic_t gc;
   bool need_write_cache;
   bool need_read_backend;
   bool need_read_cache;
@@ -34,6 +35,7 @@ struct ring_item {
   void *iou_arg;
   io_completion_fn iou_completion_cb;
   struct keylist *insert_keys;
+  struct keylist *read_keys;
   struct keylist *read_new_keys;
   struct io_sync_write *sync_io;
   struct timespec start;
@@ -55,6 +57,7 @@ void ring_items_reset(struct ring_items *items);
 int ring_items_count(struct ring_items *items);
 
 struct ring_item *get_ring_item(void *data, uint64_t offset, uint64_t len);
+void free_ring_item(struct ring_item *item);
 
 
 #endif
