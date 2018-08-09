@@ -10,6 +10,7 @@
 
 #include "log.h"
 
+static int log_is_init = 0;
 
 #define LOG_CONF "/etc/ceph/t2store_cachelog.conf"
 #define NAME_MAX 255
@@ -34,11 +35,12 @@ void log_init(const char *log_path, const char *log_instant)
   setenv("LOG_FILENAME", env_val, 1);
 
   set_log_level(ZLOG_LEVEL_INFO);
-  int rc = zlog_init(LOG_CONF);
 
-  // maybe reinit will arrive hear, so we need reload
-  if (rc) {
-    assert(log_reload() == 0);
+  if (!log_is_init) {
+    int rc = zlog_init(LOG_CONF);
+    if (rc)
+      assert("log init failed" == 0);
+    log_is_init = 1;
   }
 }
 
