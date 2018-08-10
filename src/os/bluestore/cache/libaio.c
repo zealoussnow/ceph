@@ -263,7 +263,7 @@ aio_thread_init(void *ca) {
   CACHE_DEBUGLOG(CAT_AIO, "libevent aio init\n");
 
   uint32_t i;
-  cpu_set_t cpuset;
+  //cpu_set_t cpuset;
   struct thread_options *cache_options = NULL;
   struct thread_options *hdd_options = NULL;
   struct aio_handler *handler = g_handler;
@@ -305,11 +305,11 @@ aio_thread_init(void *ca) {
   assert(backend_name != NULL);
 
   self_td = pthread_self();
-  rc = pthread_getaffinity_np(self_td, sizeof(cpu_set_t), &cpuset);
-  if (rc != 0){
-    msg = "failed to get thread affinity\n";
-    goto err;
-  }
+//  rc = pthread_getaffinity_np(self_td, sizeof(cpu_set_t), &cpuset);
+//  if (rc != 0){
+//    msg = "failed to get thread affinity\n";
+//    goto err;
+//  }
 
   for (i = 0; i < 2; i++) {
     struct thread_data *td = calloc(1, sizeof(*td));
@@ -349,11 +349,11 @@ aio_thread_init(void *ca) {
         msg = "failed to allocate cache poller thread\n";
         goto err;
       }
-      rc = pthread_setaffinity_np(poller_td, sizeof(cpu_set_t), &cpuset);
-      if (rc != 0){
-        msg = "failed to set thread cache affinity\n";
-        goto err;
-      }
+//      rc = pthread_setaffinity_np(poller_td, sizeof(cpu_set_t), &cpuset);
+//      if (rc != 0){
+//        msg = "failed to set thread cache affinity\n";
+//        goto err;
+//      }
       rc = pthread_setname_np(poller_td, "cache_poller");
       if (rc != 0){
         msg = "failed to set cache poller thread name\n";
@@ -382,11 +382,11 @@ aio_thread_init(void *ca) {
         msg = "failed to allocate backend poller thread\n";
         goto err;
       }
-      rc = pthread_setaffinity_np(poller_td, sizeof(cpu_set_t), &cpuset);
-      if (rc != 0){
-        msg = "failed to set thread hdd affinity\n";
-        goto err;
-      }
+//      rc = pthread_setaffinity_np(poller_td, sizeof(cpu_set_t), &cpuset);
+//      if (rc != 0){
+//        msg = "failed to set thread hdd affinity\n";
+//        goto err;
+//      }
       rc = pthread_setname_np(poller_td, "backend_poller");
       if (rc != 0){
         msg = "failed to set backend poller thread name\n";
