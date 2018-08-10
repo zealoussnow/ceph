@@ -1028,6 +1028,7 @@ static int btree_check_reserve(struct btree *b, struct btree_op *op)
 
       pthread_mutex_unlock(&c->bucket_lock);
       wake_up_alloc_thread(ca);
+      CACHE_WARNLOG(CAT_BTREE, "No bucket for btree insert key!\n");
       return -EINTR;
     }
 
