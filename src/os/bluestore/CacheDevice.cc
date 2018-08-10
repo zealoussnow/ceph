@@ -1201,6 +1201,7 @@ const char** CacheDevice::get_tracked_conf_keys() const
     "t2store_cutoff_gc",
     "t2store_gc_mode",
     "t2store_max_gc_keys_onetime",
+    "t2store_cached_hits",
     NULL
   };
 
@@ -1294,6 +1295,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->open_object_section("wb_status");
     f->dump_string("wb_running_state", ws.wb_running_state);
     f->dump_int("writeback_stop", ws.writeback_stop);
+    f->dump_int("cached_hits", ws.cached_hits);
     f->dump_int("has_dirty", ws.has_dirty);
     f->dump_unsigned("dirty_sectors", ws.dirty_sectors);
     f->dump_int("sequential_cutoff", ws.sequential_cutoff);

@@ -1224,6 +1224,11 @@ void set_gc_mode(struct cached_dev *dc, int val)
 
 }
 
+void set_cached_hits(struct cache *ca, int val)
+{
+  atomic_set(&ca->set->cached_hits, val);
+}
+
 void set_max_gc_keys_onetime(struct cached_dev *dc, int val)
 {
   dc->max_gc_keys_onetime = val;
@@ -2391,7 +2396,9 @@ aio_read_backend(struct ring_item *item)
 static bool cache_read_hits(struct ring_item *item)
 {
   // TODO 判断是否需要缓存
-  return true;
+  struct cache *ca = item->ca_handler;
+
+  return atomic_read(&ca->set->cached_hits);
 }
 
 int 
