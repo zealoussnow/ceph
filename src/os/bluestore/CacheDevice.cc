@@ -660,7 +660,7 @@ int CacheDevice::_aio_start()
         sprintf(thread_name, "caio_%d", i);
         AioCompletionThread *aio_thread = new AioCompletionThread(this);
         aio_thread->create(thread_name);
-        aio_thread->set_affinity(i);
+        //aio_thread->set_affinity(i);
         aio_threads.push_back(aio_thread);
       }
     }
