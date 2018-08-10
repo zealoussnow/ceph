@@ -1210,6 +1210,25 @@ void set_writeback_sync_cutoff(struct cached_dev *dc, int val)
   dc->cutoff_writeback_sync = val;
 }
 
+void set_gc_cutoff(struct cached_dev *dc, int val)
+{
+  dc->cutoff_gc = val;
+}
+
+void set_gc_mode(struct cached_dev *dc, int val)
+{
+  if (val == GC_MODE_READ_PRIO)
+    dc->cutoff_gc_busy = CUTOFF_WRITEBACK_SYNC;
+  else if (val == GC_MODE_WRITE_PRIO)
+    dc->cutoff_gc_busy = (CUTOFF_WRITEBACK * 3) / 4;
+
+}
+
+void set_max_gc_keys_onetime(struct cached_dev *dc, int val)
+{
+  dc->max_gc_keys_onetime = val;
+}
+
 void set_cache_add_cutoff(struct cached_dev *dc, int val)
 {
   dc->cutoff_cache_add = val;
@@ -1220,6 +1239,13 @@ static void set_writeback_cutoffs(struct cached_dev *dc)
   dc->cutoff_writeback      = CUTOFF_WRITEBACK;
   dc->cutoff_writeback_sync = CUTOFF_WRITEBACK_SYNC;
   dc->cutoff_cache_add      = CUTOFF_CACHE_ADD;
+}
+
+static void bch_gc_conf_init(struct cached_dev *dc)
+{
+  dc->cutoff_gc = CUTOFF_WRITEBACK / 2;
+  dc->cutoff_gc_busy = (CUTOFF_WRITEBACK * 3) / 4;
+  dc->max_gc_keys_onetime = 512;
 }
 
 static void update_gc_size_wm(evutil_socket_t fd, short events, void *arg)
@@ -1273,6 +1299,7 @@ init(struct cache * ca)
   bch_moving_init_cache_set(ca->set);
   bch_gc_thread_start(ca->set);
   set_writeback_cutoffs(ca->set->dc);
+  bch_gc_conf_init(ca->set->dc);
 
   struct timeval tv;
   evutil_timerclear(&tv);

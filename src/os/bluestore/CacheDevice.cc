@@ -1198,6 +1198,9 @@ const char** CacheDevice::get_tracked_conf_keys() const
     "t2store_cutoff_writeback",
     "t2store_cutoff_writeback_sync",
     "t2store_cutoff_cache_add",
+    "t2store_cutoff_gc",
+    "t2store_gc_mode",
+    "t2store_max_gc_keys_onetime",
     NULL
   };
 
@@ -1315,10 +1318,12 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->dump_int("sectors_to_gc", gs.sectors_to_gc);
     f->dump_string("gc_running_state", gs.gc_running_state);
     f->dump_int("invalidate_needs_gc", gs.invalidate_needs_gc);
+    f->dump_int("cutoff_gc", gs.cutoff_gc);
+    f->dump_int("cutoff_gc_busy", gs.cutoff_gc_busy);
+    f->dump_int("max_gc_keys_onetime", gs.max_gc_keys_onetime);
     f->close_section();
     f->open_object_section("all buckets");
     f->dump_unsigned("gc_all_buckets", gs.gc_all_buckets);
-    f->dump_unsigned("gc_pin_bucket", gs.gc_pin_buckets);
     f->dump_unsigned("gc_avail_buckets", gs.gc_avail_buckets);
     f->dump_unsigned("gc_unavail_buckets", gs.gc_unavail_buckets);
     f->close_section();
@@ -1338,6 +1343,9 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->close_section();
     f->open_object_section("gc moving");
     f->dump_unsigned("gc_moving_buckets", gs.gc_moving_buckets);
+    f->dump_unsigned("gc_pin_buckets", gs.gc_pin_buckets);
+    f->dump_unsigned("gc_empty_buckets", gs.gc_empty_buckets);
+    f->dump_unsigned("gc_full_buckets", gs.gc_full_buckets);
     f->close_section();
   }
 

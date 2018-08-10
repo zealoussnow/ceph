@@ -211,6 +211,8 @@ struct bucket {
   uint8_t       gen;
   uint8_t       last_gc; /* Most out of date gen in the btree */
   uint16_t      gc_mark; /* Bitfield used by GC. See below for field */
+  uint16_t      dirty_keys; /* dirty keys in bucket */
+  bool          move_dirty_only; /* dirty keys in bucket */
 };
 
 /*
@@ -382,6 +384,10 @@ struct cached_dev {
   int                   cutoff_writeback;
   int                   cutoff_writeback_sync;
   int                   cutoff_cache_add;
+
+  unsigned              cutoff_gc;
+  unsigned              cutoff_gc_busy;
+  unsigned              max_gc_keys_onetime;
 
   /*
   * Internal to the writeback code, so read_dirty() can keep track of
@@ -561,7 +567,6 @@ struct gc_stat {
   // all bucket include pin+avail+unavail
   uint64_t              gc_all_buckets; 
 
-  uint64_t              gc_pin_buckets; 
   // avail = init + reclaimable
   uint64_t              gc_avail_buckets; 
   uint64_t              gc_init_buckets; 
@@ -578,6 +583,9 @@ struct gc_stat {
 
   // moving is need to read and write to new
   uint64_t              gc_moving_buckets; 
+  uint64_t              gc_pin_buckets; 
+  uint64_t              gc_empty_buckets;
+  uint64_t              gc_full_buckets;
 
   unsigned              status; 
 };
