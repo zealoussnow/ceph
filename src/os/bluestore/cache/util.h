@@ -390,9 +390,6 @@ struct bch_ratelimit {
 
 static inline void bch_ratelimit_reset(struct bch_ratelimit *d)
 {
-  //d->next = local_clock();
-  struct timespec now = {0, 0};
-  clock_gettime(CLOCK_REALTIME, &now);
   d->next = cache_realtime_u64();
 }
 
