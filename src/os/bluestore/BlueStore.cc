@@ -8911,7 +8911,10 @@ void BlueStore::_deferred_submit_unlock(OpSequencer *osr)
   bufferlist bl;
   auto i = b->iomap.begin();
   while (true) {
-    if (i == b->iomap.end() || i->first != pos) {
+    if (i == b->iomap.end() || i->first != pos ||
+        (bl.length() + i->second.bl.length() > MAX_AIO_WRITE_LEN)) {
+      assert(bl.length() <= MAX_AIO_WRITE_LEN);
+      assert(i->second.bl.length() <= MAX_AIO_WRITE_LEN);
       if (bl.length()) {
 	dout(20) << __func__ << " write 0x" << std::hex
 		 << start << "~" << bl.length()

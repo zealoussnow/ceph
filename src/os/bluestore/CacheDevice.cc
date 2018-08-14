@@ -1046,7 +1046,7 @@ int CacheDevice::aio_write(
            << dendl;
   assert(off % block_size == 0);
   assert(len % block_size == 0);
-  assert(len > 0);
+  assert(len > 0 && len <= MAX_AIO_WRITE_LEN);
   assert(off < size);
   assert(off + len <= size);
 
