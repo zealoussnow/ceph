@@ -1063,6 +1063,11 @@ __bch_btree_mark_key(struct cache_set *c, int level,struct bkey *k)
       g->last_gc = PTR_GEN(k, i);
 
     if (ptr_stale(c, k, i)) {
+      if (KEY_DIRTY(k)) {
+        CACHE_ERRORLOG(NULL, "dirty key stale bucket gen = %d, ptr gen = %d\n", PTR_BUCKET(c, k, i)->gen, PTR_GEN(k, i));
+        dump_bkey("dirty stale key", k);
+        assert("dirty stale in mark" == 0);
+      }
       stale = max(stale, ptr_stale(c, k, i));
       continue;
     }
