@@ -25,6 +25,9 @@
 #include "acconfig.h"
 #include "aio.h"
 
+// 512KB, max aio write length for CacheDevice
+#define MAX_AIO_WRITE_LEN 524288
+
 #define SPDK_PREFIX "spdk:"
 
 /// track in-flight io
