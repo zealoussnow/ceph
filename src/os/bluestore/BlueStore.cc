@@ -8914,7 +8914,6 @@ void BlueStore::_deferred_submit_unlock(OpSequencer *osr)
     if (i == b->iomap.end() || i->first != pos ||
         (bl.length() + i->second.bl.length() > MAX_AIO_WRITE_LEN)) {
       assert(bl.length() <= MAX_AIO_WRITE_LEN);
-      assert(i->second.bl.length() <= MAX_AIO_WRITE_LEN);
       if (bl.length()) {
 	dout(20) << __func__ << " write 0x" << std::hex
 		 << start << "~" << bl.length()
@@ -8939,6 +8938,8 @@ void BlueStore::_deferred_submit_unlock(OpSequencer *osr)
     if (!bl.length()) {
       start = pos;
     }
+
+    assert(i->second.bl.length() <= MAX_AIO_WRITE_LEN);
     pos += i->second.bl.length();
     bl.claim_append(i->second.bl);
     ++i;
