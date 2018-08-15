@@ -1021,8 +1021,6 @@ int CacheDevice::write(
   queue_task(t);
 
   ioc.aio_wait();
-
-  delete t;
   return 0;
 }
 
@@ -1102,6 +1100,7 @@ int CacheDevice::read(uint64_t off, uint64_t len, bufferlist *pbl,
 
   Task *t = new Task(this, IOCommand::READ_COMMAND, off, len, 1);
   t->read_ptr = buffer::create_page_aligned(len);
+  assert(t->read_ptr.c_str());
   pbl->append(t->read_ptr);
   t->ctx = ioc;
   ++ioc->num_running;
@@ -1135,6 +1134,7 @@ int CacheDevice::aio_read(
 
   Task *t = new Task(this, IOCommand::READ_COMMAND, off, len);
   t->read_ptr = buffer::create_page_aligned(len);
+  assert(t->read_ptr.c_str());
   pbl->append(t->read_ptr);
   t->ctx = ioc;
   Task *first = static_cast<Task*>(ioc->cache_task_first);
