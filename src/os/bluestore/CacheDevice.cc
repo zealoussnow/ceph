@@ -1389,6 +1389,13 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     t2store_wakeup_gc(&cache_ctx);
   }
 
+  if (command == "expensive_debug_checks") {
+    int64_t state = 0;
+    cmd_getval(cct, cmdmap, "state", state);
+    dout(0) << "set expensive_debug_checks: " << state << dendl;
+    t2store_expensive_debug_checks(&cache_ctx, state);
+  }
+
   f->flush(ss);
 
   return true;
@@ -1426,6 +1433,10 @@ void CacheDevice::asok_register()
   assert(r == 0);
   r = admin_socket->register_command("wake_up_gc", "wake_up_gc",
                                      asok_hook, "forced wakeup gc");
+  assert(r == 0);
+  r = admin_socket->register_command("expensive_debug_checks",
+                                     "expensive_debug_checks name=state,type=CephInt",
+                                     asok_hook, "expensive debug checks");
   assert(r == 0);
 }
 

@@ -177,7 +177,7 @@ btree_ptr_bad_expensive(struct btree *b, const struct bkey *k)
   unsigned i;
   char buf[80];
   struct bucket *g;
-  if (pthread_mutex_trylock(&b->c->bucket_lock)) {
+  if (!pthread_mutex_trylock(&b->c->bucket_lock)) {
     for (i = 0; i < KEY_PTRS(k); i++) {
       if (ptr_available(b->c, k, i)) {
         g = PTR_BUCKET(b->c, k, i);
@@ -548,7 +548,7 @@ bch_extent_bad_expensive(struct btree *b, const struct bkey *k,unsigned ptr)
 {
   struct bucket *g = PTR_BUCKET(b->c, k, ptr);
   char buf[80];
-  if (pthread_mutex_trylock(&b->c->bucket_lock)) {
+  if (!pthread_mutex_trylock(&b->c->bucket_lock)) {
     if (b->c->gc_mark_valid &&
         (!GC_MARK(g) ||
          GC_MARK(g) == GC_MARK_METADATA ||
