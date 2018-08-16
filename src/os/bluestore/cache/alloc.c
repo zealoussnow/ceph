@@ -659,9 +659,9 @@ pick_data_bucket(struct cache_set *c, const struct bkey *search,
   if (ret)
     goto found;
 
-//  ret = ret_task ?: list_first_entry(&c->data_buckets, struct open_bucket, list);
-
-  // invalid the smallest open bucket.
+  // must make sure the bucket not used by other thread
+  if (min_bkt->wait)
+    return NULL;
   ret = min_bkt;
   ret->sectors_free = 0;
   for (i = 0; i < KEY_PTRS(&ret->key); i++){
@@ -679,6 +679,8 @@ found:
   if (!ret->sectors_free) {
     ret->wait = true;
     *last =  ret;
+    CACHE_DEBUGLOG(CAT_ALLOC, "last open_ bucket: %p, sectors_free=%u, wait %d\n",
+        *last, (*last)->sectors_free, (*last)->wait);
     ret = NULL;
   }
   return ret;
@@ -723,10 +725,20 @@ bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
     unsigned watermark = write_prio
       ? RESERVE_MOVINGGC
       : RESERVE_NONE;
-    /*spin_unlock(&c->data_bucket_lock);*/
     pthread_spin_unlock(&c->data_bucket_lock);
-    if (bch_bucket_alloc_set(c, watermark, &alloc.key, 1, wait))
+
+    // if alloc failed, realloc again with data_bucket_lock
+    if (last_bkt == NULL) {
+      pthread_spin_lock(&c->data_bucket_lock);
+      continue;
+    }
+
+    // if bch_bucket_alloc_set return failed and last_bkt is not NULL
+    // we must set wait to false
+    if (bch_bucket_alloc_set(c, watermark, &alloc.key, 1, wait)) {
+      last_bkt->wait = false;
       return false;
+    }
     pthread_spin_lock(&c->data_bucket_lock);
     //spin_lock(&c->data_bucket_lock);
   }
