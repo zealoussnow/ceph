@@ -252,7 +252,7 @@ void
 bch_data_insert_start(struct cache *ca, struct keylist *insert_keys)
 {
   int i, j;
-  int keynum = 150;
+  int keynum = 10;
   int keynum2 = 10;
   uint64_t start = 0;
   uint64_t start2 = 1000;
@@ -268,11 +268,13 @@ bch_data_insert_start(struct cache *ca, struct keylist *insert_keys)
     // 写入的数据按扇区对齐后的大小来分配bucket的资源,但是写入的数据依然按实际的长度
     // 比如：bio.bi_size是实际的数据长度，但是对bio分配bucket资源的时候，给的bi_size>>9
     // 之后变成扇区数进行分配，并不会改变bi_size原有的大小
-    SET_KEY_DIRTY(k, true);
     int sectors = ( len % 512 ) ? ( len / 512 + 1 ) : ( len / 512 );
     data=T2Molloc(sizeof(char)*len);
     memset(data,'x',sizeof(char)*len);
     int ret = bch_alloc_sectors(ca->set, k, sectors, 0, 0, 1);
+    SET_KEY_DIRTY(k, true);
+    for (j = 0; j < KEY_PTRS(k); j++)
+      SET_GC_MARK(PTR_BUCKET(ca->set, k, j), GC_MARK_DIRTY);
     printf( " main.c FUN %s: after alloc sectors KEY_OFFSET=%d,KEY_SIZE=%d\n", __func__,KEY_OFFSET(k),KEY_SIZE(k));
     for (j = 0; j < KEY_PTRS(k); j++) {
       off_t ssd_off = PTR_OFFSET(k, j) << 9;

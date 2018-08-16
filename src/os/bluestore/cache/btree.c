@@ -1762,6 +1762,15 @@ void set_cache_mode(struct cache *ca, int mode)
   SET_BDEV_CACHE_MODE(&ca->set->dc->sb, mode);
 }
 
+void set_cache_expensive_debug_checks(struct cache *ca, bool state)
+{
+  if (state)
+    CACHE_INFOLOG(CAT_BTREE, "Expensive debug checks on. \n");
+  else
+    CACHE_INFOLOG(CAT_BTREE, "Expensive debug checks off. \n");
+  ca->set->expensive_debug_checks = state;
+}
+
 void set_writeback_percent(struct cache *ca, int percent)
 {
   ca->set->dc->writeback_percent = percent;

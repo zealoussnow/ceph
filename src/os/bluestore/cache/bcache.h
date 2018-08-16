@@ -954,11 +954,11 @@ static inline bool ptr_available(struct cache_set *c, const struct bkey *k,
 /* Error handling macros */
 
 #define btree_bug
-#if 0
+#if 1
 #define btree_bug(b, ...)                                               \
 do {                                                                    \
-        if (bch_cache_set_error((b)->c, __VA_ARGS__))                   \
-                dump_stack();                                           \
+        CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
+        assert("btree_bug" == 0);                                       \
 } while (0)
 #endif
 
@@ -967,13 +967,13 @@ do {                                                                    \
 #if 0
 #define cache_bug(c, ...)                                               \
 do {                                                                    \
-        if (bch_cache_set_error(c, __VA_ARGS__))                        \
-                dump_stack();                                           \
+        CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
+        assert("cache_bug" == 0);                                       \
 } while (0)
 #endif
 
 #define btree_bug_on(cond, b, ...)
-#if 0
+#if 1
 #define btree_bug_on(cond, b, ...)                                      \
 do {                                                                    \
         if (cond)                                                       \

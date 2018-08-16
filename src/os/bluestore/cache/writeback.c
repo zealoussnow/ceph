@@ -693,7 +693,7 @@ void bch_cached_dev_writeback_init(struct cached_dev *dc)
   pthread_rwlock_init(&dc->writeback_lock, NULL);
   bch_keybuf_init(&dc->writeback_keys);
 
-  dc->sequential_cutoff           = 512 << 10;
+  dc->sequential_cutoff           = 0;
   dc->writeback_metadata		= true;
   atomic_set(&dc->writeback_stop, 0);
   dc->writeback_percent		= 10;

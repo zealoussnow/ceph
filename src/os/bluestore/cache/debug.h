@@ -20,7 +20,8 @@
 //static inline void bch_btree_verify(struct btree *b) {}
 //static inline void bch_data_verify(struct cached_dev *dc, struct bio *bio) {}
 
-#define expensive_debug_checks(c)	0
+//#define expensive_debug_checks(c)	0
+#define expensive_debug_checks(c)	((c)->expensive_debug_checks)
 #define key_merging_disabled(c)		0
 #define bypass_torture_test(d)		0
 

@@ -477,6 +477,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
   c->congested_read_threshold_us	= 2000;
   c->congested_write_threshold_us	= 20000;
   c->error_limit	= 8 << IO_ERROR_SHIFT;  /* IO_ERROR_SHIFT=20, 8MB */
+  c->expensive_debug_checks = true;
   
   return c;
 err:
@@ -1341,10 +1342,10 @@ get_init_bkey(struct keylist *keylist, uint64_t offset, struct cache *ca)
 {
   struct bkey *k = NULL;
 
-  /*if (bch_keylist_realloc(keylist, 3, ca->set)) {*/
-    /*CACHE_ERRORLOG(NULL, "keylist realloc nomem\n");*/
-    /*assert("keylist realloc no memory" == 0);*/
-  /*}*/
+  if (bch_keylist_realloc(keylist, 3, ca->set)) {
+    CACHE_ERRORLOG(NULL, "keylist realloc nomem\n");
+    assert("keylist realloc no memory" == 0);
+  }
 
   k = keylist->top;
   assert(k != NULL);
