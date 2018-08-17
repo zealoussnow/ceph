@@ -329,15 +329,21 @@ struct bkey *bch_btree_iter_init(struct btree_keys *, struct btree_iter *,
 struct bkey *__bch_bset_search(struct btree_keys *, struct bset_tree *,
                                 const struct bkey *);
 
-#define pdump_bkey(prefix, fun, b)                                    \
+#define pdump_level_bkey(log_fun, prefix, fun, b)                                    \
   if ( b == NULL) {                                             \
-    CACHE_DEBUGLOG(prefix,"%s dump bkey is NULL \n", prefix); \
+    log_fun(prefix,"%s dump bkey is NULL \n", prefix); \
   } else {                                                      \
-    CACHE_DEBUGLOG(prefix, "%s dump bkey %p(start %lu off %lu size %lu ptr_offset %u ptrs %u dirty %u inode %u) \n",\
+    log_fun(prefix, "%s dump bkey %p(start %lu off %lu size %lu ptr_offset %u ptrs %u dirty %u inode %u) \n",\
     fun, b, KEY_OFFSET(b)-KEY_SIZE(b), KEY_OFFSET(b),        \
     KEY_SIZE(b),PTR_OFFSET(b,0), KEY_PTRS(b), KEY_DIRTY(b),     \
     KEY_INODE(b));                                              \
   };
+
+#define pdump_err_bkey(prefix, fun, b)                                    \
+    pdump_level_bkey(CACHE_ERRORLOG, prefix, fun, b)
+
+#define pdump_bkey(prefix, fun, b)                                    \
+    pdump_level_bkey(CACHE_DEBUGLOG, prefix, fun, b)
 
 #define dump_bkey(prefix, b)       pdump_bkey(CAT_BKEY, prefix, b)
 
@@ -587,29 +593,15 @@ int __bch_keylist_realloc(struct keylist *, unsigned);
 
 /* Debug stuff */
 
-#ifdef CONFIG_BCACHE_DEBUG
 
 int __bch_count_data(struct btree_keys *);
 void __bch_check_keys(struct btree_keys *, const char *, ...);
 void bch_dump_bset(struct btree_keys *, struct bset *, unsigned);
 void bch_dump_bucket(struct btree_keys *);
 
-#else
-
-static inline int __bch_count_data(struct btree_keys *b) { return -1; }
-static inline void __bch_check_keys(struct btree_keys *b, const char *fmt, ...) {}
-static inline void bch_dump_bucket(struct btree_keys *b) {}
-void bch_dump_bset(struct btree_keys *, struct bset *, unsigned);
-
-#endif
-
 static inline bool btree_keys_expensive_checks(struct btree_keys *b)
 {
-#ifdef CONFIG_BCACHE_DEBUG
   return *b->expensive_debug_checks;
-#else
-  return false;
-#endif
 }
 
 static inline int 

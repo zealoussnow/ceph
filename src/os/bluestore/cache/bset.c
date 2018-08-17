@@ -19,7 +19,6 @@
 #include "bset.h"
 #include "prefetch.h"
 
-#ifdef CONFIG_BCACHE_DEBUG
 
 void bch_dump_bset(struct btree_keys *b, struct bset *i, unsigned set)
 {
@@ -72,7 +71,8 @@ void __bch_check_keys(struct btree_keys *b, const char *fmt, ...)
   struct bkey *k, *p = NULL;
   struct btree_iter iter;
   const char *err;
-  
+  char formatted_buf[BUFSIZ];
+
   for_each_key(b, k, &iter) {
     if (b->ops->is_extents) {
       err = "Keys out of order"; /* keys无序 */
@@ -101,13 +101,18 @@ void __bch_check_keys(struct btree_keys *b, const char *fmt, ...)
 #endif
   return;
 bug:
+  memset(formatted_buf, 0, BUFSIZ);
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(formatted_buf, sizeof(formatted_buf), fmt, ap);
+  va_end(ap);
+
   bch_dump_bucket(b);
-  va_start(args, fmt);
-  //vprintk(fmt, args);
-  vprintf(fmt, args);
-  va_end(args);
-  //panic("bch_check_keys error:  %s:\n", err);
+  CACHE_ERRORLOG(NULL, "%s\n", err);
+  btree_bug(b, formatted_buf);
 }
+
+#ifdef CONFIG_BCACHE_DEBUG
 
 static void bch_btree_iter_next_check(struct btree_iter *iter)
 {
