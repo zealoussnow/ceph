@@ -397,8 +397,9 @@ cache_alloc(struct cache *ca)
   // 每个bucket，能够放下174749个bucket_disk
   ca->prio_last_buckets = ca->prio_buckets + prio_buckets(ca);
   
-  for_each_bucket(b, ca)
-  atomic_set(&b->pin, 0);
+  for_each_bucket(b, ca) {
+    atomic_set(&b->pin, 0);
+  }
   return 0;
 }
 
@@ -2614,6 +2615,12 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
     assert("write super from SB_START got error" == 0);
   }
 
-  return 0;
+  if (fsync(fd) < 0) {
+    CACHE_ERRORLOG(NULL, "sync superblock data failed");
+    ret = -errno;
+  }
+  close(fd);
+
+  return ret;
 }
 

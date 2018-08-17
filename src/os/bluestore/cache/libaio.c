@@ -1,5 +1,3 @@
-#define _GNU_SOURCE
-
 #include <fcntl.h>
 #include <pthread.h>
 #include <libaio.h>
@@ -15,10 +13,6 @@
 #include "bcache.h"
 #include "conf.h"
 
-
-//#include <rte_lcore.h>
-
-/*struct aio_handler;*/
 struct thread_data;
 
 struct aio_handler *g_handler = NULL;
@@ -92,7 +86,7 @@ poller_fn(void *arg) {
 
 struct thread_data *
 get_thread_data(uint16_t type, struct aio_handler *handler) {
-  struct thread_data *p = NULL, *tmp = NULL;
+  struct thread_data *p = NULL;
   pthread_t pthread_id = pthread_self();
   uint32_t need_seq;
 
@@ -263,12 +257,10 @@ aio_thread_init(void *ca) {
   CACHE_DEBUGLOG(CAT_AIO, "libevent aio init\n");
 
   uint32_t i;
-  //cpu_set_t cpuset;
   struct thread_options *cache_options = NULL;
   struct thread_options *hdd_options = NULL;
   struct aio_handler *handler = g_handler;
   struct cache *myca = (struct cache *) ca;
-  char *path = myca->bdev_path;
   char *cache_name = NULL;
   char *backend_name  = NULL;
   struct thread_info *thread_info;
@@ -276,40 +268,9 @@ aio_thread_init(void *ca) {
   int rc = 0;
   io_context_t *iocxt;
   char *msg;
-  struct conf *cf = conf_allocate();
-  struct conf_section *sp;
   long poll_period;
 
-  if (conf_read(cf, path)) {
-    assert("Read config error!" == 0);
-  }
-  sp = conf_find_section(cf, "AIO");
-  for (i=0;; i++) {
-    static const char *name = NULL;
-
-    char *file = conf_section_get_nmval(sp, "AIO", i, 0);
-    if (!file)
-      break;
-
-    name = conf_section_get_nmval(sp, "AIO", i, 1);
-    if (!name)
-      break;
-
-    if (!strncmp(name, "ssd", strlen("ssd"))) {
-      cache_name = file;
-    } else if (!strncmp(name, "hdd", strlen("hdd"))) {
-      backend_name = file;
-    }
-  }
-  assert(cache_name != NULL);
-  assert(backend_name != NULL);
-
   self_td = pthread_self();
-//  rc = pthread_getaffinity_np(self_td, sizeof(cpu_set_t), &cpuset);
-//  if (rc != 0){
-//    msg = "failed to get thread affinity\n";
-//    goto err;
-//  }
 
   for (i = 0; i < 2; i++) {
     struct thread_data *td = calloc(1, sizeof(*td));
@@ -342,18 +303,13 @@ aio_thread_init(void *ca) {
 
       thread_info->td = td;
       td->thread_info = thread_info;
-      thread_info->fd = open(cache_options->name, O_RDWR | O_DIRECT, 0644);
+      thread_info->fd = myca->fd;
       rc = pthread_create(&poller_td, NULL, poller_fn, td);
       if (rc) {
         free(thread_info);
         msg = "failed to allocate cache poller thread\n";
         goto err;
       }
-//      rc = pthread_setaffinity_np(poller_td, sizeof(cpu_set_t), &cpuset);
-//      if (rc != 0){
-//        msg = "failed to set thread cache affinity\n";
-//        goto err;
-//      }
       rc = pthread_setname_np(poller_td, "cache_poller");
       if (rc != 0){
         msg = "failed to set cache poller thread name\n";
@@ -375,18 +331,13 @@ aio_thread_init(void *ca) {
 
       thread_info->td = td;
       td->thread_info = thread_info;
-      thread_info->fd = open(hdd_options->name, O_RDWR | O_DIRECT, 0644);
+      thread_info->fd = myca->hdd_fd;
       rc = pthread_create(&poller_td, NULL, poller_fn, td);
       if (rc) {
         free(thread_info);
         msg = "failed to allocate backend poller thread\n";
         goto err;
       }
-//      rc = pthread_setaffinity_np(poller_td, sizeof(cpu_set_t), &cpuset);
-//      if (rc != 0){
-//        msg = "failed to set thread hdd affinity\n";
-//        goto err;
-//      }
       rc = pthread_setname_np(poller_td, "backend_poller");
       if (rc != 0){
         msg = "failed to set backend poller thread name\n";
@@ -401,11 +352,11 @@ aio_thread_init(void *ca) {
       pthread_spin_unlock(&handler->lock);
     }
   }
-  conf_free(cf);
   return 0;
 
   err:
   assert(msg == 0);
+  return rc;
 }
 
 void *

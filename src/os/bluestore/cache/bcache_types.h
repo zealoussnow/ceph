@@ -74,13 +74,6 @@ static inline s64 div_s64(s64 dividend, s32 divisor)
 
 #define PAGE_SHIFT              12
 
-#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
-
-//#define container_of(ptr, type, member) ({                      \
-        //const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-        (type *)( (char *)__mptr - offsetof(type,member) );})
-
-//#define BUG_ON
 #define BUG_ON(cond) assert(!(cond))
 #define __printf(a, b) __attribute__((format(printf, a, b)))
 

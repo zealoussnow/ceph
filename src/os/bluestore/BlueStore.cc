@@ -5148,17 +5148,16 @@ int BlueStore::_setup_block_symlink_or_file(
   return 0;
 }
 
+#define LINE_MAX_LEN 1024
 int BlueStore::generate_bdev_conf(const string& path)
 {
   int ret = 0;
   string bdev_path= path + "/bdev.conf.in";
   string block_path = path + "/block";
   string ssd_path = path + "/ssd_cache";
-  char real_ssd_path[PATH_MAX];
-  char real_hdd_path[PATH_MAX];
+  char real_ssd_path[PATH_MAX] = {0};
+  char real_hdd_path[PATH_MAX] = {0};
 
-  memset(real_ssd_path, '\0', PATH_MAX);
-  memset(real_hdd_path, '\0', PATH_MAX);
   if (!realpath(block_path.c_str(), real_hdd_path)) {
     derr<<" read block_path("<<block_path<<") realpath error"<< dendl;
     return -1;
@@ -5173,13 +5172,11 @@ int BlueStore::generate_bdev_conf(const string& path)
     return -1;
   }
   dout(20) << " generate bdev.conf("<<bdev_path<<")"<< dendl;
-  char bdev_content[1024];
-  char dpdk_env[1024];
-  memset(bdev_content, '\0', 1024);
-  memset(dpdk_env, '\0', 1024);
+  char bdev_content[LINE_MAX_LEN] = {0};
+  char dpdk_env[LINE_MAX_LEN] = {0};
 
-  snprintf(bdev_content, 1024,"[AIO]\nAIO %s hdd\nAIO %s ssd\n",real_hdd_path, real_ssd_path);     
-  snprintf(dpdk_env, 1024,"\n[DPDK_ENV]\nname %s\ncore_mask %s\nmem_size %lu\npoll_period %lu\ncache_thread_core_percent %f\n", 
+  snprintf(bdev_content, LINE_MAX_LEN, "[AIO]\nAIO %s hdd\nAIO %s ssd\n",real_hdd_path, real_ssd_path);
+  snprintf(dpdk_env, LINE_MAX_LEN, "\n[DPDK_ENV]\nname %s\ncore_mask %s\nmem_size %lu\npoll_period %lu\ncache_thread_core_percent %f\n",
           "t2cache", cct->_conf->t2store_core_mask.c_str(), cct->_conf->t2store_mem_size,
           cct->_conf->t2store_poll_period, cct->_conf->t2store_cache_thread_core_percent);
 
