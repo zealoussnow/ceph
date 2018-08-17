@@ -32,7 +32,6 @@ struct cache_context {
         void * bluestore_cd;
         int fd_cache;
         int fd_direct;
-        int fd_buffered;
         bool registered;
         const char *bdev_path;
         void *logger_cb;

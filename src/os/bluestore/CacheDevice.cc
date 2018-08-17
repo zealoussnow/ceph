@@ -187,7 +187,6 @@ int CacheDevice::cache_init(const std::string& path)
   bdev_path = path + "/bdev.conf.in";
   cache_ctx.fd_cache=fd_cache;
   cache_ctx.fd_direct=fd_direct;
-  cache_ctx.fd_buffered=fd_buffered;
   cache_ctx.bdev_path = bdev_path.c_str();
   cache_ctx.whoami = cct->_conf->name.get_id().c_str();
   cache_ctx.log_path = cct->_conf->t2store_cache_log_path.c_str();
@@ -515,9 +514,9 @@ void CacheDevice::close()
   VOID_TEMP_FAILURE_RETRY(::close(fd_buffered));
   fd_buffered = -1;
 
-  //assert(fd_cache >= 0);
-  //VOID_TEMP_FAILURE_RETRY(::close(fd_cache));
-  //fd_cache = -1;
+  assert(fd_cache >= 0);
+  VOID_TEMP_FAILURE_RETRY(::close(fd_cache));
+  fd_cache = -1;
 
   path.clear();
 }
@@ -1125,7 +1124,6 @@ int CacheDevice::aio_read(
   dout(5) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
           << dendl;
 
-  int r = 0;
   assert(off % block_size == 0);
   assert(len % block_size == 0);
   assert(len > 0);

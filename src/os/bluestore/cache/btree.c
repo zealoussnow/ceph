@@ -1387,9 +1387,6 @@ static unsigned btree_gc_count_keys(struct btree *b)
   return ret;
 }
 
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
-/*static int btree_gc_recurse(struct btree *b, struct btree_op *op,*/
-/*struct closure *writes, struct gc_stat *gc)*/
 static int btree_gc_recurse(struct btree *b, struct btree_op *op,
                             struct gc_stat *gc)
 {
