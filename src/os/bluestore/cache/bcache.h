@@ -958,6 +958,7 @@ static inline bool ptr_available(struct cache_set *c, const struct bkey *k,
 #define btree_bug(b, ...)                                               \
 do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
+        dump_stack();                                                   \
         assert("btree_bug" == 0);                                       \
 } while (0)
 #endif
@@ -968,6 +969,7 @@ do {                                                                    \
 #define cache_bug(c, ...)                                               \
 do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
+        dump_stack();                                                   \
         assert("cache_bug" == 0);                                       \
 } while (0)
 #endif

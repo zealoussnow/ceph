@@ -44,7 +44,6 @@ void dump_stack(){
   for (j = 0; j < nptrs; j++)
     CACHE_ERRORLOG(NULL, "%s\n", strings[j]);
   free(strings);
-  assert("dump_stack" == 0);
 }
 
 
