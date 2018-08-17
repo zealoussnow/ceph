@@ -964,7 +964,7 @@ do {                                                                    \
 
 
 #define cache_bug(c, ...)
-#if 0
+#if 1
 #define cache_bug(c, ...)                                               \
 do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
@@ -982,7 +982,7 @@ do {                                                                    \
 #endif
 
 #define cache_bug_on(cond, c, ...)
-#if 0
+#if 1
 #define cache_bug_on(cond, c, ...)                                      \
 do {                                                                    \
         if (cond)                                                       \

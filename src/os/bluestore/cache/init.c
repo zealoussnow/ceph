@@ -772,7 +772,7 @@ run_cache_set(struct cache_set *c)
     if (__uuid_write(c)) {
       goto err;
     }
-    /*err = "cannot allocate new btree root";*/
+    err = "cannot allocate new btree root";
     /* 分配btree的根节点 */
     CACHE_DEBUGLOG(NULL,"alloc btree root node\n");
     c->root = __bch_btree_node_alloc(c, NULL, 0, true, NULL);
@@ -812,9 +812,7 @@ run_cache_set(struct cache_set *c)
 
   return;
 err:
-  CACHE_ERRORLOG(NULL, "run cache error\n");
-  assert(" run cache error" == 0);
-  /*bch_cache_set_error(c, "%s", err);*/
+  cache_bug(c, err);
 }
 
 static int cached_dev_init(struct cached_dev *dc)
