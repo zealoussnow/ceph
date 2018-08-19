@@ -4,6 +4,7 @@
 #include <event2/event.h>
 #include <event2/event_struct.h>
 #include <event2/util.h>
+#include <event2/thread.h>
 
 typedef void (*event_callback_fn)(evutil_socket_t, short, void *);
 

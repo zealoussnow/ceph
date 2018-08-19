@@ -29,5 +29,6 @@ void *aio_init(void * ca);
 int aio_enqueue(uint16_t type, struct aio_handler *h, struct ring_item *item);
 
 int aio_enqueue_batch(uint16_t type, struct aio_handler *h, struct ring_items *items);
+int aio_thread_init(void *ca);
 #endif /* _AIO_H */
 

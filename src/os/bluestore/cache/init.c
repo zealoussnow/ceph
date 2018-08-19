@@ -34,6 +34,7 @@
 
 
 #include "aio.h"
+#include "extents.h"
 #include "log.h"
 #include "libcache.h"
 
@@ -101,23 +102,6 @@ prio_io(struct cache *ca, uint64_t bucket, int op,
 
   // 这部分IO有必要进行异步写入吗？后期可以好好考虑下
   // 如果被设计成异步的形式，则需要有一个写完成回调
-
-  /*closure_init_stack(cl);*/
-
-  /*bio->bi_iter.bi_sector	= bucket * ca->sb.bucket_size;*/
-  /*bio_set_dev(bio, ca->bdev);*/
-  /*bio->bi_iter.bi_size	= bucket_bytes(ca);*/
-
-  /*bio->bi_end_io	= prio_endio;*/
-  /*bio->bi_private = ca;*/
-
-  /* 设置IO属性，被弃用，以后不要使用了 */
-  /*bio_set_op_attrs(bio, op, REQ_SYNC|REQ_META|op_flags);*/
-
-  /*bch_bio_map(bio, ca->disk_buckets);*/
-
-  /*closure_bio_submit(bio, &ca->prio);*/
-  /*closure_sync(cl);*/
 }
 
 static void prio_read(struct cache *ca, uint64_t bucket)
@@ -153,7 +137,6 @@ bch_prio_write(struct cache *ca)
 {
   int i;
   struct bucket *b;
-  struct closure cl;
   ca->disk_buckets->seq++;
 
   atomic_long_add(ca->sb.bucket_size * prio_buckets(ca),
@@ -406,7 +389,6 @@ cache_alloc(struct cache *ca)
 struct cache_set *
 bch_cache_set_alloc(struct cache_sb *sb)
 {
-  int iter_size;
   struct cache_set *c = T2Molloc(sizeof(struct cache_set));
   if (!c) {
     return NULL;
@@ -431,20 +413,10 @@ bch_cache_set_alloc(struct cache_sb *sb)
   CACHE_INFOLOG(NULL, "nr_in_set %u \n", c->sb.nr_in_set);
   CACHE_INFOLOG(NULL, "btree_pages %u \n", c->btree_pages);
   
-  /*sema_init(&c->sb_write_mutex, 1);*/
   pthread_mutex_init(&c->bucket_lock, NULL);
-  /*init_waitqueue_head(&c->btree_cache_wait);*/
-  /*init_waitqueue_head(&c->bucket_wait);*/
-  /*init_waitqueue_head(&c->gc_wait);*/
-  /*sema_init(&c->uuid_write_mutex, 1);*/
-  
-  /*spin_lock_init(&c->btree_gc_time.lock);*/
-  /*spin_lock_init(&c->btree_split_time.lock);*/
-  /*spin_lock_init(&c->btree_read_time.lock);*/
   pthread_spin_init(&c->btree_gc_time.lock,0);
   pthread_spin_init(&c->btree_split_time.lock,0);
   pthread_spin_init(&c->btree_read_time.lock,0);
-  /*bch_moving_init_cache_set(c);*/
 
   INIT_LIST_HEAD(&c->list);
   INIT_LIST_HEAD(&c->cached_devs);
@@ -452,13 +424,9 @@ bch_cache_set_alloc(struct cache_sb *sb)
   INIT_LIST_HEAD(&c->btree_cache_freeable);
   INIT_LIST_HEAD(&c->btree_cache_freed);
   INIT_LIST_HEAD(&c->data_buckets);
-  /*c->search = mempool_create_slab_pool(32, bch_search_cache);*/
-  /*if (!c->search)*/
-  /*goto err;*/
-  iter_size = (sb->bucket_size / sb->block_size + 1) *
-        sizeof(struct btree_iter_set);
 
   c->ev_base = bch_delayed_work_init();
+  cache_bug_on((c->ev_base == NULL), c, "delayed work init failed");
   /* XXX devices是一个二级指针 */
   // bch_btree_cache_alloc(c) btree 节点链表freeable、freed
   // 此处遗留
@@ -490,13 +458,10 @@ static void
 __write_super(struct cache *c)
 {
   struct cache_sb *sb = &c->sb;
-  unsigned i;
   off_t start = SB_START;
   size_t len = SB_SIZE;
   sb->csum = csum_set(sb);
-  /* 提交bio给块设备层 block/blk-core.c */
-  /*submit_bio(bio);*/
-  /*printf(" main.c FUN %s: Write super fd=%d,start=0x%x,len=%d\n",__func__,c->fd,start,len);*/
+
   CACHE_INFOLOG(CAT_WRITE,"write super fd %d start 0x%x len %d\n",
                         c->fd, start, len);
   if (sync_write(c->fd, sb, len, start) == -1) {
@@ -506,21 +471,14 @@ __write_super(struct cache *c)
 }
 
 
-void 
-bcache_write_super(struct cache_set *c)
+void bcache_write_super(struct cache_set *c)
 {
-  /*struct closure *cl = &c->sb_write;*/
   struct cache *ca;
   unsigned i;
-
-  /*down(&c->sb_write_mutex);*/
-  /*closure_init(cl, &c->cl);*/
 
   c->sb.seq++;
 
   for_each_cache(ca, c, i) {
-    /*struct bio *bio = &ca->sb_bio;*/
-
     ca->sb.version		= BCACHE_SB_VERSION_CDEV_WITH_UUID;
     ca->sb.seq		= c->sb.seq;
     ca->sb.last_mount	= c->sb.last_mount;
@@ -530,22 +488,17 @@ bcache_write_super(struct cache_set *c)
         ca->sb.version, ca->sb.seq, ca->sb.last_mount, CACHE_SYNC(&c->sb));
     __write_super(ca);
   }
-  /*bcache_write_super_unlock*/
-  /*closure_return_with_destructor(cl, bcache_write_super_unlock);*/
 }
 
 
 
-static void 
-uuid_io(struct cache_set *c, int op, unsigned long op_flags,
-		    struct bkey *k, struct closure *parent)
+static void uuid_io(struct cache_set *c, int op, unsigned long op_flags, struct bkey *k)
 {
   struct uuid_entry *u;
-  unsigned i;
   char buf[80];
   off_t start = PTR_OFFSET(k, 0) << 9; // bucket_number * bucket_size
   size_t len = KEY_SIZE(k) << 9;
-  // buf = c->uuids
+
   CACHE_DEBUGLOG(NULL,"uuid io op %d ( fd %d start %lu len %lu \n",
                         op, c->fd, start, len);
   if ( op == REQ_OP_WRITE ) {
@@ -560,9 +513,8 @@ uuid_io(struct cache_set *c, int op, unsigned long op_flags,
       assert("read uuid error" == 0);
     }
   }
-  //BUG_ON(!parent);
-  /*down(&c->uuid_write_mutex);*/
   bch_extent_to_text(buf, sizeof(buf), k);
+
   CACHE_DEBUGLOG(NULL, "%s UUIDs at %s (nr_uuids %u) \n", 
         op == REQ_OP_WRITE ? "wrote" : "read", buf, c->nr_uuids);
   for (u = c->uuids; u < c->uuids + c->nr_uuids; u++) {
@@ -581,18 +533,17 @@ static char *uuid_read(struct cache_set *c, struct jset *j)
     return "bad uuid pointer";
   }
   bkey_copy(&c->uuid_bucket, k);
-  uuid_io(c, REQ_OP_READ, 0, k, NULL);
+  uuid_io(c, REQ_OP_READ, 0, k);
   if (j->version < BCACHE_JSET_VERSION_UUIDv1) {
     struct uuid_entry_v0	*u0 = (void *) c->uuids;
     struct uuid_entry	*u1 = (void *) c->uuids;
     int i;
 
-    /*closure_sync(cl);*/
     /*
      *  Since the new uuid entry is bigger than the old, we have to
      *  convert starting at the highest memory address and work down
      *  in order to do it in place
-      */
+     */
     for (i = c->nr_uuids - 1; i >= 0; --i) {
       memcpy(u1[i].uuid,	u0[i].uuid, 16);
       memcpy(u1[i].label,	u0[i].label, 32);
@@ -612,15 +563,13 @@ static char *uuid_read(struct cache_set *c, struct jset *j)
 static int __uuid_write(struct cache_set *c)
 {
   BKEY_PADDED(key) k;
-  struct closure cl;
   
   CACHE_DEBUGLOG(NULL, "write uuid internal\n"); 
-  /*lockdep_assert_held(&bch_register_lock);*/
   if (bch_bucket_alloc_set(c, RESERVE_BTREE, &k.key, 1, true))
     return 1;
   
   SET_KEY_SIZE(&k.key, c->sb.bucket_size);
-  uuid_io(c, REQ_OP_WRITE, 0, &k.key, &cl);
+  uuid_io(c, REQ_OP_WRITE, 0, &k.key);
   bkey_copy(&c->uuid_bucket, &k.key);
   bkey_put(c, &k.key);
   return 0;
@@ -636,22 +585,12 @@ int bch_uuid_write(struct cache_set *c)
   return ret;
 }
 
-static bool 
-can_attach_cache(struct cache *ca, struct cache_set *c)
-{
-  return ca->sb.block_size == c->sb.block_size &&
-            ca->sb.bucket_size == c->sb.bucket_size &&
-                    ca->sb.nr_in_set == c->sb.nr_in_set;
-}
-
-
 static void 
 run_cache_set(struct cache_set *c)
 {
   const char *err = "cannot allocate memory";
   /*struct cached_dev *dc, *t;*/
   struct cache *ca;
-  struct closure cl;
   unsigned i;
   for_each_cache(ca, c, i) {
     c->nbuckets += ca->sb.nbuckets;
@@ -662,11 +601,7 @@ run_cache_set(struct cache_set *c)
     T2_LIST_HEAD(journal);
     struct bkey *k;
     struct jset *j;
-    unsigned iter;
-    /*for_each_cache(ca, c, iter) {*/
-      /*struct journal_device *ja = &ca->journal;*/
-      /*memset(ja->seq, 0, ca->sb.njournal_buckets * sizeof(uint64_t));*/
-    /*}*/
+
     err = "cannot allocate memory for journal";
     CACHE_INFOLOG(NULL,"journal read \n");
     if (bch_journal_read(c, &journal)) {
@@ -803,7 +738,6 @@ run_cache_set(struct cache_set *c)
   /*if (bch_gc_thread_start(c))*/
     /*goto err;*/
 
-  /*closure_sync(&cl);*/
   time_t now;
   time(&now);
   c->sb.last_mount = now;
@@ -871,7 +805,7 @@ static const char *register_cache_set(struct cache *ca)
   }
 
   list_add(&c->list, &bch_cache_sets);
-found:
+
   sprintf(buf, "cache%i", ca->sb.nr_this_dev);
   
   CACHE_INFOLOG(NULL,"register cache seq %llu, cache set seq %llu \n",ca->sb.seq, c->sb.seq);
@@ -880,7 +814,6 @@ found:
     memcpy(c->sb.set_uuid, ca->sb.set_uuid, 16);
     c->sb.flags             = ca->sb.flags;
     c->sb.seq		= ca->sb.seq;
-    /*pr_debug("set version = %llu", c->sb.version);*/
     CACHE_DEBUGLOG(NULL, "cache set version = %llu", c->sb.version);
   }
 
@@ -900,9 +833,6 @@ found:
   }
 
   return NULL;
-err:
-  bch_cache_set_unregister(c);
-  return err;
 }
 
 
@@ -954,7 +884,6 @@ data_insert_test(struct cache * c)
   SET_KEY_INODE(k, 0);
   SET_KEY_OFFSET(k, 500);
   bch_alloc_sectors(c->set, k, 10, 0,0,1);
-  printf(" KEY_SIZE(k) = %d \n", KEY_SIZE(k));
 }
 
 
@@ -999,11 +928,7 @@ bch_data_insert_keys(struct cache_set *c_set,
 
 int cache_lookup_fn(struct btree_op *op, struct btree *b, struct bkey *k)
 {
-
   uint64_t start;
-  unsigned ptr;
-  struct bkey *bio_key;
-
 
   struct search *s = container_of(op, struct search, op);
   if (s) {
@@ -1053,8 +978,6 @@ int cache_sync_read(struct cache *ca, void *data, uint64_t off, uint64_t len)
 {
   int ret = 0;
   struct search s;
-  struct btree_op op;
-  /*uint64_t bi_sector = (off >> 9);*/
 
   memset(&s, 0, sizeof(struct search));
   bch_btree_op_init(&s.op, -1);
@@ -1082,7 +1005,6 @@ int cache_sync_write(struct cache *ca, void * data, uint64_t off, uint64_t len)
 
   bch_keylist_init(&insert_keys);
   do {
-    unsigned i;
     struct bkey *k=NULL;
     /*struct cache_set *c = T2Molloc(sizeof(struct cache_set));*/
     k = insert_keys.top;
@@ -1114,7 +1036,7 @@ traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
                         b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
   CACHE_DUMPLOG(NULL, ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n",
                         b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
-  struct bkey *k, *p = NULL;
+  struct bkey *k = NULL;
   struct btree_iter iter;
   for_each_key(&b->keys, k, &iter) {
     CACHE_DEBUGLOG("traverse", "node(level=%d,of=%lu) bkey(start=%lu,off=%lu,size=%lu,ptr_offset=%lu,ptrs=%lu,dirty=%u) \n",
@@ -1373,32 +1295,27 @@ int item_write_next(struct ring_item *item, bool dirty)
     SET_KEY_DIRTY(k, true);
   }
 
-  item->io.pos = item->io.pos + item->io.len;
-  uint64_t left = item->o_len - (item->io.pos - item->data);
+  item->io.pos = (char *)item->io.pos + item->io.len;
+  uint64_t left = item->o_len - ((char *)item->io.pos - (char *)item->data);
   ret = bch_alloc_sectors(ca->set, k,(left >> 9), 0, 0, 1);
   if ( ret < 0 ) {
     CACHE_ERRORLOG(NULL, "alloc bucket/sectors failed\n");
     assert("alloc bucket/sectors failed" == 0);
   }
-  //dump_bkey("aio_en", k);
-  //CACHE_DEBUGLOG("aio_en", "o_off=%lu, o_len=%lu \n", item->o_offset/512, item->o_len/ 512);
+
   item->io.offset = (PTR_OFFSET(k, 0) << 9);
   item->io.len = (KEY_SIZE(k)<<9);
 
   bch_keylist_push(item->insert_keys);
 
   return ret;
-free_keylist:
-  free(item->insert_keys);
-  return -1;
 }
 
 // 对于写来说，不管ssd还是hdd，都是要把所有的io写完才能
 // 返回，唯一需要注意的就是writethrough策略
 // 对于writethrough策略，先发给hdd进行写入，hdd写完成
 // 再发给ssd进行写（需要改变item->io，已经enquene到ssd的线程池即可
-void *
-aio_write_completion(void *cb)
+void aio_write_completion(void *cb)
 {
   struct ring_item *item = cb;
   struct cache *ca = item->ca_handler;
@@ -1409,7 +1326,7 @@ aio_write_completion(void *cb)
     assert(" Aio completion, io not Sucessfull " == 0);
   }
 
-  if (( item->data + item->o_len ) == ( item->io.pos + item->io.len )) {
+  if (((char *)item->data + item->o_len ) == ((char *)item->io.pos + item->io.len )) {
     CACHE_DEBUGLOG(CAT_AIO_WRITE,"AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n",
                 item->o_offset/512, item->o_offset, item->o_len/512,
                 item->o_len, item->io.success);
@@ -1450,7 +1367,7 @@ aio_write_completion(void *cb)
             CACHE_ERRORLOG(NULL,"writethough aio enqueue failed\n");
             assert("writethough aio enqueue failed" == 0);
           }
-          return;
+          return ;
         } else {
           CACHE_DEBUGLOG(CAT_AIO_WRITE,"writethrough completion start insert keys \n");
           if (bch_keylist_nkeys(item->insert_keys) != 3) {
@@ -1553,7 +1470,6 @@ int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
   ca->wake_up_gc_size_wm += len;
   ret = 0;
 
-free_keylist:
   free(insert_keys);
 err:
   return ret;
@@ -1628,7 +1544,7 @@ cache_aio_writearound_batch(struct cache *ca, struct ring_items * items)
     }
   }
   if (aio_enqueue_batch(CACHE_THREAD_BACKEND, ca->handler, items) < 0) {
-    CACHE_ERRORLOG(NULL,"writearound aio_enqueue error" == 0);
+    CACHE_ERRORLOG(NULL,"writearound aio_enqueue error == 0");
     assert( "writearound aio_enqueue error  " == 0);
   }
   return 0;
@@ -1724,9 +1640,7 @@ cache_aio_writeback_batch(struct cache *ca, struct ring_items * items)
 int
 _prep_writethrough(struct ring_item * item)
 {
-  struct cache *ca = (struct cache *) item->ca_handler;
   struct keylist *insert_keys = NULL;
-  struct bkey *k = NULL;
 
   insert_keys = calloc(1, sizeof(*insert_keys));
   if ( !insert_keys ) {
@@ -1793,7 +1707,7 @@ static void add_sequential(struct current_thread *t)
 }
 
 #define GOLDEN_RATIO_64 0x61C8864680B583EBull
-static inline hash_64(uint64_t val, unsigned int bits)
+static inline int hash_64(uint64_t val, unsigned int bits)
 {
   return val * GOLDEN_RATIO_64 >> (64 - bits);
 }
@@ -1826,9 +1740,12 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
     goto skip;
   }
 
-  if (bypass_torture_test(dc))
-    if ((get_random_int() & 3) == 3)
+  if (bypass_torture_test(dc)) {
+    int i = 0;
+    get_random_bytes(&i, sizeof(int));
+    if ((i & 3) == 3)
       goto skip;
+  }
 
   list_for_each_entry(task, &dc->io_thread, list) {
     if (task->thread_id == pthread_self())
@@ -1941,7 +1858,6 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   CACHE_DEBUGLOG(CAT_WRITE,"IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
   struct ring_item *item = NULL;
   int ret=0;
-  struct cached_dev *dc = ca->set->dc;
 
   item = get_ring_item(data, offset, len);
   if ( !item ) {
@@ -2004,7 +1920,11 @@ aio_write_test(struct cache *ca)
   uint64_t len = 512*1025;
   uint64_t offset = 8192;
 
-  posix_memalign((void **)&data, 512, len);
+  int ret = posix_memalign((void **)&data, 512, len);
+  if (ret != 0) {
+    CACHE_ERRORLOG(NULL, "alloc align memory failed");
+    assert(ret == 0);
+  }
   memset(data, 'b', len);
   cache_aio_write(ca, data, offset, len, NULL, NULL);
   cache_aio_write(ca, data, offset + len + 512*10, 512*10, NULL, NULL);
@@ -2028,7 +1948,7 @@ set_item_io(struct ring_item *item, const struct bkey *k) {
   } else {
     item->io.offset = PTR_OFFSET(k, 0) << 9;
     item->io.len = read_len - (cache_offset - read_offset);
-    item->io.pos = read_data + (cache_offset - read_offset);
+    item->io.pos = (char *)read_data + (cache_offset - read_offset);
   }
   
   if (cache_end < read_end) {
@@ -2149,7 +2069,7 @@ int _do_read_cache(struct ring_item *item){
   // first loop bkeys
   struct bkey *old_bkey = item->read_keys->keys;
   BKEY_PADDED(key) _bkey;
-  struct bkey *tmp = &_bkey;
+  struct bkey *tmp = &_bkey.key;
   struct keylist *caches = calloc(1, sizeof(struct keylist));
   struct keylist *backends = calloc(1, sizeof(struct keylist));
   bch_keylist_init(caches);
@@ -2218,7 +2138,7 @@ int _do_read_cache(struct ring_item *item){
   for (new_bkey = backends->keys; new_bkey != backends->top; new_bkey = bkey_next(new_bkey)){
     item->io.len = KEY_SIZE(new_bkey) << 9;
     item->io.offset = KEY_START(new_bkey) << 9;
-    item->io.pos = item->data + (KEY_START(new_bkey) << 9 - item->o_offset);
+    item->io.pos = (char *)item->data + ((KEY_START(new_bkey) << 9) - item->o_offset);
     ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
     if (ret < 0) {
       CACHE_ERRORLOG(CAT_READ, "read cache aio_enqueue error  \n");
@@ -2235,7 +2155,6 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
 {
   struct search *s = container_of(op, struct search, op);
   struct ring_item *item = s->item;
-  int io_ret, is_end;
   uint64_t offset = item->o_offset >> 9;
   uint64_t end = offset + (item->o_len >> 9);
 
@@ -2252,8 +2171,8 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
    else if (KEY_SIZE(key) && KEY_PTRS(key)) {
      BKEY_PADDED(key) tmp;
      bkey_copy(&tmp, key);
-     bkey_cut_invalid(&tmp, item->o_offset >> 9, item->o_len >> 9);
-     bch_keylist_add(item->read_new_keys, &tmp);
+     bkey_cut_invalid(&tmp.key, item->o_offset >> 9, item->o_len >> 9);
+     bch_keylist_add(item->read_new_keys, &tmp.key);
    }
    return MAP_CONTINUE;
 }
@@ -2261,7 +2180,6 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
 void aio_fix_stale_cache_completion(void *cb)
 {
   struct ring_item *item = cb;
-  struct cache *ca = item->ca_handler;
   CACHE_DEBUGLOG(CAT_WRITE, "item(%p) req=%d IO(start=%lu(0x%lx),len=%lu(%lx))\n",
                  item, atomic_read(&item->seq), item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
@@ -2297,7 +2215,7 @@ int _read_check_bkey(struct ring_item *item){
   for (iter = backends->keys; iter != backends->top; iter = bkey_next(iter)){
     item->io.len = KEY_SIZE(iter) << 9;
     item->io.offset = KEY_START(iter) << 9;
-    item->io.pos = item->data + (KEY_START(iter) << 9 - item->o_offset);
+    item->io.pos = (char *)item->data + ((KEY_START(iter) << 9) - item->o_offset);
     ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
     if (ret < 0) {
       CACHE_ERRORLOG(CAT_READ, "read cache aio_enqueue error  \n");
@@ -2314,7 +2232,6 @@ int _read_check_bkey(struct ring_item *item){
 void aio_read_cache_completion(void *cb)
 {
   struct ring_item *item = cb;
-  struct cache *ca = item->ca_handler;
   CACHE_DEBUGLOG(CAT_WRITE, "item(%p) req=%d IO(start=%lu(0x%lx),len=%lu(%lx))\n",
                  item, atomic_read(&item->seq), item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
@@ -2409,7 +2326,6 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
   struct ring_item *item = s->item;
   uint64_t cache_start = (KEY_OFFSET(key) - KEY_SIZE(key)) << 9;
   uint64_t cache_end = KEY_OFFSET(key) << 9;
-  uint64_t cache_len = KEY_SIZE(key) << 9;
 
   CACHE_DEBUGLOG(CAT_READ,"iter bkey(start=%lu,of=%lu,len=%lu)\n",
       (KEY_OFFSET(key) - KEY_SIZE(key)),KEY_OFFSET(key),KEY_SIZE(key));
@@ -2437,13 +2353,13 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
       item->need_read_cache = true;
     }
     //pos
-    bkey_copy(&tmp, key);
-    bkey_cut_invalid(&tmp, item->o_offset >> 9, item->o_len >> 9);
-    bch_keylist_add(item->read_keys, &tmp);
+    bkey_copy(&tmp.key, key);
+    bkey_cut_invalid(&tmp.key, item->o_offset >> 9, item->o_len >> 9);
+    bch_keylist_add(item->read_keys, &tmp.key);
 
     // get bkey available length
 
-    item->io.len += KEY_SIZE(&tmp) << 9;
+    item->io.len += KEY_SIZE(&tmp.key) << 9;
     if (item->io.len == item->o_len) {
       // all in ssd
       CACHE_DEBUGLOG(CAT_READ,"Read: all data in cache\n");

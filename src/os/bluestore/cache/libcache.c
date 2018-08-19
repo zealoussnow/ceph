@@ -5,6 +5,8 @@
 #include <string.h>
 #include <libaio.h>
 
+#include "btree.h"
+#include "init.h"
 #include "libcache.h"
 #include "log.h"
 #include "bcache.h"
@@ -307,12 +309,6 @@ int t2store_gc_status(struct cache_context *ctx, struct gc_status *s)
   get_gc_status(ca->set, s);
 
   return 0;
-}
-
-int t2store_set_dump_btree_detail(struct cache_context *ctx, bool detail)
-{
-  struct cache *ca = (struct cache *)ctx->cache;
-  ca->dump_btree_detail = detail;
 }
 
 int t2store_reload_zlog_config()

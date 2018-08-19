@@ -34,12 +34,13 @@ class CacheDevice : public BlockDevice, public md_config_obs_t  {
   string bdev_path;
 
   Mutex debug_lock;
+  Mutex queue_lock;
+  aio_queue_t aio_queue;
   interval_set<uint64_t> debug_inflight;
 
   std::atomic<bool> io_since_flush = {false};
   std::mutex flush_mutex;
 
-  aio_queue_t aio_queue;
   bool aio_stop;
 
   struct AioCompletionThread : public Thread {
@@ -53,7 +54,6 @@ class CacheDevice : public BlockDevice, public md_config_obs_t  {
 
   std::atomic_int injecting_crash;
 
-  Mutex queue_lock;
   std::queue<Task*> task_queue;
   Cond queue_cond;
   void queue_task(Task *t, uint64_t ops = 1);

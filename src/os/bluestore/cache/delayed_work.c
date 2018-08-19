@@ -1,3 +1,6 @@
+#include <string.h>
+#include <pthread.h>
+
 #include "delayed_work.h"
 #include "log.h"
 
@@ -56,7 +59,7 @@ struct event_base *bch_delayed_work_init()
   err = pthread_create(&thread_delayed_event, NULL, (void *)delayed_work_func, (void *)base);
   if (err != 0) {
     CACHE_DEBUGLOG(CAT_EVENT, "can't create writeback thread:%s\n", strerror(err));
-    return err;
+    return NULL;
   }
 
   return base;

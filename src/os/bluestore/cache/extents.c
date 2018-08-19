@@ -104,7 +104,7 @@ void bch_extent_to_text(char *buf, size_t size, const struct bkey *k)
   unsigned i = 0;
   char *out = buf, *end = buf + size;
 #define p(...)	(out += snprintf(out, end - out, __VA_ARGS__))
-  p("%llu:%llu len %llu -> [", KEY_INODE(k), KEY_START(k), KEY_SIZE(k));
+  p("%lu:%lu len %lu -> [", KEY_INODE(k), KEY_START(k), KEY_SIZE(k));
   for (i = 0; i < KEY_PTRS(k); i++) {
     if (i) {
       p(", ");
@@ -112,7 +112,7 @@ void bch_extent_to_text(char *buf, size_t size, const struct bkey *k)
     if (PTR_DEV(k, i) == PTR_CHECK_DEV) {
       p("check dev");
     } else {
-      p("%llu:%llu gen %llu", PTR_DEV(k, i), PTR_OFFSET(k, i), PTR_GEN(k, i));
+      p("%lu:%lu gen %lu", PTR_DEV(k, i), PTR_OFFSET(k, i), PTR_GEN(k, i));
     }
   }
   p("]");
@@ -120,7 +120,7 @@ void bch_extent_to_text(char *buf, size_t size, const struct bkey *k)
     p(" dirty");
   }
   if (KEY_CSUM(k)) {
-    p(" cs%llu %llx", KEY_CSUM(k), k->ptr[1]);
+    p(" cs%lu %lx", KEY_CSUM(k), k->ptr[1]);
   }
 #undef p
 }
@@ -576,7 +576,6 @@ static bool
 bch_extent_bad(struct btree_keys *bk, const struct bkey *k)
 {
   struct btree *b = container_of(bk, struct btree, keys);
-  struct bucket *g;
   unsigned i, stale;
   if (!KEY_PTRS(k) || bch_extent_invalid(bk, k)) {
     CACHE_DEBUGLOG(NULL,"Bad bkey(key_ptrs=0 or bkey is invalid \n");
@@ -593,7 +592,6 @@ bch_extent_bad(struct btree_keys *bk, const struct bkey *k)
     return false;
 
   for (i = 0; i < KEY_PTRS(k); i++) {
-    g = PTR_BUCKET(b->c, k, i);
     stale = ptr_stale(b->c, k, i);
     btree_bug_on(stale > 96, b,
         "key too stale: %i, need_gc %u",

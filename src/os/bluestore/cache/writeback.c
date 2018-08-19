@@ -10,6 +10,7 @@
 #include "bcache.h"
 #include "btree.h"
 #include "debug.h"
+#include "util.h"
 #include "writeback.h"
 
 /* Rate limiting */
@@ -249,7 +250,6 @@ struct dirty_item {
 static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
 {
   if (KEY_DIRTY(&w->key)) {
-    int ret;
     unsigned i;
     struct keylist keys;
 
@@ -263,11 +263,11 @@ static void dirty_io_complete(struct keybuf_key *w, struct cached_dev *dc)
       atomic_inc(&PTR_BUCKET(dc->c, &w->key, i)->pin);
 
     // TODO why replace key???
-    ret = bch_btree_insert(dc->c, &keys, NULL, &w->key);
+    bch_btree_insert(dc->c, &keys, NULL, &w->key);
   }
 }
 
-static void *write_completion(void *arg){
+static void write_completion(void *arg){
   struct dirty_item *d = (struct dirty_item *)arg;
   struct ring_item *item = d->item;
   struct cached_dev *dc = d->dc;
@@ -308,7 +308,7 @@ static void dirty_io_write(struct dirty_item *d){
 
 }
 
-static void *read_completion(void *arg){
+static void read_completion(void *arg){
   struct dirty_item *d = (struct dirty_item *)arg;
   struct ring_item *item = d->item;
 
@@ -327,7 +327,7 @@ static void dirty_io_read(struct keybuf_key *w, struct dirty_item *d)
   item->iou_completion_cb = read_completion;
   item->iou_arg = d;
   item->io.type=CACHE_IO_TYPE_READ;
-  item->io.pos = item->data + ((KEY_START(&w->key) << 9) - item->o_offset);
+  item->io.pos = (char *)item->data + ((KEY_START(&w->key) << 9) - item->o_offset);
   item->io.offset = PTR_OFFSET(&w->key, 0) << 9;
   item->io.len = KEY_SIZE(&w->key) << 9;
 

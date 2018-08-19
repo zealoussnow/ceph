@@ -118,7 +118,7 @@ add:
 next_set:
           offset        += blocks * ca->sb.block_size;
           len           -= blocks * ca->sb.block_size;
-          j = ((void *) j) + blocks * block_bytes(ca);
+          j = (struct jset *)((char *) j) + blocks * block_bytes(ca);
         }
   }
 
@@ -562,7 +562,7 @@ void bch_journal_next(struct journal *j)
   /*printf(" journal.c <%s>: Journal Next after update pin(push 1)/seq fifo_used=%d,jset->seq=%d\n",__func__,fifo_used(&j->pin),j->cur->data->seq);*/
 
   if (fifo_full(&j->pin)){
-    printf(" journal.c <%s>: Journal Next fifo is full fifo_used=%d\n",__func__,fifo_used(&j->pin));
+    printf(" journal.c <%s>: Journal Next fifo is full fifo_used=%ld\n",__func__,fifo_used(&j->pin));
   }
 }
 //

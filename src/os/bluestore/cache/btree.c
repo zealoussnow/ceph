@@ -32,6 +32,7 @@
 #include "extents.h"
 #include "prefetch.h"
 #include "writeback.h"
+#include "util.h"
 
 /*
  * Todo:
@@ -150,7 +151,8 @@
     if (_r == -EINTR) {                                                                         \
       count++;                                                                                  \
       if (count > 50) {                                                                         \
-        btree_bug(_b, "btree root recursion timeout after 5s\n");                               \
+        CACHE_ERRORLOG(NULL, "timeout for btree cache wait");                                   \
+        assert("timeout for btree cache wait" == 0);                                            \
       }                                                                                         \
       struct timespec out = time_from_now(0, 100);                                              \
       pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
@@ -180,7 +182,7 @@
 static inline struct bset *write_block(struct btree *b)
 {
   /* block_bytes是得到cache_set的超级块中的block的大小 */
-  return ((void *) btree_bset_first(b)) + b->written * block_bytes(b->c);
+  return (struct bset *)((char *)btree_bset_first(b) + b->written * block_bytes(b->c));
 }
 
 static void bch_btree_init_next(struct btree *b)
@@ -216,8 +218,8 @@ static uint64_t
 btree_csum_set(struct btree *b, struct bset *i)
 {
   uint64_t crc = b->key.ptr[0];
-  void *data = (void *) i + 8, *end = bset_bkey_last(i);
-  crc = bch_crc64_update(crc, data, end - data);
+  void *data = (char *) i + 8, *end = bset_bkey_last(i);
+  crc = bch_crc64_update(crc, data, (char *)end - (char *)data);
   return crc ^ 0xffffffffffffffffULL;
 }
 
@@ -273,7 +275,7 @@ void bch_btree_node_read_done(struct btree *b)
   }
   err = "corrupted btree";
   for (i = write_block(b); bset_sector_offset(&b->keys, i) < KEY_SIZE(&b->key);
-      i = ((void *) i) + block_bytes(b->c))
+      i = (struct bset *)(((char *)i) + block_bytes(b->c)))
     if (i->seq == b->keys.set[0].data->seq) {
       goto err;
     }
@@ -329,7 +331,6 @@ static void btree_complete_write(struct btree *b, struct btree_write *w)
 
   if (w->journal) {
     atomic_dec_bug(w->journal);
-  /*__closure_wake_up(&b->c->journal.wait);*/
   }
 
   w->prio_blocked       = 0;
@@ -354,7 +355,6 @@ static void __btree_node_write_done(struct btree *b)
 
 static void do_btree_node_write(struct btree *b)
 {
-  /*struct closure *cl = &b->io;*/
   // 1. 本次写入的数据入口
   struct bset *i = btree_bset_last(b);
   BKEY_PADDED(key) k;
@@ -437,11 +437,9 @@ void __bch_btree_node_write(struct btree *b)
   b->written += set_blocks(i, block_bytes(b->c));
 }
 
-void bch_btree_node_write(struct btree *b) // , struct closure *parent)
+void bch_btree_node_write(struct btree *b)
 {
-  unsigned nsets = b->keys.nsets;
   dump_btree_node("btree node write",b,false);
-  //lockdep_assert_held(&b->lock);
   __bch_btree_node_write(b);
 
   /*
@@ -514,8 +512,6 @@ static void bch_btree_leaf_dirty(struct btree *b, atomic_t *journal_ref)
       ? c->root->level : 1) * 8 + 16)
 #define mca_can_free(c)                                         \
   max(0, c->btree_cache_used - mca_reserve(c))
-//#define mca_can_free(c)						\
-//	max_t(int, 0, c->btree_cache_used - mca_reserve(c))
 
 static void mca_data_free(struct btree *b)
 {
@@ -1178,7 +1174,6 @@ static int btree_gc_coalesce(struct btree *b, struct btree_op *op,
   unsigned i, nodes = 0, keys = 0, blocks;
   struct btree *new_nodes[GC_MERGE_NODES];
   struct keylist keylist;
-  //struct closure cl;
   struct bkey *k;
 
   bch_keylist_init(&keylist);
@@ -1187,7 +1182,6 @@ static int btree_gc_coalesce(struct btree *b, struct btree_op *op,
     return 0;
 
   memset(new_nodes, 0, sizeof(new_nodes));
-  //closure_init_stack(&cl);
 
   while (nodes < GC_MERGE_NODES && !IS_ERR_OR_NULL(r[nodes].b))
     keys += r[nodes++].keys;
@@ -1263,15 +1257,15 @@ static int btree_gc_coalesce(struct btree *b, struct btree_op *op,
 
     memcpy(bset_bkey_last(n1),
         n2->start,
-        (void *) bset_bkey_idx(n2, keys) - (void *) n2->start);
+        (char *) bset_bkey_idx(n2, keys) - (char *) n2->start);
 
     n1->keys += keys;
     r[i].keys = n1->keys;
 
     memmove(n2->start,
         bset_bkey_idx(n2, keys),
-        (void *) bset_bkey_last(n2) -
-        (void *) bset_bkey_idx(n2, keys));
+        (char *) bset_bkey_last(n2) -
+        (char *) bset_bkey_idx(n2, keys));
 
     n2->keys -= keys;
 
@@ -1285,8 +1279,6 @@ static int btree_gc_coalesce(struct btree *b, struct btree_op *op,
 
   for (i = 0; i < nodes; i++)
     pthread_mutex_unlock(&new_nodes[i]->write_lock);
-
-  //closure_sync(&cl);
 
   /* We emptied out this node */
   //BUG_ON(btree_bset_first(new_nodes[0])->keys);
@@ -1324,7 +1316,6 @@ static int btree_gc_coalesce(struct btree *b, struct btree_op *op,
   return -EINTR;
 
 out_nocoalesce:
-  //closure_sync(&cl);
   bch_keylist_free(&keylist);
 
   while ((k = bch_keylist_pop(&keylist)))
@@ -1471,8 +1462,6 @@ static int btree_gc_recurse(struct btree *b, struct btree_op *op,
   return ret;
 }
 
-/*static int bch_btree_gc_root(struct btree *b, struct btree_op *op,*/
-/*struct closure *writes, struct gc_stat *gc)*/
 static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
                              struct gc_stat *gc)
 {
@@ -1665,8 +1654,6 @@ void bch_btree_gc_finish(struct cache_set *c)
 static void bch_btree_gc(struct cache_set *c)
 {
   int ret;
-  /*struct gc_stat stats;*/
-  //struct closure writes;
   struct btree_op op;
   uint64_t start_time = time(NULL); //local_clock();
 
@@ -1674,7 +1661,6 @@ static void bch_btree_gc(struct cache_set *c)
 
   /*memset(&stats, 0, sizeof(struct gc_stat));*/
   memset(&c->gc_stats, 0, sizeof(struct gc_stat));
-  //closure_init_stack(&writes);
   bch_btree_op_init(&op, SHRT_MAX);
 
   btree_gc_start(c);
@@ -1684,7 +1670,6 @@ static void bch_btree_gc(struct cache_set *c)
     /*ret = btree_root(gc_root, c, &op, &writes, &stats);*/
     ret = btree_root(gc_root, c, &op, &c->gc_stats);
 
-    //closure_sync(&writes);
     //cond_resched();
 
     if (ret && ret != -EAGAIN) {
@@ -1874,7 +1859,6 @@ static int bch_btree_check_recurse(struct btree *b, struct btree_op *op)
 int bch_btree_check(struct cache_set *c)
 {
   struct btree_op op;
-  /* include/linux/kernel.h #define SHRT_MAX        ((s16)(USHRT_MAX>>1)) */
   bch_btree_op_init(&op, SHRT_MAX);
   return btree_root(check_recurse, c, &op);
 }
@@ -1954,7 +1938,6 @@ bch_btree_insert_keys(struct btree *b, struct btree_op *op, struct keylist *inse
 {
   dump_btree_node("inserting keys", b, false);
   bool ret = false;
-  int oldsize = bch_count_data(&b->keys);
   while (!bch_keylist_empty(insert_keys)) {
     struct bkey *k = insert_keys->keys;
     dump_bkey("inserting keys", k);
@@ -2003,7 +1986,6 @@ btree_split(struct btree *b, struct btree_op *op, struct keylist *insert_keys,
 {
   bool split;
   struct btree *n1, *n2 = NULL, *n3 = NULL;
-  uint64_t start_time = time(NULL); //local_clock();
   struct keylist parent_keys;
   bch_keylist_init(&parent_keys);
 
@@ -2443,7 +2425,7 @@ out:
 void bch_refill_keybuf(struct cache_set *c, struct keybuf *buf,
     struct bkey *end, keybuf_pred_fn *pred)
 {
-  struct bkey start = buf->last_scanned;
+  //struct bkey start = buf->last_scanned;
   struct refill refill;
 
   /*cond_resched();*/

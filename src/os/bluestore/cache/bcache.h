@@ -179,15 +179,7 @@
 
 #define pr_fmt(fmt) "bcache: %s() " fmt "\n", __func__
 
-//#include <linux/bcache.h>
-//#include <linux/bio.h>
-//#include <linux/kobject.h>
-//#include <linux/list.h>
-//#include <linux/mutex.h>
-//#include <linux/rbtree.h>
-//#include <linux/rwsem.h>
-//#include <linux/types.h>
-//#include <linux/workqueue.h>
+#include <limits.h>
 #include <pthread.h>
 
 #include "bcache_types.h"
@@ -195,9 +187,7 @@
 #include "bset.h"
 #include "util.h"
 #include "journal.h"
-#include "stats.h"
 #include "atomic.h"
-#include "closure.h"
 #include "aio.h"
 #include "log.h"
 #include "rbtree.h"
@@ -284,8 +274,6 @@ struct keybuf {
 };
 
 struct bcache_device {
-  //struct closure              cl;
-  //struct kobject              kobj;
   struct cache_set      *c;
   unsigned              id;
 #define BCACHEDEVNAME_SIZE      12
@@ -346,10 +334,6 @@ struct cached_dev {
   
   /* 管理super block io */
   struct cache_sb               sb;
-  //struct bio          sb_bio;
-  //struct bio_vec              sb_bv[1];
-  //struct closure              sb_write;
-  //struct semaphore    sb_write_mutex;
   
   /* Refcount on the cache set. Always nonzero when we're caching. */
   atomic_t              count;
@@ -473,7 +457,6 @@ struct cache {
   
   //struct task_struct  *alloc_thread;
   
-  //struct closure              prio;
   pthread_t               alloc_thread;
   pthread_mutex_t         alloc_mut;
   pthread_cond_t          alloc_cond;
@@ -611,7 +594,6 @@ struct gc_stat {
 struct cache_set {
   int                     fd;
   int                     hdd_fd;
-  //struct closure              cl;
   
   logger_callback_fn logger_cb;
   void               *bluestore_cd;
@@ -635,20 +617,7 @@ struct cache_set {
   struct list_head      cached_devs;
   uint64_t              cached_dev_sectors;
   struct cached_dev       *dc;
-  //struct closure              caching;
   
-  //struct closure              sb_write;
-  //struct semaphore    sb_write_mutex;
-  
-  //mempool_t           *search;
-  //mempool_t           *bio_meta;
-  //struct bio_set              *bio_split;
-  
-  /* For the btree cache, 用作内存回收 include/linux/shrinker.h  */
-  //struct shrinker             shrink;
-  
-  /* For the btree cache and anything allocation related */
-  //struct mutex                bucket_lock;
   pthread_mutex_t         bucket_lock;
   
   /* log2(bucket_size), in sectors */
@@ -775,7 +744,6 @@ struct cache_set {
   unsigned              nr_uuids;
   struct uuid_entry     *uuids;
   BKEY_PADDED(uuid_bucket);
-  //struct closure              uuid_write;
   //struct semaphore    uuid_write_mutex;
   
   /*
@@ -947,9 +915,9 @@ static inline bool ptr_available(struct cache_set *c, const struct bkey *k,
  * jset: The checksum is _always_ the first 8 bytes of these structs
  */
 #define csum_set(i)                                                     \
-        bch_crc64(((void *) (i)) + sizeof(uint64_t),                    \
-                  ((void *) bset_bkey_last(i)) -                        \
-                  (((void *) (i)) + sizeof(uint64_t)))
+        bch_crc64(((char *) (i)) + sizeof(uint64_t),                    \
+                  ((char *) bset_bkey_last(i)) -                        \
+                  (((char *) (i)) + sizeof(uint64_t)))
 
 /* Error handling macros */
 /*
@@ -960,12 +928,12 @@ do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
         dump_stack();                                                   \
         assert("bkey_bug" == 0);                                        \
-} while (0)                                             
+} while (0)
 
 /*
  * we add some btree info when btree bug happend
  */
-#define btree_bug(b, ...)                                               \
+#define btree_bug(btree, ...)                                               \
 do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
         dump_stack();                                                   \
@@ -975,20 +943,20 @@ do {                                                                    \
 /*
  * we add same cache info when cache module bug happend
  */
-#define cache_bug(c, ...)                                               \
+#define cache_bug(cache_set, ...)                                               \
 do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
         dump_stack();                                                   \
         assert("cache_bug" == 0);                                       \
 } while (0)
 
-#define btree_bug_on(cond, b, ...)                                      \
+#define btree_bug_on(cond, btree, ...)                                      \
 do {                                                                    \
         if (cond)                                                       \
                 btree_bug(b, __VA_ARGS__);                              \
 } while (0)
 
-#define cache_bug_on(cond, c, ...)                                      \
+#define cache_bug_on(cond, cache_set, ...)                                      \
 do {                                                                    \
         if (cond)                                                       \
                 cache_bug(c, __VA_ARGS__);                              \
@@ -1046,13 +1014,6 @@ static inline uint8_t bucket_gc_gen(struct bucket *b)
 
 #define BUCKET_GC_GEN_MAX       96U
 
-//#define kobj_attribute_write(n, fn)                                   \
-//      static struct kobj_attribute ksysfs_##n = __ATTR(n, S_IWUSR, NULL, fn)
-//
-//#define kobj_attribute_rw(n, show, store)                             \
-//      static struct kobj_attribute ksysfs_##n =                       \
-//              __ATTR(n, S_IWUSR|S_IRUSR, show, store)
-
 static inline void wake_up_gc(struct cache_set *c)
 {
   pthread_cond_signal(&c->gc_wait_cond);
@@ -1108,7 +1069,6 @@ __printf(2, 3)
 bool bch_cache_set_error(struct cache_set *, const char *, ...);
 
 void bch_prio_write(struct cache *);
-//void bch_write_bdev_super(struct cached_dev *, struct closure *);
 
 //extern struct workqueue_struct *bcache_wq;
 extern const char * const bch_cache_modes[];
@@ -1148,11 +1108,9 @@ int bch_open_buckets_alloc(struct cache_set *);
 void bch_open_buckets_free(struct cache_set *);
 
 int bch_cache_allocator_start(struct cache *ca);
-
-//void bch_debug_exit(void);
-//int bch_debug_init(struct kobject *);
-//void bch_request_exit(void);
-//int bch_request_init(void);
-
+void dump_stack();
+void set_gc_mode(struct cached_dev *dc, int val);
+void set_gc_cutoff(struct cached_dev *dc, int val);
+void set_cached_hits(struct cache *ca, int val);
 
 #endif /* _BCACHE_H */

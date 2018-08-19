@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <time.h>
 
+#include <sys/time.h>
+
 #include "bcache_types.h"
 #include "rbtree.h"
 #include "rbtree_augmented.h"
@@ -24,11 +26,6 @@
 #define NSEC_PER_SEC    1000000000L
 #define FSEC_PER_SEC    1000000000000000LL
 
-static unsigned int jiffies_to_msecs(const unsigned long j)
-{
-  return (MSEC_PER_SEC / HZ) * j;
-}
-
 static struct timespec cache_clock_now()
 {
   struct timespec tp;
@@ -36,7 +33,7 @@ static struct timespec cache_clock_now()
   return tp;
 }
 
-static struct timespec time_from_now(uint64_t sec, uint64_t msec)
+static inline struct timespec time_from_now(uint64_t sec, uint64_t msec)
 {
   struct timeval now;
   struct timespec out;
@@ -49,6 +46,7 @@ static struct timespec time_from_now(uint64_t sec, uint64_t msec)
 
   return out;
 }
+
 
 static uint64_t cache_realtime_u64()
 {
@@ -341,80 +339,8 @@ int bch_strtouint_h(const char *, unsigned int *);
 int bch_strtoll_h(const char *, long long *);
 int bch_strtoull_h(const char *, unsigned long long *);
 
-//static inline int bch_strtol_h(const char *cp, long *res)
-//{
-//#if BITS_PER_LONG == 32
-//	return bch_strtoint_h(cp, (int *) res);
-//#else
-//	return bch_strtoll_h(cp, (long long *) res);
-//#endif
-//}
-//
-//static inline int bch_strtoul_h(const char *cp, long *res)
-//{
-//#if BITS_PER_LONG == 32
-//	return bch_strtouint_h(cp, (unsigned int *) res);
-//#else
-//	return bch_strtoull_h(cp, (unsigned long long *) res);
-//#endif
-//}
-
-//#define strtoi_h(cp, res)						\
-//	(__builtin_types_compatible_p(typeof(*res), int)		\
-//	? bch_strtoint_h(cp, (void *) res)				\
-//	: __builtin_types_compatible_p(typeof(*res), long)		\
-//	? bch_strtol_h(cp, (void *) res)				\
-//	: __builtin_types_compatible_p(typeof(*res), long long)		\
-//	? bch_strtoll_h(cp, (void *) res)				\
-//	: __builtin_types_compatible_p(typeof(*res), unsigned int)	\
-//	? bch_strtouint_h(cp, (void *) res)				\
-//	: __builtin_types_compatible_p(typeof(*res), unsigned long)	\
-//	? bch_strtoul_h(cp, (void *) res)				\
-//	: __builtin_types_compatible_p(typeof(*res), unsigned long long)\
-//	? bch_strtoull_h(cp, (void *) res) : -EINVAL)
-//
-//#define strtoul_safe(cp, var)						\
-//({									\
-//	unsigned long _v;						\
-//	int _r = kstrtoul(cp, 10, &_v);					\
-//	if (!_r)							\
-//		var = _v;						\
-//	_r;								\
-//})
-//
-//#define strtoul_safe_clamp(cp, var, min, max)				\
-//({									\
-//	unsigned long _v;						\
-//	int _r = strtoul(cp, &_v, 10);					\
-//	if (!_r)							\
-//		var = clamp_t(typeof(var), _v, min, max);		\
-//	_r;								\
-//})
-//
-//#define snprint(buf, size, var)						\
-//	snprintf(buf, size,						\
-//		__builtin_types_compatible_p(typeof(var), int)		\
-//		     ? "%i\n" :						\
-//		__builtin_types_compatible_p(typeof(var), unsigned)	\
-//		     ? "%u\n" :						\
-//		__builtin_types_compatible_p(typeof(var), long)		\
-//		     ? "%li\n" :					\
-//		__builtin_types_compatible_p(typeof(var), unsigned long)\
-//		     ? "%lu\n" :					\
-//		__builtin_types_compatible_p(typeof(var), int64_t)	\
-//		     ? "%lli\n" :					\
-//		__builtin_types_compatible_p(typeof(var), uint64_t)	\
-//		     ? "%llu\n" :					\
-//		__builtin_types_compatible_p(typeof(var), const char *)	\
-//		     ? "%s\n" : "%i\n", var)
-
-ssize_t bch_hprint(char *buf, int64_t v);
-
-bool bch_is_zero(const char *p, size_t n);
+bool bch_is_zero(const unsigned char *p, int n);
 int bch_parse_uuid(const char *s, char *uuid);
-
-ssize_t bch_snprint_string_list(char *buf, size_t size, const char * const list[],
-			    size_t selected);
 
 ssize_t bch_read_string_list(const char *buf, const char * const list[]);
 
@@ -443,39 +369,6 @@ static inline unsigned local_clock_us(void)
 #define __print_time_stat(stats, name, stat, units)			\
 	sysfs_print(name ## _ ## stat ## _ ## units,			\
 		    div_u64((stats)->stat >> 8, NSEC_PER_ ## units))
-
-#define sysfs_print_time_stats(stats, name,				\
-			       frequency_units,				\
-			       duration_units)				\
-do {									\
-	__print_time_stat(stats, name,					\
-			  average_frequency,	frequency_units);	\
-	__print_time_stat(stats, name,					\
-			  average_duration,	duration_units);	\
-	sysfs_print(name ## _ ##max_duration ## _ ## duration_units,	\
-			div_u64((stats)->max_duration, NSEC_PER_ ## duration_units));\
-									\
-	//sysfs_print(name ## _last_ ## frequency_units, (stats)->last	\
-	//	    ? div_s64(local_clock() - (stats)->last,		\
-	//		      NSEC_PER_ ## frequency_units)		\
-	//	    : -1LL);						\
-} while (0)
-
-#define sysfs_time_stats_attribute(name,				\
-				   frequency_units,			\
-				   duration_units)			\
-read_attribute(name ## _average_frequency_ ## frequency_units);		\
-read_attribute(name ## _average_duration_ ## duration_units);		\
-read_attribute(name ## _max_duration_ ## duration_units);		\
-read_attribute(name ## _last_ ## frequency_units)
-
-#define sysfs_time_stats_attribute_list(name,				\
-					frequency_units,		\
-					duration_units)			\
-&sysfs_ ## name ## _average_frequency_ ## frequency_units,		\
-&sysfs_ ## name ## _average_duration_ ## duration_units,		\
-&sysfs_ ## name ## _max_duration_ ## duration_units,			\
-&sysfs_ ## name ## _last_ ## frequency_units,
 
 #define ewma_add(ewma, val, weight, factor)				\
 ({									\
@@ -606,19 +499,6 @@ static inline unsigned fract_exp_two(unsigned x, unsigned fract_bits)
 
   return x;
 }
-
-//void bch_bio_map(struct bio *bio, void *base);
-
-//static inline sector_t bdev_sectors(struct block_device *bdev)
-//{
-//	return bdev->bd_inode->i_size >> 9;
-//}
-
-//#define closure_bio_submit(bio, cl)					\
-//do {									\
-//	closure_get(cl);						\
-//	generic_make_request(bio);					\
-//} while (0)
 
 uint64_t bch_crc64_update(uint64_t, const void *, size_t);
 uint64_t bch_crc64(const void *, size_t);
