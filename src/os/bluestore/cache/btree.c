@@ -150,7 +150,7 @@
     if (_r == -EINTR) {                                                                         \
       count++;                                                                                  \
       if (count > 50) {                                                                         \
-        assert("timeout for btree cache wait" == 0);                                            \
+        btree_bug(_b, "btree root recursion timeout after 5s\n");                               \
       }                                                                                         \
       struct timespec out = time_from_now(0, 100);                                              \
       pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
@@ -1682,15 +1682,14 @@ static void bch_btree_gc(struct cache_set *c)
   c->gc_stats.status = GC_RUNNING;
   do {
     /*ret = btree_root(gc_root, c, &op, &writes, &stats);*/
-    /*printf("start btree root\n");*/
     ret = btree_root(gc_root, c, &op, &c->gc_stats);
 
     //closure_sync(&writes);
     //cond_resched();
 
-    if (ret && ret != -EAGAIN)
-      /*pr_warn("gc failed!");*/
-      printf("gc failed!\n");
+    if (ret && ret != -EAGAIN) {
+      CACHE_WARNLOG(NULL, "gc root failed \n");
+    }
   } while (ret);
 
   bch_btree_gc_finish(c);

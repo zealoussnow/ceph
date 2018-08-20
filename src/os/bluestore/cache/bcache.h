@@ -952,45 +952,47 @@ static inline bool ptr_available(struct cache_set *c, const struct bkey *k,
                   (((void *) (i)) + sizeof(uint64_t)))
 
 /* Error handling macros */
+/*
+ * we can add some bkey info when bkey bug happend
+ */
+#define bkey_bug(bkey, ...)                                             \
+do {                                                                    \
+        CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
+        dump_stack();                                                   \
+        assert("bkey_bug" == 0);                                        \
+} while (0)                                             
 
-#define btree_bug
-#if 1
+/*
+ * we add some btree info when btree bug happend
+ */
 #define btree_bug(b, ...)                                               \
 do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
         dump_stack();                                                   \
         assert("btree_bug" == 0);                                       \
 } while (0)
-#endif
 
-
-#define cache_bug(c, ...)
-#if 1
+/*
+ * we add same cache info when cache module bug happend
+ */
 #define cache_bug(c, ...)                                               \
 do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
         dump_stack();                                                   \
         assert("cache_bug" == 0);                                       \
 } while (0)
-#endif
 
-#define btree_bug_on(cond, b, ...)
-#if 1
 #define btree_bug_on(cond, b, ...)                                      \
 do {                                                                    \
         if (cond)                                                       \
                 btree_bug(b, __VA_ARGS__);                              \
 } while (0)
-#endif
 
-#define cache_bug_on(cond, c, ...)
-#if 1
 #define cache_bug_on(cond, c, ...)                                      \
 do {                                                                    \
         if (cond)                                                       \
                 cache_bug(c, __VA_ARGS__);                              \
 } while (0)
-#endif
 
 #define cache_set_err_on(cond, c, ...)
 #if 0
