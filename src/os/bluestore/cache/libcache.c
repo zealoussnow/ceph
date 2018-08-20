@@ -84,6 +84,8 @@ struct ring_item * t2store_cache_aio_get_item(void *bl, uint64_t off, uint64_t l
   struct ring_item * item = get_ring_item(bl, off, len);
   item->io_arg = cb_arg;
   item->io_completion_cb = cb;
+
+  return item;
 }
 
 int t2store_cache_aio_items_add(struct ring_items *items, struct ring_item * item){
