@@ -1263,9 +1263,7 @@ static void __btree_sort(struct btree_keys *b, struct btree_iter *iter,
   }
   start_time = clock();
 
-  // TODO: remove bad bkey, need verify futher
-  // btree_mergesort(b, out, iter, fixup, false);
-  btree_mergesort(b, out, iter, fixup, true);
+  btree_mergesort(b, out, iter, fixup, false);
 
   b->nsets = start;
   if (!start && order == b->page_order) {
