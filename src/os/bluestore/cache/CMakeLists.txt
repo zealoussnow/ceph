@@ -59,8 +59,7 @@ if (USE_SPDK_AIO)
     )
 else ()
   list(APPEND libcache_srcs
-    libaio.c
-    kfifo.c)
+    libaio.c)
 endif (USE_SPDK_AIO)
 
 #add_executable(go main.c alloc.c bset.c btree.c closure.c debug.c extents.c

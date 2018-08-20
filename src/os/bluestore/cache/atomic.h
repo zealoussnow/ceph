@@ -116,6 +116,17 @@ static __always_inline int atomic_read(const atomic_t *v)
 #define __X86_CASE_Q    -1              /* sizeof will never return -1 */
 #endif
 
+#define __compiletime_error(message) __attribute__((error(message)))
+
+extern void __cmpxchg_wrong_size(void)
+  __compiletime_error("Bad argument size for cmpxchg");
+
+extern void __xadd_wrong_size(void)
+  __compiletime_error("Bad argument size for xadd");
+
+extern void __xchg_wrong_size(void)
+  __compiletime_error("Bad argument size for xchg");
+
 #define __xchg_op(ptr, arg, op, lock)                                   \
         ({                                                              \
                 __typeof__ (*(ptr)) __ret = (arg);                      \
@@ -170,11 +181,6 @@ static __always_inline int atomic_sub_return(int i, atomic_t *v)
 }
 
 
-# define __compiletime_error(message) __attribute__((error(message)))
-/*# define __compiletime_error(message)*/
-
-extern void __cmpxchg_wrong_size(void)
-        __compiletime_error("Bad argument size for cmpxchg");
 
 
 #define __raw_cmpxchg(ptr, old, new, size, lock)                        \

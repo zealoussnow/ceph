@@ -61,14 +61,15 @@
  * in either lru or fifo order.
  */
 
+#include <errno.h>
+#include <stdlib.h>
+
 #include "bcache.h"
 #include "btree.h"
 #include "list.h"
 #include "bset.h"
 #include "atomic.h"
-
-#include <errno.h>
-#include <stdlib.h>
+#include "util.h"
 
 #define MAX_OPEN_BUCKETS 128
 /* Bucket heap / gen */
@@ -328,7 +329,7 @@ wake_up:
   return ret;
 }
 
-static int bch_allocator_thread(void *arg)
+static void bch_allocator_thread(void *arg)
 {
   struct cache *ca = arg;
 

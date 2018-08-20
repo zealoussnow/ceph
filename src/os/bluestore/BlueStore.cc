@@ -5180,11 +5180,11 @@ int BlueStore::generate_bdev_conf(const string& path)
           "t2cache", cct->_conf->t2store_core_mask.c_str(), cct->_conf->t2store_mem_size,
           cct->_conf->t2store_poll_period, cct->_conf->t2store_cache_thread_core_percent);
 
-  if (write(bdev_fd, bdev_content, strlen(bdev_content)) != strlen(bdev_content)) {
+  if ((size_t)write(bdev_fd, bdev_content, strlen(bdev_content)) != strlen(bdev_content)) {
     derr << " generate bdev.conf("<<bdev_path<<") bdev_content failed. "<< dendl;
     goto close_fd;
   }
-  if (write(bdev_fd, dpdk_env, strlen(dpdk_env)) != strlen(dpdk_env)) {
+  if ((size_t)write(bdev_fd, dpdk_env, strlen(dpdk_env)) != strlen(dpdk_env)) {
     derr << " generate bdev.conf("<<bdev_path<<") dpdk_env failed. "<< dendl;
     goto close_fd;
   }

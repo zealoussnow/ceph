@@ -280,7 +280,7 @@ bset *bset_next_set(struct btree_keys *b, unsigned block_bytes)
 {
   struct bset *i = bset_tree_last(b)->data;
 
-  return ((void *) i) + roundup(set_bytes(i), block_bytes);
+  return (struct bset *)(((char *) i) + roundup(set_bytes(i), block_bytes));
 }
 
 void bch_btree_keys_free(struct btree_keys *);
@@ -526,6 +526,10 @@ struct keylist {
   uint64_t              inline_keys[KEYLIST_INLINE];
 };
 
+struct bkey *bch_keylist_pop(struct keylist *);
+void bch_keylist_pop_front(struct keylist *);
+int __bch_keylist_realloc(struct keylist *, unsigned);
+
 static inline void 
 bch_keylist_init(struct keylist *l)
 {
@@ -587,9 +591,6 @@ bch_keylist_bytes(struct keylist *l)
   return bch_keylist_nkeys(l) * sizeof(uint64_t);
 }
 
-struct bkey *bch_keylist_pop(struct keylist *);
-void bch_keylist_pop_front(struct keylist *);
-int __bch_keylist_realloc(struct keylist *, unsigned);
 
 /* Debug stuff */
 

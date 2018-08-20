@@ -7,7 +7,6 @@
 #include <event2/event.h>
 #include <sys/eventfd.h>
 #include "aio.h"
-#include "kfifo.h"
 #include "list.h"
 #include "log.h"
 #include "bcache.h"
@@ -54,10 +53,9 @@ struct aio_handler {
   struct list_head backend_threads;
 };
 
-static void *
-cache_io_completion_cb(io_context_t ctx, struct iocb *iocb, long res,
-                       long res2, struct ring_item *item) {
-  //printf("<%s> AIO IO Completion success=%ld \n", __func__, res);
+static void cache_io_completion_cb(io_context_t ctx, struct iocb *iocb, long res,
+                       long res2, struct ring_item *item)
+{
   free(iocb);
   assert(res2 == 0);
   item->io.success = true;
@@ -152,7 +150,7 @@ int aio_queue_submit(io_context_t ctx, unsigned len, struct iocb **iocbs)
   int attempts = 16;
   int delay = 125;
   int retries = 0;
-  int r;
+  int r = 0;
   unsigned submit_num = len;
   struct iocb **sbumit_iocbs = iocbs;
   while (submit_num) {
@@ -212,8 +210,6 @@ aio_enqueue(uint16_t type, struct aio_handler *h, struct ring_item *item) {
   struct thread_data *td = NULL;
   struct thread_info *ti;
   struct iocb *iocb;
-  char *err;
-  int rc;
 
   td = get_thread_data(type, h);
   ti = td->thread_info;
@@ -268,7 +264,6 @@ aio_thread_init(void *ca) {
   int rc = 0;
   io_context_t *iocxt;
   char *msg;
-  long poll_period;
 
   self_td = pthread_self();
 

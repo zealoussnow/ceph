@@ -67,7 +67,6 @@ int __bch_count_data(struct btree_keys *b)
 
 void __bch_check_keys(struct btree_keys *b, const char *fmt, ...)
 {
-  va_list args;
   struct bkey *k, *p = NULL;
   struct btree_iter iter;
   const char *err;
@@ -529,13 +528,13 @@ void inorder_test(void)
 static struct bkey *
 cacheline_to_bkey(struct bset_tree *t, unsigned cacheline, unsigned offset)
 {
-  return ((void *) t->data) + cacheline * BSET_CACHELINE + offset * 8;
+  return (struct bkey *)(((char *)t->data) + cacheline * BSET_CACHELINE + offset * 8);
 }
 
 static unsigned 
 bkey_to_cacheline(struct bset_tree *t, struct bkey *k)
 {
-  return ((void *) k - (void *) t->data) / BSET_CACHELINE;
+  return ((char *)k - (char *)t->data) / BSET_CACHELINE;
 }
 
 static unsigned 
@@ -844,7 +843,7 @@ void bch_bset_insert(struct btree_keys *b, struct bkey *where,
          PAGE_SIZE << b->page_order);
   dump_bkey("inserting to",where);
   memmove((uint64_t *) where + bkey_u64s(insert), where,
-      (void *) bset_bkey_last(t->data) - (void *) where);
+      (char *) bset_bkey_last(t->data) - (char *) where);
 
   t->data->keys += bkey_u64s(insert);
   bkey_copy(where, insert);
@@ -954,7 +953,7 @@ bset_search_write_set(struct bset_tree *t, const struct bkey *search)
 static struct bset_search_iter 
 bset_search_tree(struct bset_tree *t,const struct bkey *search)
 {
-  struct bkey *l, *r, *tt;
+  struct bkey *l, *r;
   struct bkey_float *f;
   unsigned inorder, j, n = 1;
   /** for debug **/
@@ -1162,7 +1161,6 @@ __bch_btree_iter_next(struct btree_iter *iter, btree_iter_cmp_fn *cmp)
     iter->data->k = bkey_next(iter->data->k);
 
     if (iter->data->k > iter->data->end) {
-      /*WARN_ONCE(1, "bset was corrupt!\n");*/
       iter->data->k = iter->data->end;
     }
     if (iter->data->k == iter->data->end) {
@@ -1283,7 +1281,7 @@ static void __btree_sort(struct btree_keys *b, struct btree_iter *iter,
   } else {
     b->set[start].data->keys = out->keys;
     memcpy(b->set[start].data->start, out->start,
-        (void *) bset_bkey_last(out) - (void *) out->start);
+        (char *) bset_bkey_last(out) - (char *) out->start);
   }
   
   T2Free(out);
@@ -1298,7 +1296,7 @@ void bch_btree_sort_partial(struct btree_keys *b, unsigned start,
 {
   size_t order = b->page_order, keys = 0;
   struct btree_iter iter;
-  int oldsize = bch_count_data(b);
+  //int oldsize = bch_count_data(b);
 
   __bch_btree_iter_init(b, &iter, NULL, &b->set[start]);
   CACHE_DEBUGLOG(CAT_BTREE, "sort from %u bset_tree \n", start);

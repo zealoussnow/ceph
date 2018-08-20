@@ -141,10 +141,10 @@ CacheDevice::CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv)
     debug_lock("CacheDevice::debug_lock"),
     queue_lock("CacheDevice::queue_lock"),
     aio_queue(cct->_conf->bdev_aio_max_queue_depth),
-    aio_callback(cb),
-    aio_callback_priv(cbpriv),
     aio_stop(false),
-    injecting_crash(0)
+    injecting_crash(0),
+    aio_callback(cb),
+    aio_callback_priv(cbpriv)
 {
   _init_logger();
   dout(20) << "add observer..." << ", " << this << dendl;

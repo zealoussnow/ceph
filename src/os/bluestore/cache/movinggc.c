@@ -147,7 +147,7 @@ static void free_moving_item(struct moving_item *d)
   free(d);
 }
 
-static void *write_completion(void *arg){
+static void write_completion(void *arg){
   struct moving_item *d = (struct moving_item *)arg;
   struct ring_item *item = d->item;
   struct keybuf_key *w = d->w;
@@ -162,7 +162,7 @@ static void *write_completion(void *arg){
   free_moving_item(d);
 }
 
-static void *read_completion(void *arg){
+static void read_completion(void *arg){
   struct moving_item *d = (struct moving_item *)arg;
   struct ring_item *item = d->item;
   struct keybuf_key *w = d->w;
@@ -251,10 +251,6 @@ static void begin_io_read(struct keybuf_key *w, struct cache_set *c)
 static void read_moving(struct cache_set *c)
 {
   struct keybuf_key       *w;
-  char * data=NULL;
-  off_t offset = 0;
-  uint64_t len = 0;
-  int j;
 
   while (!test_bit(CACHE_SET_STOPPING, &c->flags)) {
     /*

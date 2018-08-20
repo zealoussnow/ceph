@@ -194,6 +194,9 @@ atomic_t *bch_journal(struct cache_set *, struct keylist *);
 void bch_journal_next(struct journal *);
 void bch_journal_meta(struct cache_set *);
 int bch_journal_alloc(struct cache_set *);
+int bch_journal_read(struct cache_set *c, struct list_head *list);
+void bch_journal_mark(struct cache_set *c, struct list_head *list);
+int bch_journal_replay(struct cache_set *s, struct list_head *list);
 
 #define dump_pin(pre, p,c)        \
   if (p==NULL) {\

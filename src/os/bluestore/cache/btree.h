@@ -102,8 +102,10 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include "bset.h"
+#include "bcache.h"
 #include "debug.h"
 #include "delayed_work.h"
+#include "list.h"
 
 struct btree_write {
   atomic_t              *journal;
@@ -145,8 +147,6 @@ struct btree {
   uint8_t               level;
   struct btree_keys     keys;
   /* For outstanding btree writes, used as a lock - protects write_idx */
-  //struct closure		io;
-  //struct semaphore	io_mutex;
   sem_t                 io_mutex;
   struct list_head      list;
   struct event          ev_node_write;
@@ -279,8 +279,8 @@ rw_unlock(bool w, struct btree *b)
 }
 
 void bch_btree_node_read_done(struct btree *);
-void __bch_btree_node_write(struct btree *); //, struct closure *);
-void bch_btree_node_write(struct btree *); // , struct closure *);
+void __bch_btree_node_write(struct btree *);
+void bch_btree_node_write(struct btree *);
 
 void bch_btree_set_root(struct btree *);
 struct btree *__bch_btree_node_alloc(struct cache_set *, struct btree_op *, 
@@ -353,5 +353,12 @@ struct btree_insert_op {
   atomic_t      *journal_ref;
   struct bkey   *replace_key;
 };
+void set_gc_stop(struct cache *ca, int stop);
+void set_writeback_stop(struct cache *ca, int stop);
+void set_cache_mode(struct cache *ca, int mode);
+void set_writeback_percent(struct cache *ca, int percent);
+void set_writeback_rate_update_seconds(struct cache *ca, int wb_rate_update_seconds);
+void set_sequential_cutoff(struct cache *ca, int sequential_cutoff);
+void set_cache_expensive_debug_checks(struct cache *ca, bool state);
 
 #endif

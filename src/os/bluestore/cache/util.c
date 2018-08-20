@@ -125,63 +125,6 @@ int bch_ ## name ## _h(const char *cp, type *res)		\
 	return 0;						\
 }								\
 
-//STRTO_H(strtoint, int)
-//STRTO_H(strtouint, unsigned int)
-//STRTO_H(strtoll, long long)
-//STRTO_H(strtoull, unsigned long long)
-
-/**
- * bch_hprint() - formats @v to human readable string for sysfs.
- *
- * @v - signed 64 bit integer
- * @buf - the (at least 8 byte) buffer to format the result into.
- *
- * Returns the number of bytes used by format.
- */
-ssize_t bch_hprint(char *buf, int64_t v)
-{
-  static const char units[] = "?kMGTPEZY";
-  int u = 0, t;
-  uint64_t q;
-  if (v < 0)
-    q = -v;
-  else
-    q = v;
-
-  /* For as long as the number is more than 3 digits, but at least
-   * once, shift right / divide by 1024.  Keep the remainder for
-   * a digit after the decimal point.
-   */
-  do {
-    u++;
-
-    t = q & ~(~0 << 10);
-    q >>= 10;
-  } while (q >= 1000);
-
-  if (v < 0)
-    /* '-', up to 3 digits, '.', 1 digit, 1 character, null;
-     * yields 8 bytes.
-     */
-    return sprintf(buf, "-%llu.%i%c", q, t * 10 / 1024, units[u]);
-  else
-    return sprintf(buf, "%llu.%i%c", q, t * 10 / 1024, units[u]);
-}
-
-ssize_t bch_snprint_string_list(char *buf, size_t size, const char * const list[],
-                                size_t selected)
-{
-  char *out = buf;
-  size_t i;
-
-  for (i = 0; list[i]; i++)
-    out += snprintf(out, buf + size - out,
-        i == selected ? "[%s] " : "%s ", list[i]);
-
-  out[-1] = '\n';
-  return out - buf;
-}
-
 char *skip_spaces(const char *str)
 {
   while (isspace(*str))
@@ -234,7 +177,7 @@ ssize_t bch_read_string_list(const char *buf, const char * const list[])
   return i;
 }
 
-bool bch_is_zero(const char *p, size_t n)
+bool bch_is_zero(const unsigned char *p, int n)
 {
   size_t i;
   for (i = 0; i < n; i++)
@@ -332,7 +275,6 @@ ssize_t _safe_read_exact(int fd, void *buf, size_t count)
 
 int get_random_bytes(void *buf, int len)
 {
-  ssize_t i;
   int fd = open("/dev/urandom", O_RDONLY);
   if (fd < 0)
     return -1;
@@ -367,35 +309,6 @@ uint64_t bch_next_delay(struct bch_ratelimit *d, uint64_t done)
     ? div_u64(d->next - now, NSEC_PER_SEC / USEC_PER_SEC)
     : 0;
 }
-
-#if 0
-void bch_bio_map(struct bio *bio, void *base)
-{
-	size_t size = bio->bi_iter.bi_size;
-	struct bio_vec *bv = bio->bi_io_vec;
-
-	BUG_ON(!bio->bi_iter.bi_size);
-	BUG_ON(bio->bi_vcnt);
-
-	bv->bv_offset = base ? offset_in_page(base) : 0;
-	goto start;
-
-	for (; size; bio->bi_vcnt++, bv++) {
-		bv->bv_offset	= 0;
-start:		bv->bv_len	= min_t(size_t, PAGE_SIZE - bv->bv_offset,
-					size);
-		if (base) {
-			bv->bv_page = is_vmalloc_addr(base)
-				? vmalloc_to_page(base)
-				: virt_to_page(base);
-
-			base += bv->bv_len;
-		}
-
-		size -= bv->bv_len;
-	}
-}
-#endif
 
 /*
  * Portions Copyright (c) 1996-2001, PostgreSQL Global Development Group (Any
