@@ -1667,14 +1667,9 @@ static void bch_btree_gc(struct cache_set *c)
 
   c->gc_stats.status = GC_RUNNING;
   do {
-    /*ret = btree_root(gc_root, c, &op, &writes, &stats);*/
     ret = btree_root(gc_root, c, &op, &c->gc_stats);
-
     //cond_resched();
-
-    if (ret && ret != -EAGAIN) {
-      CACHE_WARNLOG(NULL, "gc root failed \n");
-    }
+    cache_bug_on((ret && ret != -EAGAIN), c, "btree root for gc failed");
   } while (ret);
 
   bch_btree_gc_finish(c);
