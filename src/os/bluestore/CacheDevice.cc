@@ -107,7 +107,6 @@ struct Task {
   uint64_t offset;
   uint64_t len;
   bufferlist write_bl;
-  bufferlist read_bl;
   bufferptr read_ptr;
   std::function<void()> fill_cb;
   Task *next = nullptr;
@@ -700,10 +699,11 @@ void io_complete(void *t)
   assert(cache_device != NULL);
   utime_t dur = ceph_clock_now() - task->start;
   if (task->command == IOCommand::WRITE_COMMAND) {
-    cache_device->logger->tinc(l_bluestore_cachedevice_aio_write_lat, dur);
-    ldout(g_ceph_context, 5) << __func__ << " write 0x" << std::hex << task->offset
-                << "~" << task->len << std::dec << " priv " << ctx->priv
-                << " num_running " << ctx->num_running << dendl;
+    ldout(g_ceph_context, 5) << __func__ << " write ioc(" << ctx << " num_pending "
+        << ctx->num_pending << " num_running " << ctx->num_running << " priv "
+        << ctx->priv <<") task " << task << " (write_bl[" << task->write_bl
+        << "] 0x" << std::hex << task->offset << "~" << task->len << std::dec
+        << " return_code " << task->return_code << ")" << dendl;
     if (ctx->priv) {
       if (!--ctx->num_running) {
         task->device->aio_callback(task->device->aio_callback_priv, ctx->priv);
@@ -711,14 +711,18 @@ void io_complete(void *t)
     } else {
       ctx->try_aio_wake();
     }
+    ldout(g_ceph_context, 6) << __func__ << "io complete, now release task " << task << dendl;
     delete task;
   } else if (task->command == IOCommand::READ_COMMAND) {
-    ldout(g_ceph_context, 5) << __func__ << " read 0x" << std::hex << task->offset
-                << "~" << task->len << std::dec << " priv " << ctx->priv
-                << " num_running " << ctx->num_running << " return_code "
-                << task->return_code << dendl;
+    ldout(g_ceph_context, 5) << __func__ << " read ioc(" << ctx << " num_pending "
+        << ctx->num_pending << " num_running " << ctx->num_running << " priv "
+        << ctx->priv <<") task " << task << " (read_ptr[" << task->read_ptr
+        << "] 0x" << std::hex << task->offset << "~" << task->len << std::dec
+        << " return_code " << task->return_code << ")" << dendl;
     cache_device->logger->tinc(l_bluestore_cachedevice_aio_read_lat, dur);
     if(!task->return_code) {
+      // we have not priv for read at present, maybe have in futher, so assert
+      assert(ctx->priv == 0);
       if (ctx->priv) {
         if (!--ctx->num_running) {
           task->device->aio_callback(task->device->aio_callback_priv, ctx->priv);
@@ -726,6 +730,7 @@ void io_complete(void *t)
       } else {
         ctx->try_aio_wake();
       }
+      ldout(g_ceph_context, 6) << __func__ << "io complete, now release task " << task << dendl;
       delete task;
     } else {
       task->return_code = 0;
@@ -810,6 +815,7 @@ void CacheDevice::_aio_thread()
   dout(5) << __func__ << " start aio thread" << dendl;
   while (true) {
     for (; t; t = t->next) {
+      assert( t!= NULL);
       off = t->offset;
       len = t->len;
       utime_t dur = ceph_clock_now() - t->start;
@@ -817,9 +823,17 @@ void CacheDevice::_aio_thread()
         case IOCommand::WRITE_COMMAND:
         {
           t->device->logger->tinc(l_bluestore_cachedevice_write_queue_lat, dur);
-          dout(20) << __func__ << " write command issued " << off << "~" << len << dendl;
+          dout(6) << __func__ << " write command issued ioc(" << t->ctx << " num_pending "
+                  << t->ctx->num_pending << " num_running " << t->ctx->num_running
+                  << ") task " << t << " (write_bl[" << t->write_bl << "] 0x"
+                  << std::hex << t->offset << "~" << t->len  << std::dec << ")"
+                  << " offset 0x" << std::hex << off << "~" << len << std::dec << dendl;
+          assert( t->write_bl.c_str() != NULL);
+          assert( off != 0);
+          assert( len != 0);
           if (cct->_conf->cache_aio_write_batch) {
             item = t2store_cache_aio_get_item(t->write_bl.c_str(), off, len, (void *) io_complete, (void *) t);
+            assert(item);
             strategy = t2store_cache_aio_get_cache_strategy(&cache_ctx, item);
             switch (strategy) {
               case CACHE_MODE_WRITEBACK:
@@ -859,11 +873,14 @@ retry_wt:       if (t2store_cache_aio_items_add(items_wt, item) < 0) {
         }
         case IOCommand::READ_COMMAND:
         {
-          // write first
-          //_aio_writeback(items_wb);
-          //_aio_writethrough(items_wt);
-          //_aio_writearound(items_wa);
-          dout(20) << __func__ << " read command issued " << off << "~" << len << dendl;
+          dout(6) << __func__ << " read command issued ioc(" << t->ctx << " num_pending "
+                  << t->ctx->num_pending << " num_running " << t->ctx->num_running
+                  << ") task " << t << " (read_ptr[" << t->read_ptr << "] 0x"
+                  << std::hex << t->offset << "~" << t->len  << std::dec << ")"
+                  << " offset 0x" << std::hex << off << "~" << len << std::dec << dendl;
+          assert( t->read_ptr.c_str() != NULL);
+          assert( off != 0);
+          assert( len != 0);
           r = t2store_cache_aio_read(&cache_ctx, t->read_ptr.c_str(), off, len, (void *)io_complete,(void *)t);
           if (r < 0) {
             derr << __func__ << " failed to do read command" << dendl;
@@ -875,7 +892,7 @@ retry_wt:       if (t2store_cache_aio_items_add(items_wt, item) < 0) {
         case IOCommand::FLUSH_COMMAND:
         {
           // TODO
-          dout(20) << __func__ << " flush command issueed " << dendl;
+          dout(6) << __func__ << " flush command issueed " << dendl;
           assert(" flush commnad not imp yet " == 0);
           break;
         }
@@ -963,7 +980,7 @@ void CacheDevice::_aio_log_finish(
 
 void CacheDevice::aio_submit(IOContext *ioc)
 {
-  dout(20) << __func__ << " ioc " << ioc
+  dout(6) << __func__ << " ioc " << ioc
                 << " pending " << ioc->num_pending.load()
                 << " running " << ioc->num_running.load()
                 << dendl;
@@ -1038,9 +1055,13 @@ int CacheDevice::aio_write(
   bool buffered)
 {
   uint64_t len = bl.length();
-  dout(5) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
-           << (buffered ? " (buffered)" : " (direct)")
-           << dendl;
+
+  dout(5) << __func__ << " ioc(" << ioc << " num_pending "
+      << ioc->num_pending << " num_running " << ioc->num_running
+      <<") 0x" << std::hex << off << "~" << len << std::dec
+      << (buffered ? " (buffered)" : " (direct)")
+      << dendl;
+
   assert(off % block_size == 0);
   assert(len % block_size == 0);
   assert(len > 0 && len <= MAX_AIO_WRITE_LEN);
@@ -1055,24 +1076,31 @@ int CacheDevice::aio_write(
   bl.hexdump(*_dout);
   *_dout << dendl;
 
-  Task *task = new Task(this, IOCommand::WRITE_COMMAND, off, len);
-  task->write_bl = std::move(bl);
+  Task *t = new Task(this, IOCommand::WRITE_COMMAND, off, len);
+  t->write_bl = std::move(bl);
 
   if (buffered) {
-    queue_task(task);
+    queue_task(t);
   } else {
-    task->ctx = ioc;
+    t->ctx = ioc;
     Task *first = static_cast<Task*>(ioc->cache_task_first);
     Task *last = static_cast<Task*>(ioc->cache_task_last);
     if (last) {
-      last->next = task;
+      last->next = t;
     }
     if (!first) {
-      ioc->cache_task_first = task;
+      ioc->cache_task_first = t;
     }
-    ioc->cache_task_last = task;
+    ioc->cache_task_last = t;
     ++ioc->num_pending;
   }
+
+  dout(6) << __func__ << " ioc(" << t->ctx << " num_pending "
+      << t->ctx->num_pending << " num_running "
+      << t->ctx->num_running << ") task " << t
+      << " (write_bl[" << t->write_bl << "] 0x" << std::hex
+      << t->offset << "~" << t->len << std::dec << ")" << dendl;
+
   _aio_log_start(ioc, off, len);
 
   return 0;
@@ -1121,8 +1149,10 @@ int CacheDevice::aio_read(
   bufferlist *pbl,
   IOContext *ioc)
 {
-  dout(5) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
-          << dendl;
+  dout(5) << __func__ << " ioc(" << ioc << " num_pending "
+      << ioc->num_pending << " num_running " << ioc->num_running
+      <<") 0x" << std::hex << off << "~" << len << std::dec
+      << dendl;
 
   assert(off % block_size == 0);
   assert(len % block_size == 0);
@@ -1144,6 +1174,11 @@ int CacheDevice::aio_read(
   ioc->cache_task_last = t;
   ++ioc->num_pending;
 
+  dout(6) << __func__ << " ioc(" << t->ctx << " num_pending "
+      << t->ctx->num_pending << " num_running "
+      << t->ctx->num_running << ") task " << t
+      << " (read_ptr[" << t->read_ptr << "] 0x" << std::hex
+      << t->offset << "~" << t->len << std::dec << ")" << dendl;
   _aio_log_start(ioc, off, len);
 
   return 0;
