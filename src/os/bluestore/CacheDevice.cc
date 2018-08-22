@@ -814,25 +814,28 @@ void CacheDevice::_aio_thread()
 
   dout(5) << __func__ << " start aio thread" << dendl;
   while (true) {
-    for (; t; t = t->next) {
-      assert( t!= NULL);
-      off = t->offset;
-      len = t->len;
-      utime_t dur = ceph_clock_now() - t->start;
-      switch (t->command) {
+    Task *current_task = t;
+    Task *next_task    = nullptr;
+
+    while (current_task) {
+      next_task = current_task->next;
+      off = current_task->offset;
+      len = current_task->len;
+      utime_t dur = ceph_clock_now() - current_task->start;
+      switch (current_task->command) {
         case IOCommand::WRITE_COMMAND:
         {
-          t->device->logger->tinc(l_bluestore_cachedevice_write_queue_lat, dur);
-          dout(6) << __func__ << " write command issued ioc(" << t->ctx << " num_pending "
-                  << t->ctx->num_pending << " num_running " << t->ctx->num_running
-                  << ") task " << t << " (write_bl[" << t->write_bl << "] 0x"
-                  << std::hex << t->offset << "~" << t->len  << std::dec << ")"
+          current_task->device->logger->tinc(l_bluestore_cachedevice_write_queue_lat, dur);
+          dout(6) << __func__ << " write command issued ioc(" << current_task->ctx << " num_pending "
+                  << current_task->ctx->num_pending << " num_running " << current_task->ctx->num_running
+                  << ") task " << current_task << " (write_bl[" << current_task->write_bl << "] 0x"
+                  << std::hex << current_task->offset << "~" << current_task->len  << std::dec << ")"
                   << " offset 0x" << std::hex << off << "~" << len << std::dec << dendl;
-          assert( t->write_bl.c_str() != NULL);
+          assert( current_task->write_bl.c_str() != NULL);
           assert( off != 0);
           assert( len != 0);
           if (cct->_conf->cache_aio_write_batch) {
-            item = t2store_cache_aio_get_item(t->write_bl.c_str(), off, len, (void *) io_complete, (void *) t);
+            item = t2store_cache_aio_get_item(current_task->write_bl.c_str(), off, len, (void *) io_complete, (void *)current_task);
             assert(item);
             strategy = t2store_cache_aio_get_cache_strategy(&cache_ctx, item);
             switch (strategy) {
@@ -861,30 +864,32 @@ retry_wt:       if (t2store_cache_aio_items_add(items_wt, item) < 0) {
                 assert("Unsupported io stragegy" == 0);
             }
             break;
-          } 
+          }
           // for no batch
-          r = t2store_cache_aio_write(&cache_ctx, t->write_bl.c_str(), off, len, (void *)io_complete,(void *)t);
+          r = t2store_cache_aio_write(&cache_ctx, current_task->write_bl.c_str(), off, len, (void *)io_complete,(void *)current_task);
           if (r < 0) {
             derr << __func__ << " failed to do write command" << dendl;
-            delete t;
+            delete current_task;
+            current_task = nullptr;
             ceph_abort();
           }
           break;
         }
         case IOCommand::READ_COMMAND:
         {
-          dout(6) << __func__ << " read command issued ioc(" << t->ctx << " num_pending "
-                  << t->ctx->num_pending << " num_running " << t->ctx->num_running
-                  << ") task " << t << " (read_ptr[" << t->read_ptr << "] 0x"
-                  << std::hex << t->offset << "~" << t->len  << std::dec << ")"
+          dout(6) << __func__ << " read command issued ioc(" << current_task->ctx << " num_pending "
+                  << current_task->ctx->num_pending << " num_running " << current_task->ctx->num_running
+                  << ") task " << current_task << " (read_ptr[" << current_task->read_ptr << "] 0x"
+                  << std::hex << current_task->offset << "~" << current_task->len  << std::dec << ")"
                   << " offset 0x" << std::hex << off << "~" << len << std::dec << dendl;
-          assert( t->read_ptr.c_str() != NULL);
+          assert( current_task->read_ptr.c_str() != NULL);
           assert( off != 0);
           assert( len != 0);
-          r = t2store_cache_aio_read(&cache_ctx, t->read_ptr.c_str(), off, len, (void *)io_complete,(void *)t);
+          r = t2store_cache_aio_read(&cache_ctx, current_task->read_ptr.c_str(), off, len, (void *)io_complete,(void *)current_task);
           if (r < 0) {
             derr << __func__ << " failed to do read command" << dendl;
-            delete t;
+            delete current_task;
+            current_task = nullptr;
             ceph_abort();
           }
           break;
@@ -897,11 +902,18 @@ retry_wt:       if (t2store_cache_aio_items_add(items_wt, item) < 0) {
           break;
         }
       }
+      current_task = nullptr;
+      if (next_task == nullptr)
+        break;
+      current_task = next_task;
     }
+
+    t = nullptr;
     {
       Mutex::Locker l(queue_lock);
       if (!task_queue.empty()) {
         t = task_queue.front();
+        assert(t);
         task_queue.pop();
       } else {
         _aio_writeback(items_wb);
@@ -1091,6 +1103,7 @@ int CacheDevice::aio_write(
     if (!first) {
       ioc->cache_task_first = t;
     }
+    assert(t->next == nullptr);
     ioc->cache_task_last = t;
     ++ioc->num_pending;
   }
