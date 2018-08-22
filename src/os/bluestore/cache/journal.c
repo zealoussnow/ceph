@@ -111,14 +111,13 @@ add:
           }
           memcpy(&i->j, j, bytes);
           list_add(&i->list, where);
-          CACHE_INFOLOG(CAT_JOURNAL, "add new jset(seq=%lu) to journal list\n", j->seq);
           ret = 1;
           ja->seq[bucket_index] = j->seq;
-          CACHE_INFOLOG(CAT_JOURNAL, "ja->seq[%u] %lu\n", bucket_index, ja->seq[bucket_index]);
+          CACHE_INFOLOG(CAT_JOURNAL, "new jset(seq=%lu) ja->seq[%u] %lu\n", j->seq, bucket_index, ja->seq[bucket_index]);
 next_set:
           offset        += blocks * ca->sb.block_size;
           len           -= blocks * ca->sb.block_size;
-          j = (struct jset *)((char *) j) + blocks * block_bytes(ca);
+          j = (struct jset *)(((char *) j) + blocks * block_bytes(ca));
         }
   }
 
@@ -277,22 +276,13 @@ void bch_journal_mark(struct cache_set *c, struct list_head *list)
    */
 
   list_for_each_entry_reverse(i, list, list) {
-    BUG_ON(last < i->j.seq);
+    cache_bug_on(last-- != i->j.seq, c, "Journal seq lost\n");
     i->pin = NULL;
 
-    while (last-- != i->j.seq)
-      if (fifo_free(&j->pin) > 1) {
-        fifo_push_front(&j->pin, p);
-        atomic_set(&fifo_front(&j->pin), 0);
-        /*printf(" journal.c FUN %s: journal mark fifo_push_front 0\n", __func__);*/
-      }
-
-    if (fifo_free(&j->pin) > 1) {
-      fifo_push_front(&j->pin, p);
-      i->pin = &fifo_front(&j->pin);
-      atomic_set(i->pin, 1);
-      /*printf(" journal.c FUN %s: journal mark fifo_push_front 1\n", __func__);*/
-    }
+    cache_bug_on(fifo_free(&j->pin) <= 1, c, "Journal pin full\n");
+    fifo_push_front(&j->pin, p);
+    i->pin = &fifo_front(&j->pin);
+    atomic_set(i->pin, 1);
 
     for (k = i->j.start;
         k < bset_bkey_last(&i->j);
@@ -315,21 +305,23 @@ int bch_journal_replay(struct cache_set *s, struct list_head *list)
 {
   int ret = 0, keys = 0, entries = 0;
   struct bkey *k;
-  struct journal_replay *i =
+  struct journal_replay *i;
+  struct journal_replay *last =
     list_entry(list->prev, struct journal_replay, list);
 
-  uint64_t start = i->j.last_seq, end = i->j.seq, n = start;
+  uint64_t start = last->j.last_seq, end = last->j.seq, n = start;
   struct keylist keylist;
   CACHE_INFOLOG(CAT_JOURNAL,"journal replay start %lu end %lu\n",
                 start, end);
   list_for_each_entry(i, list, list) {
-    BUG_ON(i->pin && atomic_read(i->pin) != 1);
+    cache_bug_on(!i->pin || atomic_read(i->pin) != 1, s, "journal replay pin error\n");
 
-    cache_set_err_on(n != i->j.seq, s,
-        "bcache: journal entries %llu-%llu missing! (replaying %llu-%llu)",
+    cache_bug_on(n != i->j.seq, s,
+        "bcache: journal entries %llu-%llu missing! (replaying %llu-%llu)\n",
         n, i->j.seq - 1, start, end);
     /*printf("<<fun %s, btree_level=%d,keys=%d\n", __func__, i->j.btree_level, i->j.keys);*/
     /*printf(" journal.c FUN %s: jset.btree_level=%d,jset.keys=%d\n",__func__,i->j.btree_level,i->j.keys);*/
+    CACHE_INFOLOG(CAT_JOURNAL,"jset seq=%d keys=%d \n", i->j.seq, i->j.keys);
     for (k = i->j.start;
         k < bset_bkey_last(&i->j);
         k = bkey_next(k)) {
@@ -338,6 +330,7 @@ int bch_journal_replay(struct cache_set *s, struct list_head *list)
       bch_keylist_init_single(&keylist, k);
 
       /*printf(" journal.c FUN %s: Start insert single keylist nkeys=%d,journal_replay.pin=%d\n",__func__,bch_keylist_nkeys(&keylist),i->pin);*/
+      pdump_level_bkey(CACHE_INFOLOG, CAT_JOURNAL, "", k);
       ret = bch_btree_insert(s, &keylist, i->pin, NULL);
       if (ret)
         goto err;
@@ -353,10 +346,8 @@ int bch_journal_replay(struct cache_set *s, struct list_head *list)
     entries++;
   }
 
-  /*pr_info("journal replay done, %i keys in %i entries, seq %llu",*/
-  /*keys, entries, end);*/
-  /*printf("journal replay done, %i keys in %i entries, seq %llu \n",*/
-  /*keys, entries, end);*/
+  CACHE_INFOLOG(CAT_JOURNAL, "journal replay done, %i keys in %i entries, seq %llu \n",
+      keys, entries, end);
 err:
   while (!list_empty(list)) {
     i = list_first_entry(list, struct journal_replay, list);
@@ -565,36 +556,7 @@ void bch_journal_next(struct journal *j)
     printf(" journal.c <%s>: Journal Next fifo is full fifo_used=%ld\n",__func__,fifo_used(&j->pin));
   }
 }
-//
-//static void journal_write_endio(struct bio *bio)
-//{
-//	struct journal_write *w = bio->bi_private;
-//
-//	cache_set_err_on(bio->bi_status, w->c, "journal io error");
-//	closure_put(&w->c->journal.io);
-//}
-//
-//static void journal_write(struct closure *);
-//
-//static void journal_write_done(struct closure *cl)
-//{
-//	struct journal *j = container_of(cl, struct journal, io);
-//	struct journal_write *w = (j->cur == j->w)
-//		? &j->w[1]
-//		: &j->w[0];
-//
-//	__closure_wake_up(&w->wait);
-//	continue_at_nobarrier(cl, journal_write, system_wq);
-//}
-//
-//static void journal_write_unlock(struct closure *cl)
-//{
-//	struct cache_set *c = container_of(cl, struct cache_set, journal.io);
-//
-//	c->journal.io_in_flight = 0;
-//	spin_unlock(&c->journal.lock);
-//}
-//
+
 static void journal_write_unlocked(struct cache_set *c)
 {
   struct cache *ca;
@@ -833,4 +795,30 @@ int bch_journal_alloc(struct cache_set *c)
     return -ENOMEM;
   dump_journal_pin("journal alloc init", &j->pin);
   return 0;
+}
+
+int bch_dump_journal_replay(struct cache_set *s, struct list_head *list)
+{
+  int keys = 0, entries = 0;
+  struct bkey *k;
+  struct journal_replay *i;
+  struct journal_replay *last =
+    list_entry(list->prev, struct journal_replay, list);
+
+  uint64_t start = last->j.last_seq, end = last->j.seq;
+  CACHE_INFOLOG(CAT_JOURNAL,"start %lu end %lu\n",
+                start, end);
+  list_for_each_entry(i, list, list) {
+    CACHE_INFOLOG(CAT_JOURNAL,"jset seq=%d keys=%d \n", i->j.seq, i->j.keys);
+    for (k = i->j.start;
+        k < bset_bkey_last(&i->j);
+        k = bkey_next(k)) {
+      pdump_level_bkey(CACHE_INFOLOG, CAT_JOURNAL, "", k);
+      keys++;
+    }
+    entries++;
+  }
+
+  CACHE_INFOLOG(CAT_JOURNAL, "Dump done, %i keys in %i entries, seq %llu \n",
+      keys, entries, end);
 }
