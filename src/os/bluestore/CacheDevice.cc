@@ -34,7 +34,7 @@
 
 
 #define dout_context cct
-#define dout_subsys ceph_subsys_bdev
+#define dout_subsys ceph_subsys_cdev
 #undef dout_prefix
 #define dout_prefix *_dout << "cdev(" << this << " " << path << ") "
 #define BITS_PER_HEX 4
