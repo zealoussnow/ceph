@@ -242,6 +242,8 @@ void bkey_put(struct cache_set *c, struct bkey *k);
 
 /* Recursing down the btree */
 
+#define BTREE_OP_MAX_TIMEOUT 5
+
 struct btree_op {
   /* for waiting on btree reserve in btree_split() */
   //wait_queue_entry_t		wait;
