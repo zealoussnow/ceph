@@ -10,7 +10,6 @@
 #include "list.h"
 #include "log.h"
 #include "bcache.h"
-#include "conf.h"
 
 struct thread_data;
 
