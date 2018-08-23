@@ -1469,6 +1469,7 @@ static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
   struct btree *n = NULL;
   int ret = 0;
   bool should_rewrite;
+  uint64_t start_time = cache_realtime_u64();
 
   should_rewrite = btree_gc_mark_node(b, gc);
   if (should_rewrite) {
@@ -1481,7 +1482,7 @@ static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
       btree_node_free(b);
       rw_unlock(true, n);
 
-      CACHE_WARNLOG(CAT_GC, "gc rewrite btree root\n");
+      CACHE_WARNLOG(CAT_GC, "gc rewrite btree root, lat = %lu\n", (cache_realtime_u64() - start_time)/NSEC_PER_USEC);
       return -EINTR;
     }
   }
@@ -1492,13 +1493,14 @@ static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
     /*ret = btree_gc_recurse(b, op, writes, gc);*/
     ret = btree_gc_recurse(b, op, gc);
     if (ret) {
-      CACHE_WARNLOG(CAT_GC, "gc rewrite btree nodes return %d\n", ret);
+      CACHE_WARNLOG(CAT_GC, "gc rewrite btree nodes return %d, lat = %lu\n", ret, (cache_realtime_u64() - start_time)/NSEC_PER_USEC);
       return ret;
     }
   }
 
   bkey_copy_key(&b->c->gc_done, &b->key);
 
+  CACHE_WARNLOG(CAT_GC, "gc root return %d, lat = %lu\n", ret, (cache_realtime_u64() - start_time)/NSEC_PER_USEC);
   return ret;
 }
 
