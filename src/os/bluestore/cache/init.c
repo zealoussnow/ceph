@@ -607,6 +607,7 @@ run_cache_set(struct cache_set *c)
     if (bch_journal_read(c, &journal)) {
       goto err;
     }
+    bch_dump_journal_replay(c, &journal);
     err = "no journal entries found";
     if (list_empty(&journal)) {
       goto err;

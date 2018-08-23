@@ -962,15 +962,6 @@ do {                                                                    \
                 cache_bug(c, __VA_ARGS__);                              \
 } while (0)
 
-#define cache_set_err_on(cond, c, ...)
-#if 0
-#define cache_set_err_on(cond, c, ...)                                  \
-do {                                                                    \
-        if (cond)                                                       \
-                bch_cache_set_error(c, __VA_ARGS__);                    \
-} while (0)
-#endif
-
 /* Looping macros */
 
 #define for_each_cache(ca, cs, iter)                                    \
