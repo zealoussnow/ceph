@@ -404,10 +404,13 @@ bch_cache_set_alloc(struct cache_sb *sb)
   c->nr_uuids		= bucket_bytes(c) / sizeof(struct uuid_entry); /* 4096 */
   
   c->btree_pages		= bucket_pages(c); /* 1024/8 = 128 */
+  // tmp close limit, now btree node can using full bucket(512k)
+  /*
   if (c->btree_pages > BTREE_MAX_PAGES) {
     c->btree_pages = max_t(int, c->btree_pages / 4,
                 BTREE_MAX_PAGES);
   }
+  */
   CACHE_INFOLOG(NULL, "block_size %u(sectors) bits=%u \n", c->sb.block_size, c->block_bits);
   CACHE_INFOLOG(NULL, "bucket_size %u(sectors) bits=%u \n", c->sb.bucket_size, c->bucket_bits);
   CACHE_INFOLOG(NULL, "nr_in_set %u \n", c->sb.nr_in_set);

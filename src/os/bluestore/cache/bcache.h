@@ -920,6 +920,21 @@ static inline bool ptr_available(struct cache_set *c, const struct bkey *k,
                   (((char *) (i)) + sizeof(uint64_t)))
 
 /* Error handling macros */
+
+#define warn_dump_stack(cat, ...)                                       \
+do {                                                                    \
+     CACHE_WARNLOG(cat, __VA_ARGS__);                                   \
+     dump_stack();                                                      \
+} while (0)
+
+#define warn_dump_stack_on(cond, cat, ...)                              \
+do {                                                                    \
+     if (cond) {                                                        \
+       warn_dump_stack(cat, ...)                                        \
+     }                                                                  \
+} while (0)
+
+
 /*
  * we can add some bkey info when bkey bug happend
  */
@@ -933,7 +948,7 @@ do {                                                                    \
 /*
  * we add some btree info when btree bug happend
  */
-#define btree_bug(btree, ...)                                               \
+#define btree_bug(btree, ...)                                           \
 do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
         dump_stack();                                                   \
@@ -943,20 +958,20 @@ do {                                                                    \
 /*
  * we add same cache info when cache module bug happend
  */
-#define cache_bug(cache_set, ...)                                               \
+#define cache_bug(cache_set, ...)                                       \
 do {                                                                    \
         CACHE_ERRORLOG(NULL, __VA_ARGS__);                              \
         dump_stack();                                                   \
         assert("cache_bug" == 0);                                       \
 } while (0)
 
-#define btree_bug_on(cond, btree, ...)                                      \
+#define btree_bug_on(cond, btree, ...)                                  \
 do {                                                                    \
         if (cond)                                                       \
                 btree_bug(b, __VA_ARGS__);                              \
 } while (0)
 
-#define cache_bug_on(cond, cache_set, ...)                                      \
+#define cache_bug_on(cond, cache_set, ...)                              \
 do {                                                                    \
         if (cond)                                                       \
                 cache_bug(c, __VA_ARGS__);                              \
