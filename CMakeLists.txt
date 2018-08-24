@@ -227,8 +227,6 @@ endif()
 
 find_package(Libevent 2.1.8 REQUIRED)
 
-option (USE_SPDK_AIO "Use SPDK BDEV AIO for device" OFF)
-
 option(WITH_SPDK "Enable SPDK" OFF)
 if(WITH_SPDK)
   find_package(dpdk REQUIRED)
