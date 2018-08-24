@@ -290,7 +290,7 @@ static void invalidate_buckets(struct cache *ca)
                                                                         \
       pthread_mutex_unlock(&ca->set->bucket_lock);                      \
       pthread_mutex_lock(&ca->alloc_mut);                               \
-      struct timespec out = time_from_now(0, 500);                      \
+      struct timespec out = time_from_now(0, 500*NSEC_PER_MSEC);        \
       pthread_cond_timedwait(&ca->alloc_cond, &ca->alloc_mut, &out);    \
       pthread_mutex_unlock(&ca->alloc_mut);                             \
       pthread_mutex_lock(&ca->set->bucket_lock);                        \
@@ -430,8 +430,8 @@ long bch_bucket_alloc(struct cache *ca, unsigned reserve, bool wait)
   struct bucket *b;
   long r;
 
-  if (fifo_pop(&ca->free[reserve], r) ||
-      fifo_pop(&ca->free[RESERVE_NONE], r)) {
+  if (fifo_pop(&ca->free[RESERVE_NONE], r) ||
+      fifo_pop(&ca->free[reserve], r)) {
     goto out;
   }
 

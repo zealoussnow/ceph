@@ -37,11 +37,11 @@ void dump_stack(){
   nptrs = backtrace(buffer, STACK_DEPTH);
   strings = backtrace_symbols(buffer, nptrs);
   if (strings == NULL){
-    CACHE_ERRORLOG(NULL, "Get backtrace info failure\n");
+    CACHE_DUMPLOG(NULL, "Get backtrace info failure\n");
     exit(EXIT_FAILURE);
   }
 
   for (j = 0; j < nptrs; j++)
-    CACHE_ERRORLOG(NULL, "%s\n", strings[j]);
+    CACHE_DUMPLOG(NULL, "%s\n", strings[j]);
   free(strings);
 }
