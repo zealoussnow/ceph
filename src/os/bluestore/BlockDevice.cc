@@ -49,7 +49,7 @@ void IOContext::aio_wait()
 	     << dendl;
     cond.wait(l);
   }
-  dout(20) << __func__ << " " << this << " done" << dendl;
+  dout(10) << __func__ << " " << this << " done" << dendl;
 }
 
 BlockDevice *BlockDevice::create(CephContext* cct, const string& path,
