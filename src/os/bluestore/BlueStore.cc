@@ -6702,7 +6702,7 @@ int BlueStore::_do_read(
   }
   if (ioc.has_pending_aios()) {
     bdev->aio_submit(&ioc);
-    dout(20) << __func__ << " waiting for aio" << dendl;
+    dout(6) << __func__ << " waiting for aio ioc(" << &ioc << ")" << dendl;
     ioc.aio_wait();
   }
   logger->tinc(l_bluestore_read_wait_aio_lat, ceph_clock_now() - start);
