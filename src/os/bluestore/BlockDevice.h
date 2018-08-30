@@ -29,14 +29,6 @@
 #define MAX_AIO_WRITE_LEN 524288
 
 #define SPDK_PREFIX "spdk:"
-
-struct write_aio {
-  uint64_t offset;
-  uint64_t length;
-  write_aio(uint64_t off, uint64_t len) : offset(off), length(len) {
-  }
-};
-
 /// track in-flight io
 struct IOContext {
 private:
@@ -54,7 +46,7 @@ public:
 #endif
 
 
-  std::list<write_aio> writing_aios;    ///< record
+  map<uint64_t, uint64_t> writing_aios;    ///< record
 
   std::list<aio_t> pending_aios;    ///< not yet submitted
   std::list<aio_t> running_aios;    ///< submitting or submitted
