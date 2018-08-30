@@ -1114,6 +1114,7 @@ int CacheDevice::aio_write(
       << " (write_bl[" << t->write_bl << "] 0x" << std::hex
       << t->offset << "~" << t->len << std::dec << ")" << dendl;
 
+  ioc->writing_aios.push_back(write_aio(off, len));
   _aio_log_start(ioc, off, len);
 
   return 0;

@@ -7909,12 +7909,23 @@ void BlueStore::_txc_state_proc(TransContext *txc)
 		   == 0) {
 	  dout(20) << __func__ << " DEBUG randomly forcing submit via kv thread"
 		   << dendl;
-	} else {
-	  txc->state = TransContext::STATE_KV_SUBMITTED;
-	  int r = cct->_conf->bluestore_debug_omit_kv_commit ? 0 : db->submit_transaction(txc->t);
-	  assert(r == 0);
-	  _txc_applied_kv(txc);
-	}
+        } else {
+          txc->state = TransContext::STATE_KV_SUBMITTED;
+          int r = 0;
+          if (!cct->_conf->bluestore_debug_kv_sync_t2cache_meta)
+            r = cct->_conf->bluestore_debug_omit_kv_commit ? 0 : db->submit_transaction(txc->t);
+          else
+            r = -1;
+          if (r != 0) {
+            for (auto& p : txc->ioc.writing_aios) {
+              dout(0) << __func__ << "db failed writing start = " << p.offset << " len = " << p.length
+                << dendl;
+              bdev->invalidate_region(p.offset, p.length);
+            }
+            assert(r == 0);
+          }
+          _txc_applied_kv(txc);
+        }
       }
       {
 	std::lock_guard<std::mutex> l(kv_lock);
@@ -8561,21 +8572,32 @@ void BlueStore::_kv_sync_thread()
       }
 
       for (auto txc : kv_committing) {
-	if (txc->state == TransContext::STATE_KV_QUEUED) {
-	  txc->log_state_latency(logger, l_bluestore_state_kv_queued_lat);
-	  int r = cct->_conf->bluestore_debug_omit_kv_commit ? 0 : db->submit_transaction(txc->t);
-	  assert(r == 0);
-	  _txc_applied_kv(txc);
-	  --txc->osr->kv_committing_serially;
-	  txc->state = TransContext::STATE_KV_SUBMITTED;
-	  if (txc->osr->kv_submitted_waiters) {
-	    std::lock_guard<std::mutex> l(txc->osr->qlock);
-	    if (txc->osr->_is_all_kv_submitted()) {
-	      txc->osr->qcond.notify_all();
-	    }
-	  }
+        if (txc->state == TransContext::STATE_KV_QUEUED) {
+          txc->log_state_latency(logger, l_bluestore_state_kv_queued_lat);
+          int r = 0;
+          if (!cct->_conf->bluestore_debug_kv_sync_t2cache_meta)
+            r = cct->_conf->bluestore_debug_omit_kv_commit ? 0 : db->submit_transaction(txc->t);
+          else
+            r = -1;
+          if (r != 0) {
+            for (auto& p : txc->ioc.writing_aios) {
+              dout(0) << __func__ << "db failed writing start = " << p.offset << " len = " << p.length
+                << dendl;
+              bdev->invalidate_region(p.offset, p.length);
+            }
+            assert(r == 0);
+          }
+          _txc_applied_kv(txc);
+          --txc->osr->kv_committing_serially;
+          txc->state = TransContext::STATE_KV_SUBMITTED;
+          if (txc->osr->kv_submitted_waiters) {
+            std::lock_guard<std::mutex> l(txc->osr->qlock);
+            if (txc->osr->_is_all_kv_submitted()) {
+              txc->osr->qcond.notify_all();
+            }
+          }
 
-	} else {
+        } else {
 	  assert(txc->state == TransContext::STATE_KV_SUBMITTED);
 	  txc->log_state_latency(logger, l_bluestore_state_kv_queued_lat);
 	}
