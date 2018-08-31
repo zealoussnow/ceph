@@ -122,3 +122,12 @@
 ```shell
 # ceph daemon osd.0 wake_up_gc
 ```
+
+9.expensive_debug_checks
+
+打开或关闭expensive检查，如下
+
+```shell
+# ceph daemon osd.0 expensive_debug_checks 0
+# ceph daemon osd.0 expensive_debug_checks 1
+```
