@@ -109,6 +109,7 @@ struct gc_status
   uint64_t gc_prio_buckets;
 
   // moving
+  int gc_moving_stop;
   uint64_t gc_moving_buckets;
   uint64_t gc_pin_buckets;
   uint64_t gc_empty_buckets;

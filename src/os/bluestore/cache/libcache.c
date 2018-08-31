@@ -150,6 +150,10 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
     set_gc_stop(ctx->cache, atoi(u_conf->val));
   }
 
+  if (!strcmp(u_conf->opt_name, "t2store_gc_moving_stop")) {
+    set_gc_moving_stop(ctx->cache, atoi(u_conf->val));
+  }
+
   if (!strcmp(u_conf->opt_name, "t2store_writeback_stop")) {
     set_writeback_stop(ctx->cache, atoi(u_conf->val));
   }
@@ -287,6 +291,7 @@ static void get_gc_status(struct cache_set *c, struct gc_status *s)
   s->gc_prio_buckets    = c->gc_stats.gc_prio_buckets;
   
   // moving
+  s->gc_moving_stop    = atomic_read(&c->gc_moving_stop);
   s->gc_moving_buckets = c->gc_stats.gc_moving_buckets;
   s->gc_empty_buckets = c->gc_stats.gc_empty_buckets;
   s->gc_full_buckets = c->gc_stats.gc_full_buckets;

@@ -11,6 +11,7 @@
 ### 目前添加的配置有：
 
 * t2store_gc_stop
+* t2store_gc_moving_stop
 * t2store_writeback_stop
 * t2store_cache_mode
 * t2store_writeback_percent
