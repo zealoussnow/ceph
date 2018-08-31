@@ -587,7 +587,7 @@ void ReplicatedBackend::op_applied(
 {
   FUNCTRACE();
   OID_EVENT_TRACE_WITH_MSG((op && op->op) ? op->op->get_req() : NULL, "OP_APPLIED_BEGIN", true);
-  dout(10) << __func__ << ": " << op->tid << dendl;
+  dout(6) << __func__ << ": " << op->tid << dendl;
   if (op->op) {
     op->op->mark_event("op_applied");
     op->op->pg_trace.event("op applied");
@@ -597,6 +597,7 @@ void ReplicatedBackend::op_applied(
   parent->op_applied(op->v);
 
   if (op->waiting_for_applied.empty()) {
+    dout(6) << __func__ << " main waiting_for_applied empty call on_applied " << dendl;
     op->on_applied->complete(0);
     op->on_applied = 0;
   }
@@ -611,7 +612,7 @@ void ReplicatedBackend::op_commit(
 {
   FUNCTRACE();
   OID_EVENT_TRACE_WITH_MSG((op && op->op) ? op->op->get_req() : NULL, "OP_COMMIT_BEGIN", true);
-  dout(10) << __func__ << ": " << op->tid << dendl;
+  dout(6) << __func__ << ": " << op->tid << dendl;
   if (op->op) {
     op->op->mark_event("op_commit");
     op->op->pg_trace.event("op commit");
@@ -620,6 +621,7 @@ void ReplicatedBackend::op_commit(
   op->waiting_for_commit.erase(get_parent()->whoami_shard());
 
   if (op->waiting_for_commit.empty()) {
+    dout(6) << __func__ << " main waiting_for_commit empty call on_commmit " << dendl;
     op->on_commit->complete(0);
     op->on_commit = 0;
   }
@@ -650,12 +652,12 @@ void ReplicatedBackend::do_repop_reply(OpRequestRef op)
       m = static_cast<const MOSDOp *>(ip_op.op->get_req());
 
     if (m)
-      dout(7) << __func__ << ": tid " << ip_op.tid << " op " //<< *m
+      dout(6) << __func__ << ": tid " << ip_op.tid << " op " //<< *m
 	      << " ack_type " << (int)r->ack_type
 	      << " from " << from
 	      << dendl;
     else
-      dout(7) << __func__ << ": tid " << ip_op.tid << " (no op) "
+      dout(6) << __func__ << ": tid " << ip_op.tid << " (no op) "
 	      << " ack_type " << (int)r->ack_type
 	      << " from " << from
 	      << dendl;
@@ -688,11 +690,13 @@ void ReplicatedBackend::do_repop_reply(OpRequestRef op)
 
     if (ip_op.waiting_for_applied.empty() &&
         ip_op.on_applied) {
+      dout(6) << __func__ << " repop waiting_for_applied empty call on_applied " << dendl;
       ip_op.on_applied->complete(0);
       ip_op.on_applied = 0;
     }
     if (ip_op.waiting_for_commit.empty() &&
         ip_op.on_commit) {
+      dout(6) << __func__ << " repop waiting_for_commit empty call on_commmit " << dendl;
       ip_op.on_commit->complete(0);
       ip_op.on_commit= 0;
     }
@@ -1082,7 +1086,7 @@ void ReplicatedBackend::do_repop(OpRequestRef op)
 
   const hobject_t& soid = m->poid;
 
-  dout(10) << __func__ << " " << soid
+  dout(6) << __func__ << " from " << m->from << " tid: "  << m->get_tid() << " " << soid
            << " v " << m->version
 	   << (m->logbl.length() ? " (transaction)" : " (parallel exec")
 	   << " " << m->logbl.length()
