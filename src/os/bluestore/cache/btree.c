@@ -288,8 +288,7 @@ out:
   T2Free(iter);
   return;
 err:
-  set_btree_node_io_error(b);
-  CACHE_ERRORLOG(CAT_BTREE,"read btree node error %s \n", err);
+  btree_bug(b ,"read btree node error :%s \n", err);
   goto out;
 }
 
