@@ -18,8 +18,8 @@ Environment=CLUSTER=ceph
 ExecStart=/usr/bin/ceph-mon -f --cluster ${CLUSTER} --id %i --setuser ceph --setgroup ceph
 ExecReload=/bin/kill -HUP $MAINPID
 PrivateDevices=yes
-ProtectHome=true
-ProtectSystem=full
+#ProtectHome=true
+#ProtectSystem=full
 PrivateTmp=true
 TasksMax=infinity
 Restart=on-failure
