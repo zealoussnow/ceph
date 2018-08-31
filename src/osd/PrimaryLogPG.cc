@@ -9141,7 +9141,7 @@ public:
 
 void PrimaryLogPG::repop_all_applied(RepGather *repop)
 {
-  dout(10) << __func__ << ": repop tid " << repop->rep_tid << " all applied "
+  dout(6) << __func__ << ": repop tid " << repop->rep_tid << " all applied "
 	   << dendl;
   assert(!repop->applies_with_commit);
   repop->all_applied = true;
@@ -9163,7 +9163,7 @@ public:
 
 void PrimaryLogPG::repop_all_committed(RepGather *repop)
 {
-  dout(10) << __func__ << ": repop tid " << repop->rep_tid << " all committed "
+  dout(6) << __func__ << ": repop tid " << repop->rep_tid << " all committed "
 	   << dendl;
   repop->all_committed = true;
   if (repop->applies_with_commit) {
@@ -9221,12 +9221,12 @@ void PrimaryLogPG::eval_repop(RepGather *repop)
     m = static_cast<const MOSDOp *>(repop->op->get_req());
 
   if (m)
-    dout(10) << "eval_repop " << *repop
-	     << (repop->rep_done ? " DONE" : "")
+    dout(6) << "eval_repop " << *repop
+	     << " rep_done " << repop->rep_done
 	     << dendl;
   else
-    dout(10) << "eval_repop " << *repop << " (no op)"
-	     << (repop->rep_done ? " DONE" : "")
+    dout(6) << "eval_repop " << *repop << " (no op)"
+	     << " rep_done " << repop->rep_done
 	     << dendl;
 
   if (repop->rep_done)
@@ -9234,7 +9234,7 @@ void PrimaryLogPG::eval_repop(RepGather *repop)
 
   // ondisk?
   if (repop->all_committed) {
-    dout(10) << " commit: " << *repop << dendl;
+    dout(6) << " commit: " << *repop << dendl;
     for (auto p = repop->on_committed.begin();
 	 p != repop->on_committed.end();
 	 repop->on_committed.erase(p++)) {
@@ -9259,7 +9259,7 @@ void PrimaryLogPG::eval_repop(RepGather *repop)
     if (repop->applies_with_commit) {
       assert(repop->on_applied.empty());
     }
-    dout(10) << " applied: " << *repop << " " << dendl;
+    dout(6) << " applied: " << *repop << " " << dendl;
     for (auto p = repop->on_applied.begin();
 	 p != repop->on_applied.end();
 	 repop->on_applied.erase(p++)) {
@@ -9274,9 +9274,9 @@ void PrimaryLogPG::eval_repop(RepGather *repop)
     publish_stats_to_osd();
     calc_min_last_complete_ondisk();
 
-    dout(10) << " removing " << *repop << dendl;
+    dout(6) << " removing " << *repop << dendl;
     assert(!repop_queue.empty());
-    dout(20) << "   q front is " << *repop_queue.front() << dendl; 
+    dout(6) << "   q front is " << *repop_queue.front() << dendl; 
     if (repop_queue.front() != repop) {
       if (!repop->applies_with_commit) {
 	dout(0) << " removing " << *repop << dendl;
@@ -9303,7 +9303,7 @@ void PrimaryLogPG::issue_repop(RepGather *repop, OpContext *ctx)
 {
   FUNCTRACE();
   const hobject_t& soid = ctx->obs->oi.soid;
-  dout(7) << "issue_repop rep_tid " << repop->rep_tid
+  dout(6) << "issue_repop rep_tid " << repop->rep_tid
           << " o " << soid
           << dendl;
 
@@ -9418,7 +9418,7 @@ boost::intrusive_ptr<PrimaryLogPG::RepGather> PrimaryLogPG::new_repop(
  
 void PrimaryLogPG::remove_repop(RepGather *repop)
 {
-  dout(20) << __func__ << " " << *repop << dendl;
+  dout(6) << __func__ << " " << *repop << dendl;
 
   for (auto p = repop->on_finish.begin();
        p != repop->on_finish.end();
@@ -10844,7 +10844,7 @@ void PrimaryLogPG::apply_and_flush_repops(bool requeue)
   while (!repop_queue.empty()) {
     RepGather *repop = repop_queue.front();
     repop_queue.pop_front();
-    dout(10) << " canceling repop tid " << repop->rep_tid << dendl;
+    dout(6) << " canceling repop tid " << repop->rep_tid << dendl;
     repop->rep_aborted = true;
     repop->on_applied.clear();
     repop->on_committed.clear();
@@ -10852,7 +10852,7 @@ void PrimaryLogPG::apply_and_flush_repops(bool requeue)
 
     if (requeue) {
       if (repop->op) {
-	dout(10) << " requeuing " << *repop->op->get_req() << dendl;
+	dout(6) << " requeuing " << *repop->op->get_req() << dendl;
 	rq.push_back(repop->op);
 	repop->op = OpRequestRef();
       }
@@ -10861,7 +10861,7 @@ void PrimaryLogPG::apply_and_flush_repops(bool requeue)
       map<eversion_t, list<pair<OpRequestRef, version_t> > >::iterator p =
 	waiting_for_ondisk.find(repop->v);
       if (p != waiting_for_ondisk.end()) {
-	dout(10) << " also requeuing ondisk waiters " << p->second << dendl;
+	dout(6) << " also requeuing ondisk waiters " << p->second << dendl;
 	for (list<pair<OpRequestRef, version_t> >::iterator i =
 	       p->second.begin();
 	     i != p->second.end();
