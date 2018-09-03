@@ -586,6 +586,7 @@ void ReplicatedBackend::op_applied(
   InProgressOp *op)
 {
   FUNCTRACE();
+  std::lock_guard<std::mutex> l(in_process_op_lock);
   OID_EVENT_TRACE_WITH_MSG((op && op->op) ? op->op->get_req() : NULL, "OP_APPLIED_BEGIN", true);
   dout(6) << __func__ << ": " << op->tid << dendl;
   if (op->op) {
@@ -611,6 +612,7 @@ void ReplicatedBackend::op_commit(
   InProgressOp *op)
 {
   FUNCTRACE();
+  std::lock_guard<std::mutex> l(in_process_op_lock);
   OID_EVENT_TRACE_WITH_MSG((op && op->op) ? op->op->get_req() : NULL, "OP_COMMIT_BEGIN", true);
   dout(6) << __func__ << ": " << op->tid << dendl;
   if (op->op) {
@@ -633,6 +635,7 @@ void ReplicatedBackend::op_commit(
 
 void ReplicatedBackend::do_repop_reply(OpRequestRef op)
 {
+  std::lock_guard<std::mutex> l(in_process_op_lock);
   static_cast<MOSDRepOpReply*>(op->get_nonconst_req())->finish_decode();
   const MOSDRepOpReply *r = static_cast<const MOSDRepOpReply *>(op->get_req());
   assert(r->get_header().type == MSG_OSD_REPOPREPLY);
