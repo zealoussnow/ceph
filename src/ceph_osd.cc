@@ -47,6 +47,8 @@ using namespace std;
 
 #include "include/assert.h"
 
+#include "common/admin_socket_client.h"
+
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_osd
 
@@ -94,6 +96,18 @@ static void usage()
        << "                    get OSD fsid for the given block device\n"
        << std::endl;
   generic_server_usage();
+}
+
+void reload_log(){
+    std::string response;
+    AdminSocketClient client(g_conf->admin_socket);
+    client.do_request("{\"prefix\":\"reload_zlog_config\"}", &response);
+}
+
+void osd_sighup_handler(int signum)
+{
+  sighup_handler(signum);
+  reload_log();
 }
 
 #ifdef BUILDING_FOR_EMBEDDED
@@ -644,7 +658,7 @@ flushjournal_out:
 
   // install signal handlers
   init_async_signal_handler();
-  register_async_signal_handler(SIGHUP, sighup_handler);
+  register_async_signal_handler(SIGHUP, osd_sighup_handler);
   register_async_signal_handler_oneshot(SIGINT, handle_osd_signal);
   register_async_signal_handler_oneshot(SIGTERM, handle_osd_signal);
 
