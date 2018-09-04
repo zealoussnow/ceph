@@ -621,20 +621,26 @@ int bch_cached_dev_writeback_start(struct cached_dev *dc)
     return err;
   }
 
-  /*if (0 == pthread_join(dc->writeback_thread, NULL))*/
-  /*{*/
-  /*printf("writback thread is over\n");*/
-  /*}*/
-
-  /*if (0 == pthread_join(dc->writeback_rate_update_thread, NULL))*/
-  /*{*/
-  /*printf("writback thread is over\n");*/
-  /*}*/
-
   return 0;
+}
+
+void bch_cached_dev_writeback_stop(struct cached_dev *dc){
+  int err;
+  CACHE_INFOLOG(WRITEBACK, "stop wirteback\n");
+  dc->writeback_should_stop = true;
+  if (dc->writeback_thread){
+    err = pthread_join(dc->writeback_thread, NULL);
+    cache_bug_on(err != 0, dc->c, "can't wait writeback thread:%s\n", strerror(err));
+  }
+
+  if (dc->writeback_rate_update_thread){
+    err = pthread_join(dc->writeback_rate_update_thread, NULL);
+    cache_bug_on(err != 0, dc->c, "can't wait writeback rage update thread:%s\n", strerror(err));
+  }
 }
 
 uint64_t get_sectors_dirty(struct cached_dev *dc)
 {
   return bcache_dev_sectors_dirty(dc);
 }
+

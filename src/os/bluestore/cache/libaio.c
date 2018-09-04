@@ -30,8 +30,7 @@ struct thread_info {
 
 struct thread_options {
   uint16_t type;
-  char *name;
-  uint64_t period_microseconds;
+  bool running;
 };
 
 struct thread_data {
@@ -68,7 +67,7 @@ poller_fn(void *arg) {
   struct timespec *timeout = td->thread_info->timeout;
   int num_events = 0;
   int i = 0;
-  while(1) {
+  while(td->t_options->running) {
     num_events = io_getevents(*td->thread_info->ioctx, 1, LIBAIO_EVENTS_PER_GET, events, timeout);
     if (num_events == 0)
       continue;
@@ -256,8 +255,6 @@ aio_thread_init(void *ca) {
   struct thread_options *hdd_options = NULL;
   struct aio_handler *handler = g_handler;
   struct cache *myca = (struct cache *) ca;
-  char *cache_name = NULL;
-  char *backend_name  = NULL;
   struct thread_info *thread_info;
   pthread_t poller_td, self_td;
   int rc = 0;
@@ -292,7 +289,7 @@ aio_thread_init(void *ca) {
     if (i < 1) {
       cache_options = calloc(1, sizeof(*cache_options));
       cache_options->type = CACHE_THREAD_CACHE;
-      cache_options->name = cache_name;
+      cache_options->running = true;
       td->t_options = cache_options;
 
       thread_info->td = td;
@@ -318,8 +315,8 @@ aio_thread_init(void *ca) {
       pthread_spin_unlock(&handler->lock);
     } else {
       hdd_options = calloc(1, sizeof(*hdd_options));
-      hdd_options->name = backend_name;
       hdd_options->type = CACHE_THREAD_BACKEND;
+      hdd_options->running = true;
 
       td->t_options = hdd_options;
 
@@ -374,3 +371,48 @@ aio_init(void *ca) {
   g_handler = handler;
   return (void *) handler;
 }
+
+void aio_destroy(void *arg){
+  CACHE_INFOLOG(CAT_AIO, "stop aio\n");
+  struct cache *ca = (struct cache *) arg;
+  struct aio_handler *handler = g_handler;
+  struct thread_data *td;
+  int err;
+
+  list_for_each_entry(td, &handler->cache_threads, node)
+    td->t_options->running = false;
+  list_for_each_entry(td, &handler->backend_threads, node)
+    td->t_options->running = false;
+
+  while(list_empty(&handler->cache_threads)){
+    td = list_first_entry(&handler->cache_threads, typeof(*td), node);
+    err = pthread_join(td->pooler_td, NULL);
+    cache_bug_on(err != 0, ca->set, "Aio thread wait failed: %s\n", strerror(err));
+    free(td->t_options);
+    io_destroy(*td->thread_info->ioctx);
+    free(td->thread_info->events);
+    free(td->thread_info->timeout);
+    free(td->thread_info);
+    list_del(&td->node);
+    free(td);
+  }
+
+  while(list_empty(&handler->backend_threads)){
+    td = list_first_entry(&handler->backend_threads, typeof(*td), node);
+    pthread_join(td->pooler_td, NULL);
+    cache_bug_on(err != 0, ca->set, "Aio thread wait failed: %s\n", strerror(err));
+    free(td->t_options);
+    io_destroy(*td->thread_info->ioctx);
+    free(td->thread_info->ioctx);
+    free(td->thread_info->events);
+    free(td->thread_info->timeout);
+    free(td->thread_info);
+    list_del(&td->node);
+    free(td);
+  }
+
+  free(handler);
+  ca->handler = g_handler = NULL;
+  return 0;
+}
+

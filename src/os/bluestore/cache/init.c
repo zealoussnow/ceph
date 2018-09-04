@@ -1241,6 +1241,16 @@ init(struct cache * ca)
   return 0;
 }
 
+int destroy(struct cache * ca){
+  if (!ca)
+    return ;
+  bch_gc_thread_stop(ca->set);
+  bch_cached_dev_writeback_stop(ca->set->dc);
+  aio_destroy((void *)ca);
+  bch_delayed_work_stop(ca->set);
+  // Todo: close log
+}
+
 static int 
 bch_keylist_realloc(struct keylist *l, unsigned u64s, struct cache_set *c)
 {

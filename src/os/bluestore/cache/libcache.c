@@ -57,6 +57,12 @@ int t2store_cache_register_cache(struct cache_context *ctx)
   return ret;
 }
 
+void t2store_cache_destroy_cache(struct cache_context *ctx){
+  destroy(ctx->cache);
+  ctx->registered=false;
+  free(ctx->cache);
+}
+
 CEPH_CACHE_API int t2store_cache_aio_read(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg)
 {
   int ret = 0;
@@ -146,8 +152,8 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
 {
   assert(u_conf != NULL);
   struct cache *ca = (struct cache *)ctx->cache;
-  if (!strcmp(u_conf->opt_name, "t2store_gc_stop")) {
-    set_gc_stop(ctx->cache, atoi(u_conf->val));
+  if (!strcmp(u_conf->opt_name, "t2store_gc_pause")) {
+    set_gc_pause(ctx->cache, atoi(u_conf->val));
   }
 
   if (!strcmp(u_conf->opt_name, "t2store_gc_moving_stop")) {
@@ -345,16 +351,16 @@ int t2store_set_log_level(const char *level)
   return 0;
 }
 
-void t2store_set_gc_stop(struct cache_context *ctx, int stop)
+void t2store_set_gc_pause(struct cache_context *ctx, int pause)
 {
-  set_gc_stop(ctx->cache, stop);
-  CACHE_INFOLOG(NULL, "set gc stop: %d\n", stop);
+  set_gc_pause(ctx->cache, pause);
+  CACHE_INFOLOG(NULL, "set gc pause: %d\n", pause);
 }
 
 void t2store_wakeup_gc(struct cache_context *ctx)
 {
   struct cache *ca  = (struct cache *)ctx->cache;
-  set_gc_stop(ca, false);
+  set_gc_pause(ca, false);
   ca->invalidate_needs_gc = true;
   wake_up_gc(ca->set);
   CACHE_INFOLOG(NULL, "force wakeup gc");

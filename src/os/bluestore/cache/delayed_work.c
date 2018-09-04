@@ -1,8 +1,12 @@
 #include <string.h>
 #include <pthread.h>
 
+#include "bcache.h"
 #include "delayed_work.h"
 #include "log.h"
+
+static struct event timer_ev;
+static pthread_t thread_delayed_td = NULL;
 
 void delayed_work_add(struct event *ev, struct timeval *tv)
 {
@@ -31,7 +35,6 @@ static int delayed_work_func(void *arg)
 {
   struct event_base *base = arg;
   int flags = EV_PERSIST;
-  struct event timer_ev;
   struct timeval tv;
 
   // Note: pthread_setname_np will throw Segmentation fault.
@@ -43,6 +46,7 @@ static int delayed_work_func(void *arg)
 
   event_base_dispatch(base);
   event_base_free(base);
+  CACHE_INFOLOG(CAT_EVENT, "delayed_work_func exit\n");
 
   return 0;
 }
@@ -51,16 +55,28 @@ struct event_base *bch_delayed_work_init()
 {
   int err = 0;
   struct event_base *base;
-  pthread_t thread_delayed_event;
 
   evthread_use_pthreads();
   base = event_base_new();
 
-  err = pthread_create(&thread_delayed_event, NULL, (void *)delayed_work_func, (void *)base);
+  err = pthread_create(&thread_delayed_td, NULL, (void *)delayed_work_func, (void *)base);
   if (err != 0) {
     CACHE_DEBUGLOG(CAT_EVENT, "can't create writeback thread:%s\n", strerror(err));
     return NULL;
   }
 
   return base;
+}
+
+void bch_delayed_work_stop(struct cache_set *c){
+  int err;
+  CACHE_INFOLOG(CAT_EVENT, "Try stop delayed work\n");
+  if (!c->ev_base){
+    return ;
+  }
+  event_base_loopbreak(c->ev_base);
+  // Todo: stop event;
+  err = pthread_join(thread_delayed_td, NULL);
+  // todo: write log
+  cache_bug_on(err != 0, c, "Delayed work wait failed: %s\n", strerror(err));
 }
