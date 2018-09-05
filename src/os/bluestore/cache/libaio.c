@@ -55,8 +55,10 @@ struct aio_handler {
 static void cache_io_completion_cb(io_context_t ctx, struct iocb *iocb, long res,
                        long res2, struct ring_item *item)
 {
+  struct cache *ca = item->ca_handler;
+
   free(iocb);
-  assert(res2 == 0);
+  cache_bug_on((res < 0 || res2 != 0), ca->set, "aio get error res %d res2 %d\n", res, res2);
   item->io.success = true;
   item->iou_completion_cb(item->iou_arg);
 }
