@@ -720,7 +720,8 @@ struct cache_set {
   pthread_t             gc_thread;
   pthread_mutex_t       gc_wait_mut;
   pthread_cond_t        gc_wait_cond;
-  atomic_t              gc_stop;
+  atomic_t              gc_pause;
+  atomic_t              gc_thread_stop;
   atomic_t              gc_moving_stop;
 
   atomic_t              cached_hits;

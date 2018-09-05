@@ -10,7 +10,7 @@
 
 ### 目前添加的配置有：
 
-* t2store_gc_stop
+* t2store_gc_pause
 * t2store_gc_moving_stop
 * t2store_writeback_stop
 * t2store_cache_mode
@@ -107,12 +107,12 @@
 }
 ```
 
-7.set_gc_stop
+7.set_gc_pause
 
-设置gc_stop的值，当gc_stop为1时，gc线程会等待；为0时，当条件满足时gc过程可以继续运行
+设置gc_pause的值，当gc_pause为1时，gc线程会等待；为0时，当条件满足时gc过程可以继续运行
 
 ```shell
-# ceph daemon osd.0 set_gc_stop 1
+# ceph daemon osd.0 set_gc_pause 1
 ```
 
 8.wake_up_gc

@@ -1744,9 +1744,9 @@ void set_gc_moving_stop(struct cache *ca, int stop)
   atomic_set(&ca->set->gc_moving_stop, stop);
 }
 
-void set_gc_stop(struct cache *ca, int stop)
+void set_gc_pause(struct cache *ca, int pause)
 {
-  atomic_set(&ca->set->gc_stop, stop);
+  atomic_set(&ca->set->gc_pause, pause);
 }
 
 void set_writeback_stop(struct cache *ca, int stop)
@@ -1798,14 +1798,17 @@ static int bch_gc_thread(void *arg)
     // loop cond wait when no need gc
     for (;;) {
       // if gc needed, out loop cond
-      // if gc_stop == true always loop cond
+      // if gc_pause == true always loop cond
       c->gc_stats.status = GC_IDLE;
       struct timespec out = time_from_now(5, 0);
       pthread_mutex_lock(&c->gc_wait_mut);
       pthread_cond_timedwait(&c->gc_wait_cond, &c->gc_wait_mut, &out);
       pthread_mutex_unlock(&c->gc_wait_mut);
 
-      if (gc_should_run(c) && !atomic_read(&c->gc_stop)) {
+      if (atomic_read(&c->gc_thread_stop))
+        goto out;
+
+      if (gc_should_run(c) && !atomic_read(&c->gc_pause)) {
         break;
       }
 
@@ -1824,6 +1827,7 @@ static int bch_gc_thread(void *arg)
     c->gc_stats.status = GC_IDLE;
   }
 
+out:
   return 0;
 }
 
@@ -1831,7 +1835,8 @@ int bch_gc_thread_start(struct cache_set *c)
 {
   int err;
 
-  atomic_set(&c->gc_stop, 0);
+  atomic_set(&c->gc_pause, 0);
+  atomic_set(&c->gc_thread_stop, 0);
 
   err = pthread_create(&c->gc_thread, NULL, (void *)bch_gc_thread, (void *)c);
   if (err != 0) {
@@ -1842,6 +1847,16 @@ int bch_gc_thread_start(struct cache_set *c)
   return 0;
 }
 
+void bch_gc_thread_stop(struct cache_set *c){
+  int err;
+  CACHE_INFOLOG(MOVINGGC, "stop moving gc \n");
+  atomic_set(&c->gc_thread_stop, 1);
+  wake_up_gc(c);
+  if (&c->gc_thread){
+    err = pthread_join(c->gc_thread, NULL);
+    cache_bug_on(err!=0, c, "Gc thread wait failed: %s\n", strerror(err));
+  }
+}
 /* Initial partial gc */
 
 static int bch_btree_check_recurse(struct btree *b, struct btree_op *op)

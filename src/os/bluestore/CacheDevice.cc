@@ -503,6 +503,7 @@ void CacheDevice::close()
 {
   dout(1) << __func__ << dendl;
   _aio_stop();
+  t2store_cache_destroy_cache(&cache_ctx);
 
   _shutdown_logger();
   assert(fd_direct >= 0);
@@ -1253,7 +1254,7 @@ int CacheDevice::invalidate_region(uint64_t off, uint64_t len)
 const char** CacheDevice::get_tracked_conf_keys() const
 {
   static const char *KEYS[] = {
-    "t2store_gc_stop",
+    "t2store_gc_pause",
     "t2store_gc_moving_stop",
     "t2store_writeback_stop",
     "t2store_cache_mode",
@@ -1444,11 +1445,11 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->close_section();
   }
 
-  if (command == "set_gc_stop") {
-    int64_t stop = 0;
-    cmd_getval(cct, cmdmap, "stop", stop);
-    dout(0) << "set_gc_stop: " << stop << dendl;
-    t2store_set_gc_stop(&cache_ctx, stop);
+  if (command == "set_gc_pause") {
+    int64_t pause= 0;
+    cmd_getval(cct, cmdmap, "pause", pause);
+    dout(0) << "set_gc_pause: " << pause << dendl;
+    t2store_set_gc_pause(&cache_ctx, pause);
   }
 
   if (command == "wake_up_gc") {
@@ -1493,9 +1494,9 @@ void CacheDevice::asok_register()
                                      "set_log_level name=level,type=CephString",
                                      asok_hook, "set zlog level");
   assert(r == 0);
-  r = admin_socket->register_command("set_gc_stop",
-                                     "set_gc_stop name=stop,type=CephInt",
-                                     asok_hook, "set gc stop");
+  r = admin_socket->register_command("set_gc_pause",
+                                     "set_gc_pause name=pause,type=CephInt",
+                                     asok_hook, "set gc pause");
   assert(r == 0);
   r = admin_socket->register_command("wake_up_gc", "wake_up_gc",
                                      asok_hook, "forced wakeup gc");
@@ -1514,7 +1515,7 @@ void CacheDevice::asok_unregister()
   cct->get_admin_socket()->unregister_command("dump_gc_status");
   cct->get_admin_socket()->unregister_command("reload_zlog_config");
   cct->get_admin_socket()->unregister_command("set_log_level");
-  cct->get_admin_socket()->unregister_command("set_gc_stop");
+  cct->get_admin_socket()->unregister_command("set_gc_pause");
   cct->get_admin_socket()->unregister_command("wake_up_gc");
   delete asok_hook;
   asok_hook = NULL;

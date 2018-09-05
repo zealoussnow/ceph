@@ -138,6 +138,7 @@ CEPH_CACHE_API int t2store_cache_write_cache_sb(const char *log_path, const char
                      unsigned cache_replacement_policy,
                      uint64_t data_offset, bool bdev);
 CEPH_CACHE_API int t2store_cache_register_cache(struct cache_context *ctx);
+CEPH_CACHE_API void t2store_cache_destroy_cache(struct cache_context *ctx);
 CEPH_CACHE_API int t2store_cache_aio_write(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
 CEPH_CACHE_API int t2store_cache_aio_read(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);
 CEPH_CACHE_API int t2store_cache_invalidate_region(struct cache_context * ctx, uint64_t off, uint64_t len);
@@ -159,7 +160,7 @@ CEPH_CACHE_API int t2store_gc_status(struct cache_context *ctx, struct gc_status
 CEPH_CACHE_API int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi);
 CEPH_CACHE_API int t2store_reload_zlog_config();
 CEPH_CACHE_API int t2store_set_log_level(const char *level);
-CEPH_CACHE_API void t2store_set_gc_stop(struct cache_context *ctx, int stop);
+CEPH_CACHE_API void t2store_set_gc_pause(struct cache_context *ctx, int pause);
 CEPH_CACHE_API void t2store_wakeup_gc(struct cache_context *ctx);
 CEPH_CACHE_API void t2store_expensive_debug_checks(struct cache_context *ctx, bool state);
 
