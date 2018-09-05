@@ -675,7 +675,7 @@ flushjournal_out:
   ms_cluster->wait();
   ms_objecter->wait();
 
-  unregister_async_signal_handler(SIGHUP, sighup_handler);
+  unregister_async_signal_handler(SIGHUP, osd_sighup_handler);
   unregister_async_signal_handler(SIGINT, handle_osd_signal);
   unregister_async_signal_handler(SIGTERM, handle_osd_signal);
   shutdown_async_signal_handler();
