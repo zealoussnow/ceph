@@ -855,3 +855,13 @@ int bch_cache_allocator_start(struct cache *ca)
   }
   return 0;
 }
+void bch_cache_allocator_stop(struct cache *ca){
+  int err;
+  void *res;
+  CACHE_INFOLOG(CAT_ALLOC, "Try stop alloc allocator thread\n");
+  err = pthread_cancel(ca->alloc_thread);
+  cache_bug_on(err != 0, ca->set, "Cache allocator send stop failed: %s\n", strerror(err));
+  err = pthread_join(ca->alloc_thread, &res);
+  cache_bug_on(err != 0 || res != PTHREAD_CANCELED, ca->set,
+      "Cache allocator wait stop failed: %s\n", strerror(err));
+}
