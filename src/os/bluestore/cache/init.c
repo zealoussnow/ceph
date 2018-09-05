@@ -1248,6 +1248,7 @@ int destroy(struct cache * ca){
   bch_cached_dev_writeback_stop(ca->set->dc);
   aio_destroy((void *)ca);
   bch_delayed_work_stop(ca->set);
+  bch_cache_allocator_stop(ca);
   // Todo: close log
 }
 
