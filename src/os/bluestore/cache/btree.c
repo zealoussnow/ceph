@@ -299,7 +299,7 @@ static void bch_btree_node_read(struct btree *b)
   CACHE_DEBUGLOG(CAT_BTREE,"btree node read fd %d start %lu len %lu\n",
                         b->c->fd, start/512, len/512);
   if ( sync_read(b->c->fd, b->keys.set[0].data, len, start) == -1 ) {
-    CACHE_ERRORLOG(CAT_BTREE,"btree node read error\n");
+    CACHE_ERRORLOG(CAT_BTREE,"btree node read error: %s\n", strerror(errno));
     assert("btree node read error" == 0);
   }
   bch_btree_node_read_done(b);
@@ -392,10 +392,10 @@ static void do_btree_node_write(struct btree *b)
   // 而&k.key里面记录了本次IO的起始位置
   SET_PTR_OFFSET(&k.key, 0, PTR_OFFSET(&k.key, 0) + bset_sector_offset(&b->keys, i));
   off_t start = PTR_OFFSET(&k.key, 0) << 9;
-  CACHE_DEBUGLOG(CAT_WRITE,"btree write node fd %d start %lu len %lu\n",
-                        b->c->fd, start/512, len/512);
+  CACHE_INFOLOG(CAT_WRITE,"btree write node fd %d start %lu len %lu, mem %p \n",
+                        b->c->fd, start/512, len/512, i);
   if ( sync_write(b->c->fd, i, len, start) == -1 ) {
-    CACHE_ERRORLOG(CAT_WRITE,"btree write node error\n");
+    CACHE_ERRORLOG(CAT_WRITE,"btree write node error: %s\n", strerror(errno));
     assert("btree write node error" == 0);
   }
   __btree_node_write_done(b);

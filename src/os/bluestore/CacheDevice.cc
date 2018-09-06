@@ -271,7 +271,7 @@ int CacheDevice::open(const string& p, const string& c_path)
   path = p;
   cache_path = c_path;
   int r = 0;
-  fd_cache = ::open(cache_path.c_str(), O_RDWR);
+  fd_cache = ::open(cache_path.c_str(), O_RDWR | O_DIRECT);
   if (fd_cache < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
@@ -623,7 +623,17 @@ int CacheDevice::flush()
   utime_t dur = end - start;
   if (r < 0) {
     r = -errno;
-    derr << __func__ << " fdatasync got: " << cpp_strerror(r) << dendl;
+    derr << __func__ << " fd_direct fdatasync got: " << cpp_strerror(r) << dendl;
+    ceph_abort();
+  }
+  dout(5) << __func__ << " in " << dur << dendl;;
+  start = ceph_clock_now();
+  r = ::fdatasync(fd_cache);
+  end = ceph_clock_now();
+  dur = end - start;
+  if (r < 0) {
+    r = -errno;
+    derr << __func__ << " fd_cache fdatasync got: " << cpp_strerror(r) << dendl;
     ceph_abort();
   }
   dout(5) << __func__ << " in " << dur << dendl;;

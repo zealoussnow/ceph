@@ -334,11 +334,12 @@ void bch_btree_keys_free(struct btree_keys *b)
 int bch_btree_keys_alloc(struct btree_keys *b, unsigned page_order)
 {
   struct bset_tree *t = b->set;
+  int r;
   BUG_ON(t->data);
   b->page_order = page_order;
 
-  t->data = (void *)T2Molloc(btree_keys_bytes(b));
-  if (!t->data) {
+  r = posix_memalign(&t->data, MEMALIGN, btree_keys_bytes(b));
+  if (r) {
     goto err;
   }
   t->tree = T2Molloc(bset_tree_bytes(b));
@@ -1256,8 +1257,10 @@ static void __btree_sort(struct btree_keys *b, struct btree_iter *iter,
                         struct bset_sort_state *state)
 {
   clock_t start_time;
-  struct bset *out = (void *)T2Molloc(PAGE_SIZE << order);
-  if (!out) {
+  struct bset *out = NULL;
+  int err;
+  err = posix_memalign(&out, MEMALIGN, PAGE_SIZE << order);
+  if (err) {
     CACHE_ERRORLOG(CAT_BTREE,"alloc memory faild, will not sort btree\n");
     return ;
   }

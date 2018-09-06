@@ -87,7 +87,7 @@ prio_io(struct cache *ca, uint64_t bucket, int op,
     CACHE_DEBUGLOG(CAT_WRITE,"prio io write fd %d start 0x%x len %x (bucket %u)\n", 
                                 ca->fd, start, len, bucket);
     if ( sync_write(ca->fd, ca->disk_buckets, len, start) == -1){
-      CACHE_ERRORLOG(CAT_WRITE, "prio io write error\n");
+      CACHE_ERRORLOG(CAT_WRITE, "prio io write error: %s\n", strerror(errno));
       assert("prio io write error" == 0);
     }
   }
@@ -95,7 +95,7 @@ prio_io(struct cache *ca, uint64_t bucket, int op,
     CACHE_DEBUGLOG(CAT_WRITE,"prio io read fd %d start 0x%x len %x (bucket %u)\n", 
                                 ca->fd, start, len, bucket);
     if ( sync_read(ca->fd, ca->disk_buckets, len, start ) == -1 ) {
-      CACHE_ERRORLOG(CAT_WRITE, "prio io read error\n");
+      CACHE_ERRORLOG(CAT_WRITE, "prio io read error: %s\n", strerror(errno));
       assert("prio io read error" == 0);
     }
   }
@@ -339,8 +339,8 @@ err:
   return err;
 }
 
-#define alloc_bucket_pages(c)			\
-	((void *) T2Molloc(bucket_pages(c)*PAGE_SIZE))
+#define alloc_bucket_pages(buf, c)			\
+	posix_memalign(&buf, MEMALIGN, bucket_pages(c)*PAGE_SIZE)
 
 void 
 bch_cache_set_unregister(struct cache_set *c)
@@ -370,7 +370,7 @@ cache_alloc(struct cache *ca)
         !(ca->buckets	= T2Molloc(sizeof(struct bucket) *
         ca->sb.nbuckets)) ||
         !(ca->prio_buckets	= T2Molloc(sizeof(uint64_t) * prio_buckets(ca) * 2)) ||
-        !(ca->disk_buckets	= alloc_bucket_pages(ca))) {
+        alloc_bucket_pages(ca->disk_buckets, ca)) {
     return -ENOMEM;
   }
   /*printf(" init  &ca->free[RESERVE_PRIO].size=%d\n", fifo_free(&ca->free[RESERVE_PRIO]));*/
@@ -438,7 +438,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
   // 3. bset_sort_state
   // 4. moving_gc_wq
   if (!(c->devices = T2Molloc(c->nr_uuids * sizeof(void *))) ||
-                        !(c->uuids = alloc_bucket_pages(c)) ||
+                        alloc_bucket_pages(c->uuids, c) ||
                         bch_journal_alloc(c) ||
                         bch_btree_cache_alloc(c) ||
                         bch_open_buckets_alloc(c) ||
@@ -460,15 +460,22 @@ err:
 static void 
 __write_super(struct cache *c)
 {
-  struct cache_sb *sb = &c->sb;
+  struct cache_sb *sb;
   off_t start = SB_START;
   size_t len = SB_SIZE;
-  sb->csum = csum_set(sb);
+  int err;
+  c->sb.csum = csum_set(&c->sb);
+  err = posix_memalign(&sb, MEMALIGN, SB_SIZE);
+  if (err){
+   CACHE_ERRORLOG(CAT_WRITE,"mem alloc failed\n");
+   assert(err == 0);
+  }
+  memcpy(sb, &c->sb, sizeof(struct cache_sb));
 
   CACHE_INFOLOG(CAT_WRITE,"write super fd %d start 0x%x len %d\n",
                         c->fd, start, len);
   if (sync_write(c->fd, sb, len, start) == -1) {
-    CACHE_ERRORLOG(CAT_WRITE,"write super error \n");
+    CACHE_ERRORLOG(CAT_WRITE,"write super error :%s\n", strerror(errno));
     assert("write super error" == 0);
   }
 }
@@ -506,13 +513,13 @@ static void uuid_io(struct cache_set *c, int op, unsigned long op_flags, struct 
                         op, c->fd, start, len);
   if ( op == REQ_OP_WRITE ) {
     if ( sync_write(c->fd, c->uuids, len , start) == -1 ) {
-      CACHE_ERRORLOG(CAT_WRITE,"write uuid error \n");
+      CACHE_ERRORLOG(CAT_WRITE,"write uuid error: %s \n", strerror(errno));
       assert("write uuid error" == 0);
     }
   }
   if ( op == REQ_OP_READ ) {
     if ( sync_read(c->fd, c->uuids, len , start) == -1 ) {
-      CACHE_ERRORLOG(CAT_WRITE,"read uuid error \n");
+      CACHE_ERRORLOG(CAT_WRITE,"read uuid error: %s\n", strerror(errno));
       assert("read uuid error" == 0);
     }
   }
@@ -1201,19 +1208,28 @@ init(struct cache * ca)
 {
   int fd = ca->fd;
   const char *err = "cannot allocate memory";
-  struct cache_sb sb;
+  struct cache_sb *sb;
+  int rc;
 
-  if (pread(fd, &sb, sizeof(struct cache_sb), SB_START) != sizeof(struct cache_sb)) {
-   CACHE_ERRORLOG(NULL, "Couldn't read cache device\n");
+  rc = posix_memalign(&sb, MEMALIGN, SB_SIZE);
+  if (rc){
+    CACHE_ERRORLOG(NULL, "memalign error!\n");
+    assert(rc != 0);
+  }
+
+  rc = pread(fd, sb, SB_SIZE, SB_START);
+  if (rc != SB_SIZE) {
+   CACHE_ERRORLOG(NULL, "Couldn't read cache device: %s, size %d, SB_SIZE %d, SB_START %d, buf %p, fd %d\n",
+       strerror(errno), sizeof(struct cache_sb), SB_SIZE, SB_START, sb, fd);
    assert("Couldn't read cache device super" == 0);
   }
-  err = read_super(&ca->sb, &sb);
+  err = read_super(&ca->sb, sb);
   if (err) {
     CACHE_ERRORLOG(NULL, "read super error\n");
     assert("read super error" == 0);
   }
 
-  if (_register_cache(&sb, ca) != 0) {
+  if (_register_cache(sb, ca) != 0) {
     CACHE_ERRORLOG(NULL, "register cache error\n");
     assert("register cache error" == 0);
   }
@@ -1237,6 +1253,8 @@ init(struct cache * ca)
   tv.tv_sec = UPDATE_GC_SIZE_WM_SECONDS;
   delayed_work_assign(&ca->ev_update_gc_wm, ca->set->ev_base, update_gc_size_wm, (void*)ca, EV_PERSIST);
   delayed_work_add(&ca->ev_update_gc_wm, &tv);
+
+  free(sb);
 
   return 0;
 }
@@ -1935,7 +1953,7 @@ aio_write_test(struct cache *ca)
   uint64_t len = 512*1025;
   uint64_t offset = 8192;
 
-  int ret = posix_memalign((void **)&data, 512, len);
+  int ret = posix_memalign((void **)&data, MEMALIGN, len);
   if (ret != 0) {
     CACHE_ERRORLOG(NULL, "alloc align memory failed");
     assert(ret == 0);
