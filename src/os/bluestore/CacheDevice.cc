@@ -271,14 +271,21 @@ int CacheDevice::open(const string& p, const string& c_path)
   path = p;
   cache_path = c_path;
   int r = 0;
-  fd_cache = ::open(cache_path.c_str(), O_RDWR | O_DIRECT);
+  int flgs = O_RDWR | O_DIRECT;
+
+  if (cct->_conf->t2store_dev_dsync){
+    flgs |= O_DSYNC;
+    dout(1) << __func__ << " open device with O_DSYNC flag " << dendl;
+  }
+
+  fd_cache = ::open(cache_path.c_str(), flgs);
   if (fd_cache < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
     return r;
   }
 
-  fd_direct = ::open(path.c_str(), O_RDWR | O_DIRECT);
+  fd_direct = ::open(path.c_str(), flgs);
   if (fd_direct < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
