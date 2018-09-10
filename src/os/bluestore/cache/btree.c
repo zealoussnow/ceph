@@ -1031,7 +1031,7 @@ static int btree_check_reserve(struct btree *b, struct btree_op *op)
 /* Garbage collection */
 
 static uint8_t 
-__bch_btree_mark_key(struct cache_set *c, int level,struct bkey *k)
+__bch_btree_mark_key(struct cache_set *c, int level,struct bkey *k, bool init)
 {
   uint8_t stale = 0;
   unsigned i;
@@ -1054,7 +1054,7 @@ __bch_btree_mark_key(struct cache_set *c, int level,struct bkey *k)
       g->last_gc = PTR_GEN(k, i);
 
     if (ptr_stale(c, k, i)) {
-      if (KEY_DIRTY(k)) {
+      if (init && KEY_DIRTY(k)) {
         CACHE_ERRORLOG(NULL, "dirty key stale bucket gen = %d, ptr gen = %d\n", PTR_BUCKET(c, k, i)->gen, PTR_GEN(k, i));
         dump_bkey("dirty stale key", k);
         assert("dirty stale in mark" == 0);
@@ -1087,7 +1087,7 @@ __bch_btree_mark_key(struct cache_set *c, int level,struct bkey *k)
   return stale;
 }
 
-#define btree_mark_key(b, k)	__bch_btree_mark_key(b->c, b->level, k)
+#define btree_mark_key(b, k)	__bch_btree_mark_key(b->c, b->level, k, false)
 
 void bch_initial_mark_key(struct cache_set *c, int level, struct bkey *k)
 {
@@ -1104,7 +1104,7 @@ void bch_initial_mark_key(struct cache_set *c, int level, struct bkey *k)
         b->prio = INITIAL_PRIO;
     }
 
-  __bch_btree_mark_key(c, level, k);
+  __bch_btree_mark_key(c, level, k, true);
 }
 
 void bch_update_bucket_in_use(struct cache_set *c, struct gc_stat *stats)
@@ -1489,7 +1489,7 @@ static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
     }
   }
 
-  __bch_btree_mark_key(b->c, b->level + 1, &b->key);
+  __bch_btree_mark_key(b->c, b->level + 1, &b->key, false);
 
   if (b->level) {
     uint64_t gc_recurse = cache_realtime_u64();
