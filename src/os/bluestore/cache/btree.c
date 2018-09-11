@@ -346,6 +346,20 @@ static void __btree_node_write_done(struct btree *b)
   sem_post(&b->io_mutex);
 }
 
+void flush(struct cache_set *c){
+  int rc;
+  if (c->enable_dsync)
+    return;
+  if (!atomic_cmpxchg(&c->need_flush, 1, 0)){
+    return;
+  }
+  rc = fdatasync(c->fd);
+  cache_bug_on(rc != 0, c, "Flush cache data failed: %s\n", strerror(errno));
+  rc = fdatasync(c->hdd_fd);
+  cache_bug_on(rc != 0, c, "Flush backend data failed: %s\n", strerror(errno));
+  return rc;
+}
+
 static void do_btree_node_write(struct btree *b)
 {
   // 1. 本次写入的数据入口
@@ -394,6 +408,7 @@ static void do_btree_node_write(struct btree *b)
   off_t start = PTR_OFFSET(&k.key, 0) << 9;
   CACHE_INFOLOG(CAT_WRITE,"btree write node fd %d start %lu len %lu, mem %p \n",
                         b->c->fd, start/512, len/512, i);
+  flush(b->c);
   if ( sync_write(b->c->fd_meta, i, len, start) == -1 ) {
     CACHE_ERRORLOG(CAT_WRITE,"btree write node error: %s\n", strerror(errno));
     assert("btree write node error" == 0);

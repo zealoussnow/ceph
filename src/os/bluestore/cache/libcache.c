@@ -371,3 +371,9 @@ void t2store_wakeup_gc(struct cache_context *ctx)
 void t2store_expensive_debug_checks(struct cache_context *ctx, bool state){
   set_cache_expensive_debug_checks(ctx->cache, state);
 }
+
+int t2cloud_cache_flush(struct cache_context *ctx){
+  struct cache *ca  = (struct cache *)ctx->cache;
+  return flush(ca->set);
+}
+

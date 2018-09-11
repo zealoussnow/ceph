@@ -597,6 +597,8 @@ struct cache_set {
   int                     fd;
   int                     fd_meta;
   int                     hdd_fd;
+  bool                    enable_dsync;
+  atomic_t                need_flush;
   
   logger_callback_fn logger_cb;
   void               *bluestore_cd;

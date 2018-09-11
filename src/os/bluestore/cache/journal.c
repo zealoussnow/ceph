@@ -557,16 +557,6 @@ void bch_journal_next(struct journal *j)
   }
 }
 
-static void flush(struct cache *ca){
-  int rc;
-  if (ca->enable_dsync)
-    return;
-  rc = fdatasync(ca->fd);
-  cache_bug_on(rc != 0, ca->set, "Flush cache data failed: %s\n", strerror(errno));
-  rc = fdatasync(ca->hdd_fd);
-  cache_bug_on(rc != 0, ca->set, "Flush backend data failed: %s\n", strerror(errno));
-}
-
 static void journal_write_unlocked(struct cache_set *c)
 {
   struct cache *ca;
@@ -616,7 +606,6 @@ static void journal_write_unlocked(struct cache_set *c)
     /*off_t start = PTR_OFFSET(k, i) << 9;*/
     off_t start = PTR_OFFSET_to_bytes(k, i);
     size_t len = sectors << 9;
-    flush(ca);
     if ( sync_write( ca->fd_meta, w->data, len, start) == -1) {
       CACHE_ERRORLOG(CAT_JOURNAL, "write journal(fd %d data %p start %lu len %lu) got error: %s\n",
                                           ca->fd, w->data, start, len, strerror(errno));

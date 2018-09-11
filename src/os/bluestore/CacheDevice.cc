@@ -644,7 +644,7 @@ int CacheDevice::flush()
   }
   dout(5) << __func__ << " in " << dur << dendl;;
   start = ceph_clock_now();
-  r = ::fdatasync(fd_cache);
+  r = t2cloud_cache_flush(&cache_ctx);
   end = ceph_clock_now();
   dur = end - start;
   if (r < 0) {

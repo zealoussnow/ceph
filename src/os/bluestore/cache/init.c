@@ -834,6 +834,8 @@ static const char *register_cache_set(struct cache *ca)
   ca->set->fd = ca->fd;
   ca->set->fd_meta = ca->fd_meta;
   ca->set->hdd_fd = ca->hdd_fd;
+  ca->set->enable_dsync = ca->enable_dsync;
+  atomic_set(&ca->set->need_flush, 0);
 
   c->dc = calloc(1, sizeof(struct cached_dev));
   memcpy(&c->dc->sb, &c->sb, sizeof(struct cache_sb));
@@ -1359,6 +1361,8 @@ void aio_write_completion(void *cb)
     CACHE_ERRORLOG(NULL, "Aio completion, io not Sucessfull %d \n", item->io.success);
     assert(" Aio completion, io not Sucessfull " == 0);
   }
+
+  atomic_set(&ca->set->need_flush, 1);
 
   if (((char *)item->data + item->o_len ) == ((char *)item->io.pos + item->io.len )) {
     CACHE_DEBUGLOG(CAT_AIO_WRITE,"AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n",
