@@ -298,7 +298,7 @@ static void bch_btree_node_read(struct btree *b)
   off_t start = PTR_OFFSET_to_bytes(&b->key, 0);
   CACHE_DEBUGLOG(CAT_BTREE,"btree node read fd %d start %lu len %lu\n",
                         b->c->fd, start/512, len/512);
-  if ( sync_read(b->c->fd, b->keys.set[0].data, len, start) == -1 ) {
+  if ( sync_read(b->c->fd_meta, b->keys.set[0].data, len, start) == -1 ) {
     CACHE_ERRORLOG(CAT_BTREE,"btree node read error: %s\n", strerror(errno));
     assert("btree node read error" == 0);
   }
@@ -394,7 +394,7 @@ static void do_btree_node_write(struct btree *b)
   off_t start = PTR_OFFSET(&k.key, 0) << 9;
   CACHE_INFOLOG(CAT_WRITE,"btree write node fd %d start %lu len %lu, mem %p \n",
                         b->c->fd, start/512, len/512, i);
-  if ( sync_write(b->c->fd, i, len, start) == -1 ) {
+  if ( sync_write(b->c->fd_meta, i, len, start) == -1 ) {
     CACHE_ERRORLOG(CAT_WRITE,"btree write node error: %s\n", strerror(errno));
     assert("btree write node error" == 0);
   }

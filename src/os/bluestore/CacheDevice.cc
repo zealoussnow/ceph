@@ -185,6 +185,8 @@ int CacheDevice::cache_init(const std::string& path)
   int r = 0;
   bdev_path = path + "/bdev.conf.in";
   cache_ctx.fd_cache=fd_cache;
+  cache_ctx.enable_dsync=cct->_conf->t2store_dev_dsync;
+  cache_ctx.fd_cache_meta=fd_cache_meta;
   cache_ctx.fd_direct=fd_direct;
   cache_ctx.bdev_path = bdev_path.c_str();
   cache_ctx.whoami = cct->_conf->name.get_id().c_str();
@@ -280,6 +282,13 @@ int CacheDevice::open(const string& p, const string& c_path)
 
   fd_cache = ::open(cache_path.c_str(), flgs);
   if (fd_cache < 0) {
+    r = -errno;
+    derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
+    return r;
+  }
+
+  fd_cache_meta = ::open(cache_path.c_str(), flgs | O_DSYNC);
+  if (fd_cache_meta < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
     return r;

@@ -25,7 +25,7 @@ enum class IOCommand {
 class Task;
 
 class CacheDevice : public BlockDevice, public md_config_obs_t  {
-  int fd_direct, fd_buffered, fd_cache;
+  int fd_direct, fd_buffered, fd_cache, fd_cache_meta;
   uint64_t size;
   uint64_t block_size;
   std::string path;
