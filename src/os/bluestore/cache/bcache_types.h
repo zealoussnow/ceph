@@ -436,6 +436,8 @@ static inline struct bkey *bkey_idx(const struct bkey *k, unsigned nr_keys)
 
 #define BDEV_DATA_START_DEFAULT		16	/* sectors */
 
+#define MEMALIGN                        512
+
 struct cache_sb {
 	__u64			csum;
 	__u64			offset;	/* sector where this sb was written */

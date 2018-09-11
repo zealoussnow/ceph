@@ -474,7 +474,7 @@ int main()
   // 1. write_sb
   write_sb(cache_dev,1,1024,0,0,1,0,16,false);
 
-  int fd = open(cache_dev, O_RDWR);
+  int fd = open(cache_dev, O_RDWR | O_DIRECT);
   ca->fd = fd;
 
   /*int hdd_fd = open(hdd_dev, O_RDWR);*/

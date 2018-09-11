@@ -51,9 +51,9 @@ reread:	left = ca->sb.bucket_size - offset;
         CACHE_DEBUGLOG(CAT_JOURNAL," left %u len %u offset %u \n",left, len, offset);
         off_t start = (bucket+offset) << 9;
         size_t lenght = len << 9;
-        if ( sync_read( ca->fd, data, lenght, start ) == -1 ) {
-          CACHE_ERRORLOG(CAT_JOURNAL," read bucket(index %u bucket %ld) error \n",
-                                        bucket_index, ca->sb.d[bucket_index]);
+        if ( sync_read( ca->fd_meta, data, lenght, start ) == -1 ) {
+          CACHE_ERRORLOG(CAT_JOURNAL," read bucket(index %u bucket %ld) error %s \n",
+                                        bucket_index, ca->sb.d[bucket_index], strerror(errno));
           assert("read bucket got error"==0);
         }
 
@@ -606,9 +606,9 @@ static void journal_write_unlocked(struct cache_set *c)
     /*off_t start = PTR_OFFSET(k, i) << 9;*/
     off_t start = PTR_OFFSET_to_bytes(k, i);
     size_t len = sectors << 9;
-    if ( sync_write( ca->fd, w->data, len, start) == -1) {
-      CACHE_ERRORLOG(CAT_JOURNAL, "write journal(fd %d data %p start %lu len %lu) got error\n",
-                                          ca->fd, w->data, start, len);
+    if ( sync_write( ca->fd_meta, w->data, len, start) == -1) {
+      CACHE_ERRORLOG(CAT_JOURNAL, "write journal(fd %d data %p start %lu len %lu) got error: %s\n",
+                                          ca->fd, w->data, start, len, strerror(errno));
       assert("write journal got error" == 0);
     }
     SET_PTR_OFFSET(k, i, PTR_OFFSET(k, i) + sectors);
@@ -790,8 +790,8 @@ int bch_journal_alloc(struct cache_set *c)
   j->w[1].c = c;
 
   if (!(init_fifo(&j->pin, JOURNAL_PIN)) ||
-      !(j->w[0].data = (void *) T2Molloc(PAGE_SIZE << JSET_BITS )) ||
-      !(j->w[1].data = (void *) T2Molloc(PAGE_SIZE << JSET_BITS )))
+      posix_memalign(&j->w[0].data, MEMALIGN, PAGE_SIZE << JSET_BITS ) ||
+      posix_memalign(&j->w[1].data, MEMALIGN, PAGE_SIZE << JSET_BITS ))
     return -ENOMEM;
   dump_journal_pin("journal alloc init", &j->pin);
   return 0;
