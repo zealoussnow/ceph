@@ -447,7 +447,7 @@ struct cache {
   int                  fd;
   int                  fd_meta;
   int                  hdd_fd;
-  bool                 enable_dsync;
+  bool                 enable_flush;
   const char *bdev_path;
   struct cache_set      *set;
   struct cache_sb               sb;
@@ -597,7 +597,7 @@ struct cache_set {
   int                     fd;
   int                     fd_meta;
   int                     hdd_fd;
-  bool                    enable_dsync;
+  bool                    enable_flush;
   atomic_t                need_flush;
   
   logger_callback_fn logger_cb;

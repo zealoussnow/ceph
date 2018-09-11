@@ -834,7 +834,7 @@ static const char *register_cache_set(struct cache *ca)
   ca->set->fd = ca->fd;
   ca->set->fd_meta = ca->fd_meta;
   ca->set->hdd_fd = ca->hdd_fd;
-  ca->set->enable_dsync = ca->enable_dsync;
+  ca->set->enable_flush = ca->enable_flush;
   atomic_set(&ca->set->need_flush, 0);
 
   c->dc = calloc(1, sizeof(struct cached_dev));

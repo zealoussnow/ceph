@@ -3307,9 +3307,9 @@ std::vector<Option> get_global_options() {
     .set_default("512")
     .set_description("max gc keys onetime"),
 
-    Option("t2store_dev_dsync", Option::TYPE_BOOL, Option::LEVEL_DEV)
+    Option("t2store_dev_flush", Option::TYPE_BOOL, Option::LEVEL_DEV)
     .set_default(false)
-    .set_description("Open device with O_DSYNC flag"),
+    .set_description("Enable flush data when matadata write"),
 
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")

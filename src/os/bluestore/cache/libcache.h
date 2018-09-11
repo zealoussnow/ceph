@@ -31,7 +31,7 @@ struct cache_context {
         void * cache;
         void * bluestore_cd;
         int fd_cache;
-        int enable_dsync;
+        int enable_flush;
         int fd_cache_meta;
         int fd_direct;
         bool registered;

@@ -185,7 +185,7 @@ int CacheDevice::cache_init(const std::string& path)
   int r = 0;
   bdev_path = path + "/bdev.conf.in";
   cache_ctx.fd_cache=fd_cache;
-  cache_ctx.enable_dsync=cct->_conf->t2store_dev_dsync;
+  cache_ctx.enable_flush=cct->_conf->t2store_dev_flush;
   cache_ctx.fd_cache_meta=fd_cache_meta;
   cache_ctx.fd_direct=fd_direct;
   cache_ctx.bdev_path = bdev_path.c_str();
@@ -274,7 +274,7 @@ int CacheDevice::open(const string& p, const string& c_path)
   cache_path = c_path;
   int r = 0;
   int flgs = O_RDWR | O_DIRECT;
-  if (cct->_conf->t2store_dev_dsync){
+  if (cct->_conf->t2store_dev_flush){
     flgs |= O_DSYNC;
     dout(1) << __func__ << " open device with O_DSYNC flag " << dendl;
   }

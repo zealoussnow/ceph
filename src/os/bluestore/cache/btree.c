@@ -348,7 +348,7 @@ static void __btree_node_write_done(struct btree *b)
 
 void flush(struct cache_set *c){
   int rc;
-  if (c->enable_dsync || !atomic_cmpxchg(&c->need_flush, 1, 0))
+  if (c->enable_flush || !atomic_cmpxchg(&c->need_flush, 1, 0))
     return;
 
   uint64_t time_for_btree_root = cache_realtime_u64();

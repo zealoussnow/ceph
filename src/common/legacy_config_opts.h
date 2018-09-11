@@ -1040,7 +1040,7 @@ OPTION(t2store_cutoff_cache_add, OPT_STR)
 OPTION(t2store_cutoff_gc, OPT_STR)
 OPTION(t2store_gc_mode, OPT_STR)
 OPTION(t2store_max_gc_keys_onetime, OPT_STR)
-OPTION(t2store_dev_dsync, OPT_BOOL)
+OPTION(t2store_dev_flush, OPT_BOOL)
 
 OPTION(bluestore_block_path, OPT_STR)
 OPTION(bluestore_block_size, OPT_U64)  // 10gb for testing
