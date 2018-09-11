@@ -273,28 +273,22 @@ int CacheDevice::open(const string& p, const string& c_path)
   path = p;
   cache_path = c_path;
   int r = 0;
-  int flgs = O_RDWR | O_DIRECT;
 
-  if (cct->_conf->t2store_dev_dsync){
-    flgs |= O_DSYNC;
-    dout(1) << __func__ << " open device with O_DSYNC flag " << dendl;
-  }
-
-  fd_cache = ::open(cache_path.c_str(), flgs);
+  fd_cache = ::open(cache_path.c_str(), O_RDWR | O_DIRECT);
   if (fd_cache < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
     return r;
   }
 
-  fd_cache_meta = ::open(cache_path.c_str(), flgs | O_DSYNC);
+  fd_cache_meta = ::open(cache_path.c_str(), O_RDWR | O_DIRECT | O_DSYNC);
   if (fd_cache_meta < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
     return r;
   }
 
-  fd_direct = ::open(path.c_str(), flgs);
+  fd_direct = ::open(path.c_str(), O_RDWR | O_DIRECT);
   if (fd_direct < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
@@ -634,26 +628,11 @@ int CacheDevice::flush()
     _exit(1);
   }
   utime_t start = ceph_clock_now();
-  int r = ::fdatasync(fd_direct);
+  t2cloud_cache_flush(&cache_ctx);
   utime_t end = ceph_clock_now();
   utime_t dur = end - start;
-  if (r < 0) {
-    r = -errno;
-    derr << __func__ << " fd_direct fdatasync got: " << cpp_strerror(r) << dendl;
-    ceph_abort();
-  }
   dout(5) << __func__ << " in " << dur << dendl;;
-  start = ceph_clock_now();
-  r = t2cloud_cache_flush(&cache_ctx);
-  end = ceph_clock_now();
-  dur = end - start;
-  if (r < 0) {
-    r = -errno;
-    derr << __func__ << " fd_cache fdatasync got: " << cpp_strerror(r) << dendl;
-    ceph_abort();
-  }
-  dout(5) << __func__ << " in " << dur << dendl;;
-  return r;
+  return 0;
 }
 
 int CacheDevice::_aio_start()

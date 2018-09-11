@@ -165,7 +165,7 @@ CEPH_CACHE_API int t2store_set_log_level(const char *level);
 CEPH_CACHE_API void t2store_set_gc_pause(struct cache_context *ctx, int pause);
 CEPH_CACHE_API void t2store_wakeup_gc(struct cache_context *ctx);
 CEPH_CACHE_API void t2store_expensive_debug_checks(struct cache_context *ctx, bool state);
-CEPH_CACHE_API int t2cloud_cache_flush(struct cache_context *ctx);
+CEPH_CACHE_API void t2cloud_cache_flush(struct cache_context *ctx);
 
 #ifdef __cplusplus
 }

@@ -460,7 +460,7 @@ err:
 static void 
 __write_super(struct cache *c)
 {
-  struct cache_sb *sb;
+  struct cache_sb *sb = NULL;
   off_t start = SB_START;
   size_t len = SB_SIZE;
   int err;

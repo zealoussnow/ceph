@@ -348,16 +348,12 @@ static void __btree_node_write_done(struct btree *b)
 
 void flush(struct cache_set *c){
   int rc;
-  if (c->enable_dsync)
+  if (c->enable_dsync || !atomic_cmpxchg(&c->need_flush, 1, 0))
     return;
-  if (!atomic_cmpxchg(&c->need_flush, 1, 0)){
-    return;
-  }
   rc = fdatasync(c->fd);
   cache_bug_on(rc != 0, c, "Flush cache data failed: %s\n", strerror(errno));
   rc = fdatasync(c->hdd_fd);
   cache_bug_on(rc != 0, c, "Flush backend data failed: %s\n", strerror(errno));
-  return rc;
 }
 
 static void do_btree_node_write(struct btree *b)
