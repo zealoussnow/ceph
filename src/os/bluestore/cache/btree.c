@@ -350,10 +350,14 @@ void flush(struct cache_set *c){
   int rc;
   if (c->enable_dsync || !atomic_cmpxchg(&c->need_flush, 1, 0))
     return;
+
+  uint64_t time_for_btree_root = cache_realtime_u64();
   rc = fdatasync(c->fd);
   cache_bug_on(rc != 0, c, "Flush cache data failed: %s\n", strerror(errno));
   rc = fdatasync(c->hdd_fd);
   cache_bug_on(rc != 0, c, "Flush backend data failed: %s\n", strerror(errno));
+  CACHE_INFOLOG(CAT_GC, "flush lat = %lu\n",
+    (cache_realtime_u64() - time_for_btree_root)/NSEC_PER_USEC);
 }
 
 static void do_btree_node_write(struct btree *b)
