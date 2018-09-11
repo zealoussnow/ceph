@@ -9220,14 +9220,21 @@ void PrimaryLogPG::eval_repop(RepGather *repop)
   if (repop->op)
     m = static_cast<const MOSDOp *>(repop->op->get_req());
 
-  if (m)
-    dout(6) << "eval_repop " << *repop
-	     << " rep_done " << repop->rep_done
-	     << dendl;
-  else
-    dout(6) << "eval_repop " << *repop << " (no op)"
-	     << " rep_done " << repop->rep_done
-	     << dendl;
+  dout(6) << "eval_repop " << *repop
+           << " rep_done " << repop->rep_done
+           << dendl;
+  for (xlist<RepGather*>::iterator i = repop_queue.begin(); !i.end(); ++i) {
+    dout(6) << __func__ << " repop_queue: reppop " << **i << dendl;
+  }
+
+  //if (m)
+    //dout(6) << "eval_repop " << *repop
+	     //<< " rep_done " << repop->rep_done
+	     //<< dendl;
+  //else
+    //dout(6) << "eval_repop " << *repop << " (no op)"
+	     //<< " rep_done " << repop->rep_done
+	     //<< dendl;
 
   if (repop->rep_done)
     return;
@@ -9277,25 +9284,36 @@ void PrimaryLogPG::eval_repop(RepGather *repop)
     dout(6) << " removing " << *repop << dendl;
     assert(!repop_queue.empty());
     dout(6) << "   q front is " << *repop_queue.front() << dendl; 
+
     if (repop_queue.front() != repop) {
       if (!repop->applies_with_commit) {
-	dout(0) << " removing " << *repop << dendl;
-	dout(0) << "   q front is " << *repop_queue.front() << dendl;
-	assert(repop_queue.front() == repop);
-      }
-    } else {
-      RepGather *to_remove = nullptr;
-      while (!repop_queue.empty() &&
-	     (to_remove = repop_queue.front())->rep_done) {
-	repop_queue.pop_front();
-	for (auto p = to_remove->on_success.begin();
-	     p != to_remove->on_success.end();
-	     to_remove->on_success.erase(p++)) {
-	  (*p)();
-	}
-	remove_repop(to_remove);
+        dout(0) << " linbing removing " << *repop << dendl;
+        dout(0) << " linbing   q front is " << *repop_queue.front() << dendl;
+        //assert(repop_queue.front() == repop);
       }
     }
+
+    RepGather *to_remove = repop;
+    repop_queue.remove(&repop->queue_item);
+    for (auto p = to_remove->on_success.begin();
+         p != to_remove->on_success.end();
+         to_remove->on_success.erase(p++)) {
+      (*p)();
+    }
+    remove_repop(to_remove);
+    //} else {
+      //RepGather *to_remove = nullptr;
+      //while (!repop_queue.empty() &&
+	     //(to_remove = repop_queue.front())->rep_done) {
+	//repop_queue.pop_front();
+	//for (auto p = to_remove->on_success.begin();
+	     //p != to_remove->on_success.end();
+	     //to_remove->on_success.erase(p++)) {
+	  //(*p)();
+	//}
+	//remove_repop(to_remove);
+      //}
+    //}
   }
 }
 
