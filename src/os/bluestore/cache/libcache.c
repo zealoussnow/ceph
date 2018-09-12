@@ -1,5 +1,4 @@
 #include <stdbool.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,15 +11,14 @@
 #include "bcache.h"
 #include "writeback.h"
 
-
-int t2store_cache_write_cache_sb(const char *log_path, const char *whoami, const char *dev, 
+int t2store_cache_write_cache_sb(struct cache_context *ctx, const char *dev,
                      unsigned block_size, unsigned bucket_size,
                      bool writeback, bool discard, bool wipe_bcache,
                      unsigned cache_replacement_policy,
                      uint64_t data_offset, bool bdev)
 {
   int ret = 0;
-  log_init(log_path, whoami);
+  log_init(ctx);
   CACHE_INFOLOG(NULL, "write %s super block \n",dev);
   ret = write_sb(dev, block_size, bucket_size,
                          writeback, discard, wipe_bcache,
@@ -35,7 +33,7 @@ int t2store_cache_write_cache_sb(const char *log_path, const char *whoami, const
 int t2store_cache_register_cache(struct cache_context *ctx)
 {
   int ret = 0;
-  log_init(ctx->log_path, ctx->whoami);
+  log_init(ctx);
 
   ctx->cache = malloc(sizeof(struct cache));
   memset(ctx->cache, 0, sizeof(struct cache));

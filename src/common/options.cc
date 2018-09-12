@@ -3206,6 +3206,10 @@ std::vector<Option> get_global_options() {
     .set_enum_allowed({"cache", "kernel", "pmem", "ust-nvme"})
     .set_default("")
     .set_description("backend store block type"),
+
+    Option("log_crash_on_nospc", Option::TYPE_BOOL, Option::LEVEL_DEV)
+    .set_default(false)
+    .set_description("abort when log output failed because of no space left on device"),
     
     Option("t2store_cache_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")
@@ -3228,11 +3232,6 @@ std::vector<Option> get_global_options() {
     .add_tag("dpdk_env")
     .set_description("dpdk env core mask"),
 
-    Option("t2store_mem_size", Option::TYPE_UINT, Option::LEVEL_DEV)
-    .set_default(256)
-    .add_tag("dpdk_env")
-    .set_description("dpdk env mem size (M)"),
-
     Option("t2store_poll_period", Option::TYPE_UINT, Option::LEVEL_DEV)
     .set_default(100000)
     .add_tag("dpdk_env")
@@ -3241,10 +3240,6 @@ std::vector<Option> get_global_options() {
     Option("t2store_cache_thread_core_percent", Option::TYPE_FLOAT, Option::LEVEL_BASIC)
     .set_default(.5)
     .set_description("cache/backend thead percent"),
-
-    Option("t2store_cache_log_path", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("/var/log/ceph")
-    .set_description("cache log path"),
 
     Option("t2store_gc_stop", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("0")

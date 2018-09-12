@@ -1,8 +1,10 @@
 #include <zlog.h>
 
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <time.h>
 
@@ -10,7 +12,9 @@
 
 #include "log.h"
 
+static bool log_crash_on_nospc = 0;
 static int log_is_init = 0;
+static int last_errcode = 0;
 
 #define LOG_CONF "/etc/ceph/t2store_cachelog.conf"
 #define NAME_MAX 255
@@ -25,9 +29,17 @@ void set_log_level(int level)
   g_log_level = level;
 }
 
-void log_init(const char *log_path, const char *log_instant)
+void log_init(struct cache_context *ctx)
 {
   char env_val[NAME_MAX + 1] = {0};
+  char log_path[NAME_MAX + 1] = {0};
+  const char *log_file = ctx->log_file;
+  const char *log_instant = ctx->whoami;
+
+  log_crash_on_nospc = ctx->log_crash_on_nospc;
+
+  long path_nsep = strrchr(log_file, '/') - log_file;
+  strncpy(log_path, log_file, path_nsep);
 
   if (strlen(log_path) > NAME_MAX - LOG_PAT_LEN)
     assert("log path too long" == 0);
@@ -74,7 +86,15 @@ void cache_zlog(const char *cat_type, const char *file,
     return ;
   }
 
-  zlog(zc, file, filelen, func, funclen, line, level, "%s", formatted_buf);
+  int rc = zlog(zc, file, filelen, func, funclen, line, level, "%s", formatted_buf);
+  if (rc != last_errcode) {
+    if (rc < 0) {
+      fprintf(stderr, "log output failed, errno: %d\n", errno);
+      if (log_crash_on_nospc)
+        assert("log output failed" == 0);
+    }
+    last_errcode = rc;
+  }
 
   va_end(ap);
 }

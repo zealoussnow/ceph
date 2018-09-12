@@ -1,6 +1,8 @@
 #ifndef _CEPH_LIBCACHE_H
 #define _CEPH_LIBCACHE_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,17 +30,18 @@ enum {
 };
 
 struct cache_context {
-        void * cache;
-        void * bluestore_cd;
-        int fd_cache;
-        int enable_flush;
-        int fd_cache_meta;
-        int fd_direct;
-        bool registered;
-        const char *bdev_path;
-        void *logger_cb;
-        const char *whoami;
-        const char *log_path;
+  void * cache;
+  void * bluestore_cd;
+  int fd_cache;
+  int enable_flush;
+  int fd_cache_meta;
+  int fd_direct;
+  bool registered;
+  const char *bdev_path;
+  void *logger_cb;
+  const char *whoami;
+  const char *log_file;
+  bool log_crash_on_nospc;
 };
 
 enum cache_write_strategy {
@@ -134,7 +137,7 @@ struct ring_items;
 struct ring_item;
 
 
-CEPH_CACHE_API int t2store_cache_write_cache_sb(const char *log_path, const char *whoami, const char *dev, 
+CEPH_CACHE_API int t2store_cache_write_cache_sb(struct cache_context *ctx, const char *dev,
                      unsigned block_size, unsigned bucket_size,
                      bool writeback, bool discard, bool wipe_bcache,
                      unsigned cache_replacement_policy,

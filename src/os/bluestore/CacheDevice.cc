@@ -142,6 +142,7 @@ CacheDevice::CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv)
     aio_queue(cct->_conf->bdev_aio_max_queue_depth),
     aio_stop(false),
     injecting_crash(0),
+    asok_hook(nullptr),
     aio_callback(cb),
     aio_callback_priv(cbpriv)
 {
@@ -190,11 +191,12 @@ int CacheDevice::cache_init(const std::string& path)
   cache_ctx.fd_direct=fd_direct;
   cache_ctx.bdev_path = bdev_path.c_str();
   cache_ctx.whoami = cct->_conf->name.get_id().c_str();
-  cache_ctx.log_path = cct->_conf->t2store_cache_log_path.c_str();
+  cache_ctx.log_file = cct->_conf->log_file.c_str();
   cache_ctx.logger_cb = (void*)logger_tinc;
   cache_ctx.bluestore_cd = (void*)this;
+  cache_ctx.log_crash_on_nospc = cct->_conf->log_crash_on_nospc;
 
-  dout(0)<< __func__ << " cache log path "<< cache_ctx.log_path <<dendl;
+  dout(0)<< __func__ << " ceph log file "<< cache_ctx.log_file <<dendl;
   dout(1)<< __func__ << " lb cache_ctx.registered "<< cache_ctx.registered <<dendl;
   if (cache_ctx.registered)
     return r;
@@ -259,10 +261,11 @@ int CacheDevice::write_cache_super(const std::string& path)
   bool wipe_bcache = 1;
   unsigned cache_replacement_policy = 0;
   uint64_t data_offset = 16;
-  const char *whoami = cct->_conf->name.get_id().c_str();
-  const char *log_path = cct->_conf->t2store_cache_log_path.c_str();
+  cache_ctx.whoami = cct->_conf->name.get_id().c_str();
+  cache_ctx.log_file = cct->_conf->log_file.c_str();
+  cache_ctx.log_crash_on_nospc = cct->_conf->log_crash_on_nospc;
 
-  r = t2store_cache_write_cache_sb(log_path, whoami, path.c_str(), 
+  r = t2store_cache_write_cache_sb(&cache_ctx, path.c_str(),
                         block_size, bucket_size, writeback, discard, 
                         wipe_bcache,cache_replacement_policy,
                         data_offset,false);
@@ -1527,6 +1530,9 @@ void CacheDevice::asok_unregister()
   cct->get_admin_socket()->unregister_command("set_log_level");
   cct->get_admin_socket()->unregister_command("set_gc_pause");
   cct->get_admin_socket()->unregister_command("wake_up_gc");
-  delete asok_hook;
-  asok_hook = NULL;
+
+  if (asok_hook) {
+    delete asok_hook;
+    asok_hook = nullptr;
+  }
 }

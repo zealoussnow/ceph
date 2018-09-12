@@ -54,7 +54,8 @@ Log::Log(SubsystemMap *s)
     m_stop(false),
     m_max_new(DEFAULT_MAX_NEW),
     m_max_recent(DEFAULT_MAX_RECENT),
-    m_inject_segv(false)
+    m_inject_segv(false),
+    m_crash_on_nospc(false)
 {
   int ret;
 
@@ -124,6 +125,11 @@ void Log::set_max_recent(int n)
 void Log::set_log_file(string fn)
 {
   m_log_file = fn;
+}
+
+void Log::set_crash_on_nospc(bool crash_on_nospc)
+{
+  m_crash_on_nospc = crash_on_nospc;
 }
 
 void Log::reopen_log_file()
@@ -333,10 +339,14 @@ void Log::_flush(EntryQueue *t, EntryQueue *requeue, bool crash)
         buf[buflen] = '\n';
         int r = safe_write(m_fd, buf, buflen+1);
 	if (r != m_fd_last_error) {
-	  if (r < 0)
+	  if (r < 0) {
 	    cerr << "problem writing to " << m_log_file
 		 << ": " << cpp_strerror(r)
+                 << ", crash_on_nospc: " << m_crash_on_nospc
 		 << std::endl;
+            if (m_crash_on_nospc)
+              assert(r == 0);
+          }
 	  m_fd_last_error = r;
 	}
       }
@@ -360,8 +370,12 @@ void Log::_log_message(const char *s, bool crash)
     b.append(s, len);
     b += '\n';
     int r = safe_write(m_fd, b.c_str(), b.size());
-    if (r < 0)
-      cerr << "problem writing to " << m_log_file << ": " << cpp_strerror(r) << std::endl;
+    if (r < 0) {
+      cerr << "problem writing to " << m_log_file << ": " << cpp_strerror(r)
+           << ", crash_on_nospc: " << m_crash_on_nospc << std::endl;
+      if (m_crash_on_nospc)
+        assert(r == 0);
+    }
   }
   if ((crash ? m_syslog_crash : m_syslog_log) >= 0) {
     syslog(LOG_USER|LOG_INFO, "%s", s);
