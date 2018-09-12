@@ -139,6 +139,7 @@ struct journal_write {
 
 /* Embedded in struct cache_set */
 struct journal {
+  struct event                  ev_journal_write;
   pthread_spinlock_t            lock;
   int                           io_in_flight;
   unsigned                      blocks_free;
@@ -146,6 +147,9 @@ struct journal {
   DECLARE_FIFO(atomic_t, pin); /* struct { size_t front, back, size, mask; atomic_t *data; } pin; */
   BKEY_PADDED(key);
   struct journal_write	w[2], *cur;
+  struct ring_items *items;
+  uint32_t journal_batch_lat;
+  uint32_t journal_batch_count;
 };
 
 /*

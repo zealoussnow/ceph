@@ -209,6 +209,7 @@ static void dirty_io_read(struct keybuf_key *w, struct dirty_item *d)
   item->io.pos = (char *)item->data + ((KEY_START(&w->key) << 9) - item->o_offset);
   item->io.offset = PTR_OFFSET(&w->key, 0) << 9;
   item->io.len = KEY_SIZE(&w->key) << 9;
+  item->type = ITEM_WRITEBACK;
 
   CACHE_DEBUGLOG(WRITEBACK, "Item(%p) o_offset=%lu, o_len=%lu, data=%p, io offset=%lu, len=%lu, pos=%p\n",
                  item, item->o_offset, item->o_len, item->data, item->io.offset, item->io.len, item->io.pos);

@@ -132,7 +132,6 @@ static inline void bch_btree_iter_next_check(struct btree_iter *iter) {}
 #endif
 
 /* Keylists */
-
 int __bch_keylist_realloc(struct keylist *l, unsigned u64s)
 {
   size_t oldsize = bch_keylist_nkeys(l);
@@ -159,6 +158,27 @@ int __bch_keylist_realloc(struct keylist *l, unsigned u64s)
   l->top_p = new_keys + oldsize;
 
   return 0;
+}
+
+int
+bch_keylist_realloc(struct keylist *l, unsigned u64s, struct cache_set *c)
+{
+  size_t oldsize = bch_keylist_nkeys(l);
+  size_t newsize = oldsize + u64s;
+
+  /*
+   * The journalling code doesn't handle the case where the keys to insert
+   * is bigger than an empty write: If we just return -ENOMEM here,
+   * bio_insert() and bio_invalidate() will insert the keys created so far
+   * and finish the rest when the keylist is empty.
+   */
+  if (newsize * sizeof(uint64_t) > block_bytes(c) - sizeof(struct jset)) {
+    CACHE_ERRORLOG(NULL, "keylist realloc jset has nomem\n");
+    assert("keylist realloc jset has nomem" == 0);
+    return -ENOMEM;
+  }
+
+  return __bch_keylist_realloc(l, u64s);
 }
 
 struct bkey *
