@@ -3263,7 +3263,7 @@ std::vector<Option> get_global_options() {
 
     Option("t2store_cache_mode", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("0")
-    .set_enum_allowed({"0", "1", "2", "3"})
+    .set_enum_allowed({"writeback", "writearound", "writethrough", "none"})
     .set_description("cache mode"),
 
     Option("t2store_cached_hits", Option::TYPE_STR, Option::LEVEL_DEV)

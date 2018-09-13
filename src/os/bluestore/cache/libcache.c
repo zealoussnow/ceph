@@ -167,7 +167,7 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
   }
 
   if (!strcmp(u_conf->opt_name, "t2store_cache_mode")) {
-    set_cache_mode(ctx->cache, atoi(u_conf->val));
+    set_cache_mode(ctx->cache, u_conf->val);
   }
 
   if (!strcmp(u_conf->opt_name, "t2store_writeback_percent")) {
@@ -229,8 +229,25 @@ static const char *get_wb_running_state(int state)
   }
 }
 
+static const char *get_cache_mode(int mode)
+{
+  switch (mode) {
+  case CACHE_MODE_WRITEBACK:
+    return "writeback";
+  case CACHE_MODE_WRITEAROUND:
+    return "writearound";
+  case CACHE_MODE_WRITETHROUGH:
+    return "writethrough";
+  case CACHE_MODE_NONE:
+    return "none";
+  default:
+    return "unknown";
+  }
+}
+
 static void get_wb_status(struct cached_dev *dc, struct wb_status *s)
 {
+  s->cache_mode        = get_cache_mode(BDEV_CACHE_MODE(&dc->sb));
   s->wb_running_state  = get_wb_running_state(dc->wb_status);
   s->writeback_stop    = atomic_read(&dc->writeback_stop);
   s->cached_hits       = atomic_read(&dc->c->cached_hits);
