@@ -51,6 +51,8 @@ class Log : private Thread
 
   bool m_inject_segv;
 
+  bool m_crash_on_nospc;
+
   void *entry() override;
 
   void _flush(EntryQueue *q, EntryQueue *requeue, bool crash);
@@ -76,6 +78,7 @@ public:
   void set_syslog_level(int log, int crash);
   void set_stderr_level(int log, int crash);
   void set_graylog_level(int log, int crash);
+  void set_crash_on_nospc(bool crash_on_nospc);
 
   void start_graylog();
   void stop_graylog();
