@@ -1871,7 +1871,7 @@ private:
       }
     }
     void _clear() override {
-      assert(peering_queue.empty());
+      //assert(peering_queue.empty());
     }
   } peering_wq;
 
