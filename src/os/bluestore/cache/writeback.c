@@ -149,11 +149,9 @@ static void write_completion(void *arg){
   struct dirty_item *d = (struct dirty_item *)arg;
   struct ring_item *item = d->item;
   struct cached_dev *dc = d->dc;
-  struct cache_set *c = dc->c;
   struct keybuf_key *w;
   int i;
 
-  atomic_set(&c->need_flush, 1);
   for (i = 0; i < d->nk; i++){
     w = d->keys[i];
     dirty_io_complete(w, dc);

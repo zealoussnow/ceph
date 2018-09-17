@@ -38,8 +38,6 @@ int t2store_cache_register_cache(struct cache_context *ctx)
   ctx->cache = malloc(sizeof(struct cache));
   memset(ctx->cache, 0, sizeof(struct cache));
   ((struct cache *)ctx->cache)->fd=ctx->fd_cache;
-  ((struct cache *)ctx->cache)->enable_flush=ctx->enable_flush;
-  ((struct cache *)ctx->cache)->fd_meta=ctx->fd_cache_meta;
   ((struct cache *)ctx->cache)->hdd_fd=ctx->fd_direct;
   ((struct cache *)ctx->cache)->bdev_path = ctx->bdev_path;
 
@@ -385,10 +383,5 @@ void t2store_wakeup_gc(struct cache_context *ctx)
 
 void t2store_expensive_debug_checks(struct cache_context *ctx, bool state){
   set_cache_expensive_debug_checks(ctx->cache, state);
-}
-
-void t2cloud_cache_flush(struct cache_context *ctx){
-  struct cache *ca  = (struct cache *)ctx->cache;
-  flush(ca->set);
 }
 

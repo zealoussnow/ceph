@@ -445,9 +445,7 @@ typedef void (*logger_callback_fn)(void *cd, int serial, struct timespec start, 
 struct cache {
   struct aio_handler  * handler;
   int                  fd;
-  int                  fd_meta;
   int                  hdd_fd;
-  bool                 enable_flush;
   const char *bdev_path;
   struct cache_set      *set;
   struct cache_sb               sb;
@@ -595,10 +593,7 @@ struct gc_stat {
 
 struct cache_set {
   int                     fd;
-  int                     fd_meta;
   int                     hdd_fd;
-  bool                    enable_flush;
-  atomic_t                need_flush;
   
   logger_callback_fn logger_cb;
   void               *bluestore_cd;

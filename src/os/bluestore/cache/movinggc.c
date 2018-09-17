@@ -54,7 +54,6 @@ static void write_completion(void *arg){
   struct cache_set *c = d->c;
 
   CACHE_DEBUGLOG(MOVINGGC, "Write completion key(%p) \n", &w->key);
-  atomic_set(&c->need_flush, 1);
   bch_keylist_push(item->insert_keys);
   bch_btree_insert(c, item->insert_keys, NULL, &w->key);
 

@@ -86,7 +86,7 @@ prio_io(struct cache *ca, uint64_t bucket, int op,
   if ( op == REQ_OP_WRITE ) {
     CACHE_DEBUGLOG(CAT_WRITE,"prio io write fd %d start 0x%x len %x (bucket %u)\n", 
                                 ca->fd, start, len, bucket);
-    if ( sync_write(ca->fd_meta, ca->disk_buckets, len, start) == -1){
+    if ( sync_write(ca->fd, ca->disk_buckets, len, start) == -1){
       CACHE_ERRORLOG(CAT_WRITE, "prio io write error: %s\n", strerror(errno));
       assert("prio io write error" == 0);
     }
@@ -94,7 +94,7 @@ prio_io(struct cache *ca, uint64_t bucket, int op,
   if ( op == REQ_OP_READ ) {
     CACHE_DEBUGLOG(CAT_WRITE,"prio io read fd %d start 0x%x len %x (bucket %u)\n", 
                                 ca->fd, start, len, bucket);
-    if ( sync_read(ca->fd_meta, ca->disk_buckets, len, start ) == -1 ) {
+    if ( sync_read(ca->fd, ca->disk_buckets, len, start ) == -1 ) {
       CACHE_ERRORLOG(CAT_WRITE, "prio io read error: %s\n", strerror(errno));
       assert("prio io read error" == 0);
     }
@@ -474,7 +474,7 @@ __write_super(struct cache *c)
 
   CACHE_INFOLOG(CAT_WRITE,"write super fd %d start 0x%x len %d\n",
                         c->fd, start, len);
-  if (sync_write(c->fd_meta, sb, len, start) == -1) {
+  if (sync_write(c->fd, sb, len, start) == -1) {
     CACHE_ERRORLOG(CAT_WRITE,"write super error :%s\n", strerror(errno));
     assert("write super error" == 0);
   }
@@ -832,10 +832,7 @@ static const char *register_cache_set(struct cache *ca)
   ca->set->cache[ca->sb.nr_this_dev] = ca;
   c->cache_by_alloc[c->caches_loaded++] = ca;
   ca->set->fd = ca->fd;
-  ca->set->fd_meta = ca->fd_meta;
   ca->set->hdd_fd = ca->hdd_fd;
-  ca->set->enable_flush = ca->enable_flush;
-  atomic_set(&ca->set->need_flush, 0);
 
   c->dc = calloc(1, sizeof(struct cached_dev));
   memcpy(&c->dc->sb, &c->sb, sizeof(struct cache_sb));
@@ -1361,8 +1358,6 @@ void aio_write_completion(void *cb)
     CACHE_ERRORLOG(NULL, "Aio completion, io not Sucessfull %d \n", item->io.success);
     assert(" Aio completion, io not Sucessfull " == 0);
   }
-
-  atomic_set(&ca->set->need_flush, 1);
 
   if (((char *)item->data + item->o_len ) == ((char *)item->io.pos + item->io.len )) {
     CACHE_DEBUGLOG(CAT_AIO_WRITE,"AIO IO(start=%lu(0x%lx),len=%lu(0x%lx)) Completion success=%d\n",
