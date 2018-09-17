@@ -186,8 +186,6 @@ int CacheDevice::cache_init(const std::string& path)
   int r = 0;
   bdev_path = path + "/bdev.conf.in";
   cache_ctx.fd_cache=fd_cache;
-  cache_ctx.enable_flush=cct->_conf->t2store_dev_flush;
-  cache_ctx.fd_cache_meta=fd_cache_meta;
   cache_ctx.fd_direct=fd_direct;
   cache_ctx.bdev_path = bdev_path.c_str();
   cache_ctx.whoami = cct->_conf->name.get_id().c_str();
@@ -282,21 +280,14 @@ int CacheDevice::open(const string& p, const string& c_path)
     dout(1) << __func__ << " open device with O_DSYNC flag " << dendl;
   }
 
-  fd_cache = ::open(cache_path.c_str(), O_RDWR | O_DIRECT);
+  fd_cache = ::open(cache_path.c_str(), flgs);
   if (fd_cache < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
     return r;
   }
 
-  fd_cache_meta = ::open(cache_path.c_str(), flgs);
-  if (fd_cache_meta < 0) {
-    r = -errno;
-    derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
-    return r;
-  }
-
-  fd_direct = ::open(path.c_str(), O_RDWR | O_DIRECT);
+  fd_direct = ::open(path.c_str(), flgs);
   if (fd_direct < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
@@ -615,6 +606,11 @@ int CacheDevice::flush()
   // aio completion notification will not return before that aio is
   // stable on disk: whichever thread sees the flag first will block
   // followers until the aio is stable.
+  
+  // We heave O_DSYNC in open.
+  // so, return now
+  return 0;
+/*
   std::lock_guard<std::mutex> l(flush_mutex);
 
   bool expect = true;
@@ -636,11 +632,17 @@ int CacheDevice::flush()
     _exit(1);
   }
   utime_t start = ceph_clock_now();
-  t2cloud_cache_flush(&cache_ctx);
+  int r = ::fdatasync(fd_direct);
   utime_t end = ceph_clock_now();
   utime_t dur = end - start;
+  if (r < 0) {
+    r = -errno;
+    derr << __func__ << " fdatasync got: " << cpp_strerror(r) << dendl;
+    ceph_abort();
+  }
   dout(5) << __func__ << " in " << dur << dendl;;
-  return 0;
+  return r;
+*/
 }
 
 int CacheDevice::_aio_start()
