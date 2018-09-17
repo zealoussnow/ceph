@@ -55,7 +55,7 @@ static void write_completion(void *arg){
 
   CACHE_DEBUGLOG(MOVINGGC, "Write completion key(%p) \n", &w->key);
   bch_keylist_push(item->insert_keys);
-  bch_btree_insert(c, item->insert_keys, NULL, &w->key);
+  bch_data_insert_keys(c, item->insert_keys, &w->key);
 
   bch_keybuf_del(&c->moving_gc_keys, w);
   atomic_dec(&c->gc_seq);

@@ -900,10 +900,9 @@ data_insert_test(struct cache * c)
 
 int 
 bch_data_insert_keys(struct cache_set *c_set,
-                struct keylist *insert_keys)
+                struct keylist *insert_keys, struct bkey *replace_key)
 {
   atomic_t *journal_ref = NULL;
-  struct bkey *replace_key = NULL;
   int ret;
 
   struct timespec start = cache_clock_now();
@@ -1035,7 +1034,7 @@ int cache_sync_write(struct cache *ca, void * data, uint64_t off, uint64_t len)
     bch_keylist_push(&insert_keys);
   } while(left > 0);
 
-  bch_data_insert_keys(ca->set, &insert_keys);
+  bch_data_insert_keys(ca->set, &insert_keys, NULL);
 
   return ret;
 }
@@ -1373,7 +1372,7 @@ void aio_write_completion(void *cb)
           assert(bch_keylist_nkeys(item->insert_keys) == 2);
         }
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
-        ret = bch_data_insert_keys(ca->set, item->insert_keys);
+        ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);
         break;
       case CACHE_MODE_WRITETHROUGH:
         // write through 写完hhd之后，开始写ssd
@@ -1409,7 +1408,7 @@ void aio_write_completion(void *cb)
             assert(bch_keylist_nkeys(item->insert_keys) == 3);
           }
           ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
-          ret = bch_data_insert_keys(ca->set, item->insert_keys);
+          ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);
           break;
         }
       case CACHE_MODE_WRITEBACK:
@@ -1420,7 +1419,7 @@ void aio_write_completion(void *cb)
         }
         /*assert(bch_keylist_nkeys(item->insert_keys) == 3);*/
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
-        ret = bch_data_insert_keys(ca->set, item->insert_keys);
+        ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_insert_keys, insert_start, cache_clock_now());
         bch_writeback_add(ca->set->dc);
         break;
@@ -1493,7 +1492,7 @@ int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
   SET_KEY_SIZE(k, (len >> 9));
   bch_keylist_push(insert_keys);
 
-  ret = bch_data_insert_keys(ca->set, insert_keys);
+  ret = bch_data_insert_keys(ca->set, insert_keys, NULL);
   if ( ret != 0 ) {
     CACHE_DEBUGLOG(NULL,"Invalidate region(start=%lu/0x%lx,len=%lu,0x%lx) ERROR.\n",
                         offset/512,offset,len/512,len);
