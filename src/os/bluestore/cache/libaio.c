@@ -88,6 +88,8 @@ get_thread_data(uint16_t type, struct aio_handler *handler) {
   pthread_t pthread_id = pthread_self();
   uint32_t need_seq;
 
+  assert(handler != NULL);
+
   if ( !handler->nr_cache ) {
     CACHE_ERRORLOG(NULL, "thread empty nr_cache %d, need thread init\n",
         handler->nr_cache);
@@ -386,8 +388,9 @@ void aio_destroy(void *arg){
   list_for_each_entry(td, &handler->backend_threads, node)
     td->t_options->running = false;
 
-  while(list_empty(&handler->cache_threads)){
+  while(!list_empty(&handler->cache_threads)) {
     td = list_first_entry(&handler->cache_threads, typeof(*td), node);
+    CACHE_INFOLOG(CAT_AIO, "stop cache pooler: %#lx\n", td->pooler_td);
     err = pthread_join(td->pooler_td, NULL);
     cache_bug_on(err != 0, ca->set, "Aio thread wait failed: %s\n", strerror(err));
     free(td->t_options);
@@ -399,8 +402,9 @@ void aio_destroy(void *arg){
     free(td);
   }
 
-  while(list_empty(&handler->backend_threads)){
+  while(!list_empty(&handler->backend_threads)) {
     td = list_first_entry(&handler->backend_threads, typeof(*td), node);
+    CACHE_INFOLOG(CAT_AIO, "stop backend pooler: %#lx\n", td->pooler_td);
     pthread_join(td->pooler_td, NULL);
     cache_bug_on(err != 0, ca->set, "Aio thread wait failed: %s\n", strerror(err));
     free(td->t_options);
@@ -415,6 +419,7 @@ void aio_destroy(void *arg){
 
   free(handler);
   ca->handler = g_handler = NULL;
-  return 0;
+
+  return ;
 }
 
