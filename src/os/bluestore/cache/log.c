@@ -8,7 +8,7 @@
 #include <string.h>
 #include <time.h>
 
-#include <unistd.h>
+//#include <unistd.h>
 
 #include "log.h"
 
@@ -82,6 +82,7 @@ void cache_zlog(const char *cat_type, const char *file,
     zc = zlog_get_category(cat_type);
   }
   if (!zc) {
+    va_end(ap);
     zlog_fini();
     return ;
   }

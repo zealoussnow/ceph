@@ -1,11 +1,9 @@
-#include <fcntl.h>
 #include <pthread.h>
 #include <libaio.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <event2/event.h>
-#include <sys/eventfd.h>
+
 #include "aio.h"
 #include "list.h"
 #include "log.h"

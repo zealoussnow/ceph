@@ -6,6 +6,8 @@
  * Copyright 2012 Google, Inc.
  */
 
+#include <unistd.h>
+
 #include "bcache.h"
 #include "bset.h"
 #include "debug.h"
