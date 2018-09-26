@@ -458,7 +458,7 @@ static bool refill_dirty(struct cached_dev *dc)
 
 static bool refill_should_wait(struct cached_dev *dc)
 {
-  return !RB_EMPTY_ROOT(&dc->writeback_keys.keys) && dc->c->gc_stats.in_use < dc->cutoff_writeback;
+  return !RB_EMPTY_ROOT(&dc->writeback_keys.keys);
 }
 
 /* writeback线程 */
