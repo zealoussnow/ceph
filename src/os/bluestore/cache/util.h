@@ -7,10 +7,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <time.h>
 
 #include <sys/time.h>
+#include <sys/user.h>
 
 #include "bcache_types.h"
 #include "rbtree.h"
@@ -55,7 +55,7 @@ static uint64_t cache_realtime_u64()
   return now.tv_sec * NSEC_PER_SEC + now.tv_nsec;
 }
 
-#define PAGE_SIZE sysconf(_SC_PAGESIZE)
+/* PAGE_SIZE is defined in sys/user.h */
 #define PAGE_SECTORS		(PAGE_SIZE / 512)
 
 #ifdef CONFIG_BCACHE_DEBUG

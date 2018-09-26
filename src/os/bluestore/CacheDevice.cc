@@ -92,14 +92,6 @@ static int str2cpuset(const char *coremask, cpu_set_t *mask) {
   return 0;
 }
 
-struct IORequest {
-  uint16_t cur_seg_idx = 0;
-  uint16_t nseg;
-  uint32_t cur_seg_left = 0;
-  void *inline_segs[inline_segment_num];
-  void **extra_segs = nullptr;
-};
-
 struct Task {
   CacheDevice *device;
   IOContext *ctx = nullptr;
@@ -112,7 +104,6 @@ struct Task {
   Task *next = nullptr;
   int64_t return_code;
   utime_t start;
-  IORequest io_request;
   std::mutex lock;
   std::condition_variable cond;
   Task(CacheDevice *dev, IOCommand c, uint64_t off, uint64_t l, int64_t rc = 0)
@@ -671,7 +662,7 @@ int CacheDevice::_aio_start()
     for (unsigned i = 0; i < cpu_nums; i++) {
       if (CPU_ISSET(i, &mask)) {
         char *thread_name = (char*)calloc(17, sizeof(char));
-        sprintf(thread_name, "caio_%d", i);
+        sprintf(thread_name, "caio_%u", i);
         AioCompletionThread *aio_thread = new AioCompletionThread(this);
         aio_thread->create(thread_name);
         //aio_thread->set_affinity(i);

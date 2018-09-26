@@ -3,11 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#define __USE_GNU 1 
 #include <fcntl.h>
 #include <libaio.h>
-#include <unistd.h>
 #include <uuid/uuid.h>
 #include <blkid/blkid.h>
 

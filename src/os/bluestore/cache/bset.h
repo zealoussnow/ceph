@@ -4,7 +4,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "util.h" /* for time_stats */
 
@@ -614,7 +613,7 @@ bch_count_data(struct btree_keys *b)
 #define bch_check_keys(b, ...)                                  \
 do {                                                            \
   if (btree_keys_expensive_checks(b))                   	\
-  __bch_check_keys(b, __VA_ARGS__);                             \
+    __bch_check_keys(b, __VA_ARGS__);                           \
 } while (0)
 
 #endif
