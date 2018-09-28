@@ -505,12 +505,12 @@ static int bch_writeback_thread(void *arg)
 
     ///*up_write(&dc->writeback_lock);*/
 
+    bch_ratelimit_reset(&dc->writeback_rate);
     read_dirty(dc);
 
     if (searched_full_index) {
 sleep:
       sleep(dc->writeback_delay);
-      //bch_ratelimit_reset(&dc->writeback_rate);
     }
   }
 
