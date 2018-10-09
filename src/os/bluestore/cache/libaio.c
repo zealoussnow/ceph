@@ -155,7 +155,7 @@ int aio_queue_submit(io_context_t ctx, unsigned len, struct iocb **iocbs)
   struct iocb **sbumit_iocbs = iocbs;
   while (submit_num) {
     assert(submit_num > 0);
-    assert((sbumit_iocbs + submit_num) == (iocbs + len));
+    submit_num = min_t(unsigned, submit_num ,LIBAIO_NR_EVENTS);
     r = io_submit(ctx, submit_num, sbumit_iocbs);
     if (r == -EAGAIN && attempts-- > 0) {
       usleep(delay);
@@ -170,8 +170,10 @@ int aio_queue_submit(io_context_t ctx, unsigned len, struct iocb **iocbs)
       CACHE_ERRORLOG(CAT_AIO," io_submit len=%u submit=%u ret=%d retries=%d\n", len, submit_num, r, retries);
       assert(r > 0);
     }
-    submit_num -= r;
     sbumit_iocbs += r;
+    submit_num = iocbs + len - sbumit_iocbs;
+    attempts = 16;
+    delay = 125;
   }
   if (retries){
     CACHE_WARNLOG(CAT_AIO," aio submit retries=%d\n", retries);
