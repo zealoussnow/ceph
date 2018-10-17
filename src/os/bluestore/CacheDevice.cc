@@ -1039,6 +1039,8 @@ int CacheDevice::write(
   bufferlist &bl,
   bool buffered)
 {
+  assert(0 == "get in write, for test");
+
   IOContext ioc(cct, NULL);
   uint64_t len = bl.length();
   dout(20) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
