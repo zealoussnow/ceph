@@ -227,6 +227,8 @@ endif()
 
 find_package(Libevent 2.1.8 REQUIRED)
 
+option(WITH_URCU "use urcu" ON)
+
 option(WITH_SPDK "Enable SPDK" OFF)
 if(WITH_SPDK)
   find_package(dpdk REQUIRED)

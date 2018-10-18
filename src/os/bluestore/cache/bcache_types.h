@@ -7,7 +7,7 @@
 #include <string.h>
 #include <assert.h>
 #include "bitops.h"
-
+#include "acconfig.h"
 
 #define TEXT_NORMAL     "\033[0m"
 /*#define TEXT_HAZARD   "\033[5;31m"*/
@@ -69,7 +69,8 @@ static inline s64 div_s64(s64 dividend, s32 divisor)
 
 #define PAGE_SHIFT              12
 
-#define BUG_ON(cond) assert(!(cond))
+#define BUG_ON(cond)    assert(!(cond))
+#define EBUG_ON(cond)   BUG_ON(cond)
 #define __printf(a, b) __attribute__((format(printf, a, b)))
 
 #define min_t(type, x, y) ({                    \
@@ -271,12 +272,16 @@ unsigned long __rounddown_pow_of_two(unsigned long n)
         __roundup_pow_of_two(n)                 \
 )
 
-
+#ifdef WITH_URCU
+typedef int atomic_t;
+typedef long atomic_long_t;
+#else
 typedef struct {
 	int counter;
 } atomic_t;
 
 typedef atomic_t atomic_long_t;
+#endif
 
 #define false 0
 #define true  1
