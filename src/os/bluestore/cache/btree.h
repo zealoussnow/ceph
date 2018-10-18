@@ -107,6 +107,13 @@
 #include "delayed_work.h"
 #include "list.h"
 
+#ifdef WITH_URCU
+#include <urcu.h>
+#else
+#define rcu_read_lock()
+#define rcu_read_unlock()
+#endif
+
 struct btree_write {
   atomic_t              *journal;
   /* If btree_split() frees a btree node, it writes a new pointer to that
@@ -238,7 +245,7 @@ void bkey_put(struct cache_set *c, struct bkey *k);
         for (iter = 0;                                                  \
             iter < ARRAY_SIZE((c)->bucket_hash);                       \
             iter++)                                                    \
-            hlist_for_each_entry((b), (c)->bucket_hash + iter, hash)
+              hlist_for_each_entry_rcu((b), (c)->bucket_hash + iter, hash)
 
 /* Recursing down the btree */
 
