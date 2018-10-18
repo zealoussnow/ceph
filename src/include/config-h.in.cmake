@@ -321,4 +321,7 @@
 /* Define to 1 if you have the `getprogname' function. */
 #cmakedefine HAVE_GETPROGNAME 1
 
+/* Define if you need use urcu */
+#cmakedefine WITH_URCU
+
 #endif /* CONFIG_H */

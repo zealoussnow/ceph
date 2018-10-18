@@ -5,8 +5,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "bcache_types.h"
+#include "acconfig.h"
+#ifdef WITH_URCU
+#include <urcu/uatomic.h>
+#endif
 
-#define CONFIG_64BIT
 #define barrier() __asm__ __volatile__("": : :"memory")
 
 #define __READ_ONCE_SIZE                                                \
@@ -66,6 +69,25 @@ static __always_inline void __write_once_size(volatile void *p, void *res, int s
         __u.__val;                                      \
 })
 
+#ifdef WITH_URCU
+#define atomic_set(v, i)              (uatomic_set(v, i))
+#define atomic_add(i, v)              (uatomic_add(v, i))
+#define atomic_sub(i, v)              (uatomic_sub(v, i))
+#define atomic_inc(v)                 (uatomic_inc(v))
+#define atomic_dec(v)                 (uatomic_dec(v))
+#define atomic_read(v)                (uatomic_read(v))
+#define atomic_xchg(v, i)             (uatomic_xchg(v, i))
+#define atomic_cmpxchg(v, o, n)       (uatomic_cmpxchg(v, o, n))
+#define atomic_add_return(i, v)       (uatomic_add_return(v, i))
+#define atomic_inc_return(v)          (uatomic_add_return(v, 1))
+#define atomic_sub_return(i, v)       (uatomic_sub_return(v, i))
+#define atomic_dec_return(v)          (uatomic_sub_return(v, 1))
+#define atomic_dec_bug(v)             BUG_ON(atomic_dec_return(v) < 0)
+#define atomic_inc_bug(v, i)          BUG_ON(atomic_inc_return(v) <= i)
+#define atomic_long_add(i, v)         (uatomic_add(v, i))
+#define cmpxchg(v, o, n)              (uatomic_cmpxchg(v, o, n))
+#else
+#define CONFIG_64BIT
 static __always_inline void atomic_set(atomic_t *v, int i)
 {
         WRITE_ONCE(v->counter, i);
@@ -258,5 +280,6 @@ ATOMIC_LONG_OP(add)
 ATOMIC_LONG_OP(sub)
 
 #undef ATOMIC_LONG_OP
+#endif
 
 #endif

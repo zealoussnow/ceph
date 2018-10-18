@@ -11,6 +11,7 @@
 #include "btree.h"
 #include "debug.h"
 #include "util.h"
+#include "atomic.h"
 #include "writeback.h"
 
 /* Rate limiting */
