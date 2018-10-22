@@ -74,6 +74,9 @@ endif()
 add_library(os STATIC ${libos_srcs} $<TARGET_OBJECTS:kv_objs> $<TARGET_OBJECTS:t2cache_objs>)
 
 set(CACHE_MODULE_LIBS zlog event)
+if(WITH_URCU)
+  list(APPEND CACHE_MODULE_LIBS urcu)
+endif(WITH_URCU)
 target_link_libraries(os uuid blkid ${CACHE_MODULE_LIBS})
 
 if(HAVE_LIBAIO)

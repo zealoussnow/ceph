@@ -1,18 +1,79 @@
 #ifndef _LINUX_LIST_H
 #define _LINUX_LIST_H
 
-//#include <linux/types.h>
-//#include <linux/stddef.h>
-//#include <linux/poison.h>
-//#include <linux/const.h>
-
 #define container_of(ptr, type, member) \
           ((type *)((char *)(ptr)-(char *)(&((type *)0)->member)))
 
+#ifdef WITH_URCU
+#include <urcu/rcuhlist.h>
 
-struct list_head {
-        struct list_head *next, *prev;
-};
+#define hlist_head cds_hlist_head
+#define hlist_node cds_hlist_node
+
+static inline int cds_hlist_unhashed(const struct cds_hlist_node *h)
+{
+  return !h->prev;
+}
+
+static inline void CDS_INIT_HLIST_NODE(struct cds_hlist_node *h)
+{
+  h->next = NULL;
+  h->prev = NULL;
+}
+
+static inline void cds_hlist_del_init(struct cds_hlist_node *n)
+{
+  if (!cds_hlist_unhashed(n)) {
+    cds_hlist_del(n);
+    CDS_INIT_HLIST_NODE(n);
+  }
+}
+
+static inline void cds_hlist_del_init_rcu(struct cds_hlist_node *n)
+{
+  if (!cds_hlist_unhashed(n)) {
+    cds_hlist_del_rcu(n);
+    n->prev = NULL;
+  }
+}
+
+#ifndef cds_hlist_for_each_entry_2
+#define cds_hlist_for_each_entry_2(entry, head, member)                      \
+  for (entry = ((head)->next == NULL ? NULL                                  \
+          : cds_hlist_entry((head)->next, __typeof__(*entry), member));      \
+      entry != NULL;                                                         \
+      entry = (entry->member.next == NULL ? NULL                             \
+          : cds_hlist_entry(entry->member.next, __typeof__(*entry), member)))
+#endif /* cds_hlist_for_each_entry_2 */
+
+/*
+ * cds_hlist_for_each_entry_rcu takes 4 arguments, while the Linux
+ * kernel API only takes 3.
+ * We implement cds_hlist_for_each_entry_rcu_2() to follow the Linux
+ * kernel APIs.
+ */
+#ifndef cds_hlist_for_each_entry_rcu_2
+#define cds_hlist_for_each_entry_rcu_2(entry, head, member)                 \
+  for (entry = cds_hlist_entry(rcu_dereference((head)->next),               \
+                          __typeof__(*entry), member);                      \
+               &entry->member != NULL;                                      \
+               entry = cds_hlist_entry(rcu_dereference(entry->member.next), \
+                          __typeof__(*entry), member))
+#endif /* cds_hlist_for_each_entry_rcu_2 */
+
+#define hlist_for_each_entry(entry, head, member)     \
+          cds_hlist_for_each_entry_2(entry, head, member)
+
+#define hlist_for_each_entry_rcu(entry, head, member) \
+          cds_hlist_for_each_entry_rcu_2(entry, head, member)
+
+#define hlist_add_head(n, h)      cds_hlist_add_head(n, h)
+#define hlist_del(n)              cds_hlist_del(n)
+#define hlist_del_init(n)         cds_hlist_del_init(n)
+#define hlist_del_init_rcu(n)     cds_hlist_del_init_rcu(n)
+#define hlist_add_head_rcu(n, h)  cds_hlist_add_head_rcu(n, h)
+
+#else
 
 struct hlist_head {
         struct hlist_node *first;
@@ -22,6 +83,178 @@ struct hlist_node {
         struct hlist_node *next, **pprev;
 };
 
+#define hlist_for_each_entry_rcu(entry, head, member) \
+        hlist_for_each_entry(entry, head, member)
+
+#define hlist_del_init_rcu(n) \
+        hlist_del_init(n)
+
+#define hlist_add_head_rcu(n, h)  \
+        hlist_add_head(n, h)
+
+/*
+ * Double linked lists with a single pointer list head.
+ * Mostly useful for hash tables where the two pointer list head is
+ * too wasteful.
+ * You lose the ability to access the tail in O(1).
+ */
+
+#define HLIST_HEAD_INIT { .first = NULL }
+#define HLIST_HEAD(name) struct hlist_head name = {  .first = NULL }
+#define INIT_HLIST_HEAD(ptr) ((ptr)->first = NULL)
+static inline void INIT_HLIST_NODE(struct hlist_node *h)
+{
+	h->next = NULL;
+	h->pprev = NULL;
+}
+
+static inline int hlist_unhashed(const struct hlist_node *h)
+{
+	return !h->pprev;
+}
+
+static inline int hlist_empty(const struct hlist_head *h)
+{
+	return !h->first;
+}
+
+static inline void __hlist_del(struct hlist_node *n)
+{
+	struct hlist_node *next = n->next;
+	struct hlist_node **pprev = n->pprev;
+	*pprev = next;
+	if (next)
+		next->pprev = pprev;
+}
+
+static inline void hlist_del(struct hlist_node *n)
+{
+	__hlist_del(n);
+	//n->next = LIST_POISON1;
+	//n->pprev = LIST_POISON2;
+	n->next = NULL;
+	n->pprev = NULL;
+}
+
+static inline void hlist_del_init(struct hlist_node *n)
+{
+	if (!hlist_unhashed(n)) {
+		__hlist_del(n);
+		INIT_HLIST_NODE(n);
+	}
+}
+
+static inline void hlist_add_head(struct hlist_node *n, struct hlist_head *h)
+{
+	struct hlist_node *first = h->first;
+	n->next = first;
+	if (first)
+		first->pprev = &n->next;
+	h->first = n;
+	n->pprev = &h->first;
+}
+
+/* next must be != NULL */
+static inline void hlist_add_before(struct hlist_node *n,
+					struct hlist_node *next)
+{
+	n->pprev = next->pprev;
+	n->next = next;
+	next->pprev = &n->next;
+	*(n->pprev) = n;
+}
+
+static inline void hlist_add_after(struct hlist_node *n,
+					struct hlist_node *next)
+{
+	next->next = n->next;
+	n->next = next;
+	next->pprev = &n->next;
+
+	if(next->next)
+		next->next->pprev  = &next->next;
+}
+
+/* after that we'll appear to be on some hlist and hlist_del will work */
+static inline void hlist_add_fake(struct hlist_node *n)
+{
+	n->pprev = &n->next;
+}
+
+/*
+ * Move a list from one list head to another. Fixup the pprev
+ * reference of the first entry if it exists.
+ */
+static inline void hlist_move_list(struct hlist_head *old,
+				   struct hlist_head *new_entry)
+{
+	new_entry->first = old->first;
+	if (new_entry->first)
+		new_entry->first->pprev = &new_entry->first;
+	old->first = NULL;
+}
+
+#define hlist_entry(ptr, type, member) container_of(ptr,type,member)
+
+#define hlist_for_each(pos, head) \
+	for (pos = (head)->first; pos ; pos = pos->next)
+
+#define hlist_for_each_safe(pos, n, head) \
+	for (pos = (head)->first; pos && ({ n = pos->next; 1; }); \
+	     pos = n)
+
+#define hlist_entry_safe(ptr, type, member) \
+	({ typeof(ptr) ____ptr = (ptr); \
+	   ____ptr ? hlist_entry(____ptr, type, member) : NULL; \
+	})
+
+/**
+ * hlist_for_each_entry	- iterate over list of given type
+ * @pos:	the type * to use as a loop cursor.
+ * @head:	the head for your list.
+ * @member:	the name of the hlist_node within the struct.
+ */
+#define hlist_for_each_entry(pos, head, member)				\
+	for (pos = hlist_entry_safe((head)->first, typeof(*(pos)), member);\
+	     pos;							\
+	     pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member))
+
+/**
+ * hlist_for_each_entry_continue - iterate over a hlist continuing after current point
+ * @pos:	the type * to use as a loop cursor.
+ * @member:	the name of the hlist_node within the struct.
+ */
+#define hlist_for_each_entry_continue(pos, member)			\
+	for (pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member);\
+	     pos;							\
+	     pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member))
+
+/**
+ * hlist_for_each_entry_from - iterate over a hlist continuing from current point
+ * @pos:	the type * to use as a loop cursor.
+ * @member:	the name of the hlist_node within the struct.
+ */
+#define hlist_for_each_entry_from(pos, member)				\
+	for (; pos;							\
+	     pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member))
+
+/**
+ * hlist_for_each_entry_safe - iterate over list of given type safe against removal of list entry
+ * @pos:	the type * to use as a loop cursor.
+ * @n:		another &struct hlist_node to use as temporary storage
+ * @head:	the head for your list.
+ * @member:	the name of the hlist_node within the struct.
+ */
+#define hlist_for_each_entry_safe(pos, n, head, member) 		\
+	for (pos = hlist_entry_safe((head)->first, typeof(*pos), member);\
+	     pos && ({ n = pos->member.next; 1; });			\
+	     pos = hlist_entry_safe(n, typeof(*pos), member))
+#endif /* WITH_URCU */
+
+
+struct list_head {
+        struct list_head *next, *prev;
+};
 
 /*
  * Simple doubly linked list implementation.
@@ -602,163 +835,5 @@ static inline void list_splice_tail_init(struct list_head *list,
  */
 #define list_safe_reset_next(pos, n, member)				\
 	n = list_next_entry(pos, member)
-
-/*
- * Double linked lists with a single pointer list head.
- * Mostly useful for hash tables where the two pointer list head is
- * too wasteful.
- * You lose the ability to access the tail in O(1).
- */
-
-#define HLIST_HEAD_INIT { .first = NULL }
-#define HLIST_HEAD(name) struct hlist_head name = {  .first = NULL }
-#define INIT_HLIST_HEAD(ptr) ((ptr)->first = NULL)
-static inline void INIT_HLIST_NODE(struct hlist_node *h)
-{
-	h->next = NULL;
-	h->pprev = NULL;
-}
-
-static inline int hlist_unhashed(const struct hlist_node *h)
-{
-	return !h->pprev;
-}
-
-static inline int hlist_empty(const struct hlist_head *h)
-{
-	return !h->first;
-}
-
-static inline void __hlist_del(struct hlist_node *n)
-{
-	struct hlist_node *next = n->next;
-	struct hlist_node **pprev = n->pprev;
-	*pprev = next;
-	if (next)
-		next->pprev = pprev;
-}
-
-static inline void hlist_del(struct hlist_node *n)
-{
-	__hlist_del(n);
-	//n->next = LIST_POISON1;
-	//n->pprev = LIST_POISON2;
-	n->next = NULL;
-	n->pprev = NULL;
-}
-
-static inline void hlist_del_init(struct hlist_node *n)
-{
-	if (!hlist_unhashed(n)) {
-		__hlist_del(n);
-		INIT_HLIST_NODE(n);
-	}
-}
-
-static inline void hlist_add_head(struct hlist_node *n, struct hlist_head *h)
-{
-	struct hlist_node *first = h->first;
-	n->next = first;
-	if (first)
-		first->pprev = &n->next;
-	h->first = n;
-	n->pprev = &h->first;
-}
-
-/* next must be != NULL */
-static inline void hlist_add_before(struct hlist_node *n,
-					struct hlist_node *next)
-{
-	n->pprev = next->pprev;
-	n->next = next;
-	next->pprev = &n->next;
-	*(n->pprev) = n;
-}
-
-static inline void hlist_add_after(struct hlist_node *n,
-					struct hlist_node *next)
-{
-	next->next = n->next;
-	n->next = next;
-	next->pprev = &n->next;
-
-	if(next->next)
-		next->next->pprev  = &next->next;
-}
-
-/* after that we'll appear to be on some hlist and hlist_del will work */
-static inline void hlist_add_fake(struct hlist_node *n)
-{
-	n->pprev = &n->next;
-}
-
-/*
- * Move a list from one list head to another. Fixup the pprev
- * reference of the first entry if it exists.
- */
-static inline void hlist_move_list(struct hlist_head *old,
-				   struct hlist_head *new_entry)
-{
-	new_entry->first = old->first;
-	if (new_entry->first)
-		new_entry->first->pprev = &new_entry->first;
-	old->first = NULL;
-}
-
-#define hlist_entry(ptr, type, member) container_of(ptr,type,member)
-
-#define hlist_for_each(pos, head) \
-	for (pos = (head)->first; pos ; pos = pos->next)
-
-#define hlist_for_each_safe(pos, n, head) \
-	for (pos = (head)->first; pos && ({ n = pos->next; 1; }); \
-	     pos = n)
-
-#define hlist_entry_safe(ptr, type, member) \
-	({ typeof(ptr) ____ptr = (ptr); \
-	   ____ptr ? hlist_entry(____ptr, type, member) : NULL; \
-	})
-
-/**
- * hlist_for_each_entry	- iterate over list of given type
- * @pos:	the type * to use as a loop cursor.
- * @head:	the head for your list.
- * @member:	the name of the hlist_node within the struct.
- */
-#define hlist_for_each_entry(pos, head, member)				\
-	for (pos = hlist_entry_safe((head)->first, typeof(*(pos)), member);\
-	     pos;							\
-	     pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member))
-
-/**
- * hlist_for_each_entry_continue - iterate over a hlist continuing after current point
- * @pos:	the type * to use as a loop cursor.
- * @member:	the name of the hlist_node within the struct.
- */
-#define hlist_for_each_entry_continue(pos, member)			\
-	for (pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member);\
-	     pos;							\
-	     pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member))
-
-/**
- * hlist_for_each_entry_from - iterate over a hlist continuing from current point
- * @pos:	the type * to use as a loop cursor.
- * @member:	the name of the hlist_node within the struct.
- */
-#define hlist_for_each_entry_from(pos, member)				\
-	for (; pos;							\
-	     pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member))
-
-/**
- * hlist_for_each_entry_safe - iterate over list of given type safe against removal of list entry
- * @pos:	the type * to use as a loop cursor.
- * @n:		another &struct hlist_node to use as temporary storage
- * @head:	the head for your list.
- * @member:	the name of the hlist_node within the struct.
- */
-#define hlist_for_each_entry_safe(pos, n, head, member) 		\
-	for (pos = hlist_entry_safe((head)->first, typeof(*pos), member);\
-	     pos && ({ n = pos->member.next; 1; });			\
-	     pos = hlist_entry_safe(n, typeof(*pos), member))
 
 #endif

@@ -519,7 +519,7 @@ static void mca_bucket_free(struct btree *b)
 {
   BUG_ON(btree_node_dirty(b));
   b->key.ptr[0] = 0;
-  //hlist_del_init_rcu(&b->hash);
+  hlist_del_init_rcu(&b->hash);
   list_move(&b->list, &b->c->btree_cache_freeable);
 }
 
@@ -698,17 +698,14 @@ static struct hlist_head *mca_hash(struct cache_set *c, struct bkey *k)
 static struct btree *mca_find(struct cache_set *c, struct bkey *k)
 {
   struct btree *b;
-  //rcu_read_lock();
-  //hlist_for_each_entry_rcu(b, mca_hash(c, k), hash)
-  //if (PTR_HASH(c, &b->key) == PTR_HASH(c, k))
-  //  goto out;
-  hlist_for_each_entry(b, mca_hash(c, k), hash)
+  rcu_read_lock();
+  hlist_for_each_entry_rcu(b, mca_hash(c, k), hash)
     if (PTR_HASH(c, &b->key) == PTR_HASH(c, k)) {
       goto out;
     }
   b = NULL;
 out:
-  //rcu_read_unlock();
+  rcu_read_unlock();
   return b;
 }
 
@@ -809,10 +806,8 @@ out:
   bkey_copy(&b->key, k); /* 更新btree中bkey的KEY_SIZE dst <--- src */
   list_move(&b->list, &c->btree_cache); /* 将该节点移动到btree_cache链表首部 */
   /* 将btree的hlist_node加入到cache_set的bucket_hash链表中 */
-  //hlist_del_init_rcu(&b->hash);
-  //hlist_add_head_rcu(&b->hash, mca_hash(c, k));
-  hlist_del_init(&b->hash);
-  hlist_add_head(&b->hash, mca_hash(c, k));
+  hlist_del_init_rcu(&b->hash);
+  hlist_add_head_rcu(&b->hash, mca_hash(c, k));
   //lock_set_subclass(&b->lock.dep_map, level + 1, _THIS_IP_);
   b->parent	= (void *) ~0UL; /* 根节点的父节点为空 */
   b->flags	= 0;
@@ -1591,7 +1586,7 @@ void bch_btree_gc_finish(struct cache_set *c)
     c->gc_stats.gc_uuids_buckets++;
   }
 
-  /*rcu_read_lock();*/
+  rcu_read_lock();
   struct cached_dev *dc = c->dc;
   struct keybuf_key *w, *n;
   unsigned j;
@@ -1604,7 +1599,7 @@ void bch_btree_gc_finish(struct cache_set *c)
     }
   }
   pthread_spin_unlock(&dc->writeback_keys.lock);
-  //rcu_read_unlock();
+  rcu_read_unlock();
 
   for_each_cache(ca, c, i) {
     uint64_t *i;

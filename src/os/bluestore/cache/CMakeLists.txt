@@ -26,7 +26,7 @@ if (CACHE_TEST)
   add_executable(go ${libcache_srcs})
   add_definitions("-Wall -g")
 
-  target_link_libraries(go m pthread uuid blkid aio event numa dl rt zlog)
+  target_link_libraries(go m pthread uuid blkid aio event numa dl rt zlog urcu)
 endif (CACHE_TEST)
 
 add_library(t2cache_objs OBJECT ${libcache_srcs})
