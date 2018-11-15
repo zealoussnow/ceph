@@ -73,7 +73,7 @@ static int str2cpuset(const char *coremask, cpu_set_t *mask) {
     i--;
   if (i == 0)
     return -1;
-  for (i = i - 1; i >= 0 && idx < cpu_nums; i--) {
+  for (i = i - 1; i >= 0; i--) {
     c = coremask[i];
     if (isxdigit(c) == 0) {
       /* invalid characters */
@@ -81,11 +81,11 @@ static int str2cpuset(const char *coremask, cpu_set_t *mask) {
     }
     val = xdigit2val(c);
     for (j = 0; j < BITS_PER_HEX && idx < __CPU_SETSIZE; j++, idx++) {
-      if (idx >= cpu_nums){
-        return -1;
-      }
-      if ((1 << j) & val) {
+      if (idx < cpu_nums && (1 << j) & val){
         CPU_SET(idx, mask);
+      }
+      else if ((1 << j) & val) {
+        return -1;
       }
     }
   }
@@ -190,10 +190,12 @@ int CacheDevice::cache_init(const std::string& path)
   if (cache_ctx.registered)
     return r;
 
-  if(t2store_cache_register_cache(&cache_ctx))
+  r = t2store_cache_register_cache(&cache_ctx);
+  if(r)
     return r;
 
-  if(_aio_start())
+  r = _aio_start();
+  if(r)
     return r;
 
   // register asok command
@@ -653,9 +655,12 @@ int CacheDevice::_aio_start()
 
     cpu_set_t mask;
     const char *coremask = cct->_conf->t2store_core_mask.c_str();
-    if (str2cpuset(coremask, &mask)) {
-      derr << __func__ << " str2cpuset failed: " << cct->_conf->t2store_core_mask << dendl;
-      ceph_abort();
+    r = str2cpuset(coremask, &mask);
+    if (r) {
+      derr << __func__ << " t2store_core_mask transform error: "
+        << cct->_conf->t2store_core_mask
+        << " Syntax error or CPU number is not enough." << dendl;
+      return r;
     }
 
     unsigned cpu_nums = sysconf(_SC_NPROCESSORS_CONF);
