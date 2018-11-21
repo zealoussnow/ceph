@@ -61,8 +61,8 @@ void log_fini()
   return zlog_fini();
 }
 
-void cache_zlog(const char *cat_type, const char *file, 
-                size_t filelen, const char *func, size_t funclen, 
+void cache_zlog(const char *cat_type, const char *file,
+                size_t filelen, const char *func, size_t funclen,
                 long line, const int level,  const char *format, ...)
 {
   if ( level < g_log_level) {

@@ -225,13 +225,13 @@ btree_bset_last(struct btree *b)
   return bset_tree_last(&b->keys)->data;
 }
 
-static inline unsigned 
+static inline unsigned
 bset_block_offset(struct btree *b, struct bset *i)
 {
   return bset_sector_offset(&b->keys, i) >> b->c->block_bits;
 }
 
-static inline void 
+static inline void
 set_gc_sectors(struct cache_set *c)
 {
   atomic_set(&c->sectors_to_gc, c->sb.bucket_size * c->nbuckets / 16);
@@ -259,7 +259,7 @@ struct btree_op {
   unsigned              insert_collision:1;
 };
 
-static inline void 
+static inline void
 bch_btree_op_init(struct btree_op *op, int write_lock_level)
 {
   memset(op, 0, sizeof(struct btree_op));
@@ -267,7 +267,7 @@ bch_btree_op_init(struct btree_op *op, int write_lock_level)
   op->lock = write_lock_level;
 }
 
-static inline void 
+static inline void
 rw_lock(bool w, struct btree *b, int level)
 {
   if ( w ) {
@@ -278,7 +278,7 @@ rw_lock(bool w, struct btree *b, int level)
   }
 }
 
-static inline void 
+static inline void
 rw_unlock(bool w, struct btree *b)
 {
   if (w)
@@ -292,9 +292,9 @@ void __bch_btree_node_write(struct btree *);
 void bch_btree_node_write(struct btree *);
 
 void bch_btree_set_root(struct btree *);
-struct btree *__bch_btree_node_alloc(struct cache_set *, struct btree_op *, 
+struct btree *__bch_btree_node_alloc(struct cache_set *, struct btree_op *,
                                      int, bool, struct btree *);
-struct btree *bch_btree_node_get(struct cache_set *, struct btree_op *, struct bkey *, 
+struct btree *bch_btree_node_get(struct cache_set *, struct btree_op *, struct bkey *,
                                 int, bool, struct btree *);
 
 int bch_btree_insert_check_key(struct btree *, struct btree_op *, struct bkey *);
@@ -323,14 +323,14 @@ typedef int (btree_map_nodes_fn)(struct btree_op *, struct btree *);
 int __bch_btree_map_nodes(struct btree_op *, struct cache_set *, struct bkey *,
                           btree_map_nodes_fn *, int);
 
-static inline int 
+static inline int
 bch_btree_map_nodes(struct btree_op *op, struct cache_set *c, struct bkey *from,
                     btree_map_nodes_fn *fn)
 {
   return __bch_btree_map_nodes(op, c, from, fn, MAP_ALL_NODES);
 }
 
-static inline int 
+static inline int
 bch_btree_map_leaf_nodes(struct btree_op *op, struct cache_set *c,
                         struct bkey *from, btree_map_nodes_fn *fn)
 {
@@ -338,7 +338,7 @@ bch_btree_map_leaf_nodes(struct btree_op *op, struct cache_set *c,
 }
 
 typedef int (btree_map_keys_fn)(struct btree_op *, struct btree *, struct bkey *);
-int bch_btree_map_keys(struct btree_op *, struct cache_set *, struct bkey *, 
+int bch_btree_map_keys(struct btree_op *, struct cache_set *, struct bkey *,
                         btree_map_keys_fn *, int);
 
 typedef bool (keybuf_pred_fn)(struct keybuf *, struct bkey *);

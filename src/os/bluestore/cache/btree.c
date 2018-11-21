@@ -209,7 +209,7 @@ void bkey_put(struct cache_set *c, struct bkey *k)
 
 /* Btree IO */
 
-static uint64_t 
+static uint64_t
 btree_csum_set(struct btree *b, struct bset *i)
 {
   uint64_t crc = b->key.ptr[0];
@@ -551,7 +551,7 @@ static struct btree *mca_bucket_alloc(struct cache_set *c, struct bkey *k)
   pthread_rwlock_init(&b->lock, NULL);
   //lockdep_set_novalidate_class(&b->lock);
   //mutex_init(&b->write_lock);
-  pthread_mutex_init(&b->write_lock, NULL);	
+  pthread_mutex_init(&b->write_lock, NULL);
   //lockdep_set_novalidate_class(&b->write_lock);
   INIT_LIST_HEAD(&b->list);
   delayed_work_assign(&b->ev_node_write, c->ev_base, btree_node_write_work, (void*)b, 0);
@@ -1026,7 +1026,7 @@ static int btree_check_reserve(struct btree *b, struct btree_op *op)
 
 /* Garbage collection */
 
-static uint8_t 
+static uint8_t
 __bch_btree_mark_key(struct cache_set *c, int level,struct bkey *k, bool init)
 {
   uint8_t stale = 0;
@@ -1618,12 +1618,12 @@ void bch_btree_gc_finish(struct cache_set *c)
 
     c->avail_nbuckets = 0;
 
-    c->gc_stats.gc_all_buckets = 0; 
+    c->gc_stats.gc_all_buckets = 0;
     c->gc_stats.gc_pin_buckets = 0;
     c->gc_stats.gc_unavail_buckets = 0;
     c->gc_stats.gc_avail_buckets = 0;
 
-    // unavail_buckets include below 
+    // unavail_buckets include below
     c->gc_stats.gc_meta_buckets = 0;
     c->gc_stats.gc_dirty_buckets = 0;
 
@@ -1632,7 +1632,7 @@ void bch_btree_gc_finish(struct cache_set *c)
     c->gc_stats.gc_reclaimable_buckets = 0;
 
     for_each_bucket(b, ca) {
-      c->gc_stats.gc_all_buckets++; 
+      c->gc_stats.gc_all_buckets++;
       c->need_gc = max(c->need_gc, bucket_gc_gen(b));
 
       if (atomic_read(&b->pin)) {
@@ -1678,7 +1678,7 @@ static void bch_btree_gc(struct cache_set *c)
     cache_bug_on((ret && ret != -EAGAIN), c, "btree root for gc failed");
   } while (ret);
 
-  CACHE_INFOLOG(CAT_GC, "gc btree_root process(node replacement or coalesce) lat = %lu\n", 
+  CACHE_INFOLOG(CAT_GC, "gc btree_root process(node replacement or coalesce) lat = %lu\n",
       (cache_realtime_u64() - time_for_btree_root)/NSEC_PER_USEC);
 
   bch_btree_gc_finish(c);
@@ -1971,7 +1971,7 @@ static size_t insert_u64s_remaining(struct btree *b)
   return max(ret, 0L);
 }
 
-static bool 
+static bool
 bch_btree_insert_keys(struct btree *b, struct btree_op *op, struct keylist *insert_keys,
                       struct bkey *replace_key)
 {
@@ -2019,7 +2019,7 @@ bch_btree_insert_keys(struct btree *b, struct btree_op *op, struct keylist *inse
   return ret;
 }
 
-static int 
+static int
 btree_split(struct btree *b, struct btree_op *op, struct keylist *insert_keys,
             struct bkey *replace_key)
 {
@@ -2093,7 +2093,7 @@ btree_split(struct btree *b, struct btree_op *op, struct keylist *insert_keys,
   }
 
   bch_keylist_add(&parent_keys, &n1->key);
-  bch_btree_node_write(n1); 
+  bch_btree_node_write(n1);
   dump_btree_node("btree split after write new replacement node(from origin)", n1, false);
   pthread_mutex_unlock(&n1->write_lock);
   if (n3) {
@@ -2140,7 +2140,7 @@ err:
   return -ENOMEM;
 }
 
-static int 
+static int
 bch_btree_insert_node(struct btree *b, struct btree_op *op, struct keylist *insert_keys,
                       atomic_t *journal_ref, struct bkey *replace_key)
 {
@@ -2155,7 +2155,7 @@ bch_btree_insert_node(struct btree *b, struct btree_op *op, struct keylist *inse
   if (write_block(b) != btree_bset_last(b) && b->keys.last_set_unwritten) {
     CACHE_DEBUGLOG(CAT_BTREE,"write_block(b) %lu != btree_bset_last(b) %lu btree init next\n",
                    write_block(b), btree_bset_last(b));
-    bch_btree_init_next(b); 
+    bch_btree_init_next(b);
   }
 
   if (bch_keylist_nkeys(insert_keys) > insert_u64s_remaining(b)) {
@@ -2230,7 +2230,7 @@ static int btree_insert_fn(struct btree_op *b_op, struct btree *b)
 {
   struct btree_insert_op *op = container_of(b_op, struct btree_insert_op, op);
 
-  int ret = bch_btree_insert_node(b, &op->op, op->keys, op->journal_ref, 
+  int ret = bch_btree_insert_node(b, &op->op, op->keys, op->journal_ref,
       op->replace_key);
 
   if (ret && !bch_keylist_empty(op->keys)) {
@@ -2265,7 +2265,7 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   /* we don't have rw_sem, so lock from root, this is
   * not a good choice, we should change in the future
   */
-  bch_btree_op_init(&op.op, SHRT_MAX); 
+  bch_btree_op_init(&op.op, SHRT_MAX);
 
   op.keys		= keys;
   op.journal_ref	= journal_ref;
@@ -2314,7 +2314,7 @@ void bch_btree_set_root(struct btree *b)
 
 /* Map across nodes or keys */
 
-static int 
+static int
 bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op, struct bkey *from,
                             btree_map_nodes_fn *fn, int flags)
 {

@@ -704,7 +704,7 @@ bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
                       unsigned write_point, unsigned write_prio, bool wait)
 {
   struct open_bucket *b, *last_bkt = NULL;
-  BKEY_PADDED(key) alloc; 
+  BKEY_PADDED(key) alloc;
   unsigned i;
 
   /*
@@ -756,7 +756,7 @@ bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
     bkey_put(c, &alloc.key);
 
   for (i = 0; i < KEY_PTRS(&b->key); i++) {
-    if (ptr_stale(c, &b->key, i)){ 
+    if (ptr_stale(c, &b->key, i)){
       CACHE_ERRORLOG(NULL, "ptr_stale error \n");
       EBUG_ON(ptr_stale(c, &b->key, i));
     }
@@ -768,7 +768,7 @@ bool bch_alloc_sectors(struct cache_set *c, struct bkey *k, unsigned sectors,
     k->ptr[i] = b->key.ptr[i];
 
   if (sectors > b->sectors_free) {
-    CACHE_ERRORLOG(NULL, "error: sectors %u sectors_free %u \n", 
+    CACHE_ERRORLOG(NULL, "error: sectors %u sectors_free %u \n",
         sectors, b->sectors_free);
     assert(sectors <= b->sectors_free);
   }

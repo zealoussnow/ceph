@@ -18,8 +18,8 @@
  * find_next_zero_bit.  The difference is the "invert" argument, which
  * is XORed with each fetched word before searching it for one bits.
  */
-static unsigned long 
-_find_next_bit(const unsigned long *addr,unsigned long nbits, 
+static unsigned long
+_find_next_bit(const unsigned long *addr,unsigned long nbits,
                 unsigned long start, unsigned long invert)
 {
   unsigned long tmp;
@@ -39,7 +39,7 @@ _find_next_bit(const unsigned long *addr,unsigned long nbits,
   return min(start + __ffs(tmp), nbits);
 }
 
-unsigned long 
+unsigned long
 find_next_zero_bit(const unsigned long *addr, unsigned long size,
                 unsigned long offset)
 {
@@ -49,7 +49,7 @@ find_next_zero_bit(const unsigned long *addr, unsigned long size,
 /*
  * Find the next set bit in a memory region.
  */
-unsigned long 
+unsigned long
 find_next_bit(const unsigned long *addr, unsigned long size, unsigned long offset)
 {
   return _find_next_bit(addr, size, offset, 0UL);
@@ -59,7 +59,7 @@ find_next_bit(const unsigned long *addr, unsigned long size, unsigned long offse
 /*
  * Find the first cleared bit in a memory region.
  */
-unsigned long 
+unsigned long
 find_first_zero_bit(const unsigned long *addr, unsigned long size)
 {
   unsigned long idx;
@@ -426,7 +426,7 @@ uint64_t bch_crc64_update(uint64_t crc, const void *_data, size_t len)
     int i = ((int) (crc >> 56) ^ *data++) & 0xFF;
     crc = crc_table[i] ^ (crc << 8);
   }
-  
+
   return crc;
 }
 

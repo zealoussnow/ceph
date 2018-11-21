@@ -8,8 +8,8 @@ extern int log_reload();
 extern void set_log_level(int level);
 extern void log_init(struct cache_context *ctx);
 extern void log_fini();
-extern void cache_zlog(const char *cat_type, const char *file, 
-        size_t filelen, const char *func, size_t funclen, 
+extern void cache_zlog(const char *cat_type, const char *file,
+        size_t filelen, const char *func, size_t funclen,
         long line, const int level, const char *format, ...);
 
 

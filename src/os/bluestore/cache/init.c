@@ -47,7 +47,7 @@ enum prio_io_op {
 };
 
 #define CUTOFF_CACHE_ADD 95
-uint64_t 
+uint64_t
 getblocks(int fd)
 {
   uint64_t ret;
@@ -72,7 +72,7 @@ getblocks(int fd)
 /*
  *  prio_io即可处理写，也可以处理写，根据op来定义
  */
-static void 
+static void
 prio_io(struct cache *ca, uint64_t bucket, int op,
 		    unsigned long op_flags)
 {
@@ -81,7 +81,7 @@ prio_io(struct cache *ca, uint64_t bucket, int op,
 
   // 数据：数据在ca->disk_buckets
   if ( op == REQ_OP_WRITE ) {
-    CACHE_DEBUGLOG(CAT_WRITE,"prio io write fd %d start 0x%x len %x (bucket %u)\n", 
+    CACHE_DEBUGLOG(CAT_WRITE,"prio io write fd %d start 0x%x len %x (bucket %u)\n",
                                 ca->fd, start, len, bucket);
     if ( sync_write(ca->fd, ca->disk_buckets, len, start) == -1){
       CACHE_ERRORLOG(CAT_WRITE, "prio io write error: %s\n", strerror(errno));
@@ -89,7 +89,7 @@ prio_io(struct cache *ca, uint64_t bucket, int op,
     }
   }
   if ( op == REQ_OP_READ ) {
-    CACHE_DEBUGLOG(CAT_WRITE,"prio io read fd %d start 0x%x len %x (bucket %u)\n", 
+    CACHE_DEBUGLOG(CAT_WRITE,"prio io read fd %d start 0x%x len %x (bucket %u)\n",
                                 ca->fd, start, len, bucket);
     if ( sync_read(ca->fd, ca->disk_buckets, len, start ) == -1 ) {
       CACHE_ERRORLOG(CAT_WRITE, "prio io read error: %s\n", strerror(errno));
@@ -129,7 +129,7 @@ static void prio_read(struct cache *ca, uint64_t bucket)
 }
 
 
-void 
+void
 bch_prio_write(struct cache *ca)
 {
   int i;
@@ -138,7 +138,7 @@ bch_prio_write(struct cache *ca)
 
   atomic_long_add(ca->sb.bucket_size * prio_buckets(ca),
       &ca->meta_sectors_written);
-  CACHE_DEBUGLOG(CAT_WRITE, "prio write(prio_buckets(ca) %lu meta_sectors_written %ld \n", 
+  CACHE_DEBUGLOG(CAT_WRITE, "prio write(prio_buckets(ca) %lu meta_sectors_written %ld \n",
         prio_buckets(ca), ca->meta_sectors_written);
   /*
    * #define prio_buckets(c)                                         \
@@ -198,23 +198,23 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
   unsigned i;
   sb->offset		= s->offset;
   sb->version		= s->version;
-  
+
   memcpy(sb->magic,	s->magic, 16);
   memcpy(sb->uuid,	s->uuid, 16);
   memcpy(sb->set_uuid,	s->set_uuid, 16);
   memcpy(sb->label,	s->label, SB_LABEL_SIZE);
-  
+
   sb->flags		= s->flags;
   sb->seq			= s->seq;
   sb->last_mount		= s->last_mount;
   sb->first_bucket	= s->first_bucket;
   sb->keys		= s->keys;
-  
+
   /* #define SB_JOURNAL_BUCKETS      256U */
   for (i = 0; i < SB_JOURNAL_BUCKETS; i++) {
     sb->d[i] = s->d[i]; /* d is journal buckets */
   }
-  
+
   CACHE_INFOLOG(NULL, "read sb version %llu, flags %llu, seq %llu, journal size %u\n",
   sb->version, sb->flags, sb->seq, sb->keys);
 
@@ -222,11 +222,11 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
   if (sb->offset != SB_SECTOR) {
     goto err;
   }
-  
+
   if (memcmp(sb->magic, bcache_magic, 16)) {
     goto err;
   }
-  
+
   err = "Too many journal buckets";
   if (sb->keys > SB_JOURNAL_BUCKETS) {
     goto err;
@@ -252,11 +252,11 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
       /*break;*/
       /*case BCACHE_SB_VERSION_BDEV_WITH_OFFSET:*/
       /*sb->data_offset	= le64_to_cpu(s->data_offset);*/
-      
+
       /*err = "Bad data offset";*/
       /*if (sb->data_offset < BDEV_DATA_START_DEFAULT)*/
       /*goto err;*/
-      
+
       /*break;*/
     case BCACHE_SB_VERSION_CDEV:
     case BCACHE_SB_VERSION_CDEV_WITH_UUID:
@@ -264,7 +264,7 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
       sb->nbuckets	= s->nbuckets;
       sb->bucket_size	= s->bucket_size; /* 默认为1024 */
       sb->nr_in_set	= s->nr_in_set;
-  
+
       /*
       * TODO nr_this_dev应该是为了支持同一个cache set有多个cache设备
       * 的情况，目前来说，一个cache set只有一个cache设备和多个backing
@@ -272,17 +272,17 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
       * 就是nr_this_dev这个值
       */
       sb->nr_this_dev	= s->nr_this_dev;
-  
+
       err = "Too many buckets";
       if (sb->nbuckets > LONG_MAX) {
         goto err;
       }
-    
+
       err = "Not enough buckets";
       if (sb->nbuckets < 1 << 7) {
         goto err;
       }
-  
+
       err = "Bad block/bucket size";
       if (!is_power_of_2(sb->block_size) ||
                 sb->block_size > PAGE_SECTORS ||
@@ -309,12 +309,12 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
           goto err;
         }
       }
-  
+
       err = "Too many journal buckets";
       if (sb->first_bucket + sb->keys > sb->nbuckets) {
         goto err;
       }
-      
+
       err = "Invalid superblock: first bucket comes before end of super";
       if (sb->first_bucket * sb->bucket_size < 16) {
         goto err;
@@ -324,12 +324,12 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
       err = "Unsupported superblock version";
       goto err;
   }
-  
+
   time_t now;
   time(&now);
   sb->last_mount = now;
   err = NULL;
-  
+
   return err;
 err:
   CACHE_ERRORLOG(NULL, "read super error: %s\n", err);
@@ -339,7 +339,7 @@ err:
 #define alloc_bucket_pages(buf, c)			\
 	posix_memalign(&buf, MEMALIGN, bucket_pages(c)*PAGE_SIZE)
 
-void 
+void
 bch_cache_set_unregister(struct cache_set *c)
 {
   set_bit(CACHE_SET_UNREGISTERING, &c->flags);
@@ -347,12 +347,12 @@ bch_cache_set_unregister(struct cache_set *c)
 }
 
 
-static int 
+static int
 cache_alloc(struct cache *ca)
 {
   size_t free;
   struct bucket *b;
-  
+
   // 比如nbucket=20480，那么向上靠近它的就是2**15=32768(2**14=16386)
   free = roundup_pow_of_two(ca->sb.nbuckets) >> 10;
   /*printf(" main.c FUN %s: nbuckets=%d,free=%d,prio_buckets(ca)=%d,bucket_pages(ca)=%d\n",__func__, ca->sb.nbuckets,free,prio_buckets(ca),bucket_pages(ca));*/
@@ -376,7 +376,7 @@ cache_alloc(struct cache *ca)
   // 2. 然后再拿全部的bucket去向上取整，看下全部的bucket的bucket_disk需要多少个prio bucket
   // 每个bucket，能够放下174749个bucket_disk
   ca->prio_last_buckets = ca->prio_buckets + prio_buckets(ca);
-  
+
   for_each_bucket(b, ca) {
     atomic_set(&b->pin, 0);
   }
@@ -390,7 +390,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
   if (!c) {
     return NULL;
   }
-  
+
   memcpy(c->sb.set_uuid, sb->set_uuid, 16);
   c->sb.block_size	= sb->block_size; /* 一个扇区 */
   c->sb.bucket_size	= sb->bucket_size; /* 1024 */
@@ -399,7 +399,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
   c->bucket_bits		= ilog2(sb->bucket_size); /* log2(1024) = 10 */
   c->block_bits		= ilog2(sb->block_size);  /* log2(1)    = 0 */
   c->nr_uuids		= bucket_bytes(c) / sizeof(struct uuid_entry); /* 4096 */
-  
+
   c->btree_pages		= bucket_pages(c); /* 1024/8 = 128 */
   // tmp close limit, now btree node can using full bucket(512k)
   /*
@@ -412,7 +412,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
   CACHE_INFOLOG(NULL, "bucket_size %u(sectors) bits=%u \n", c->sb.bucket_size, c->bucket_bits);
   CACHE_INFOLOG(NULL, "nr_in_set %u \n", c->sb.nr_in_set);
   CACHE_INFOLOG(NULL, "btree_pages %u \n", c->btree_pages);
-  
+
   pthread_mutex_init(&c->bucket_lock, NULL);
   pthread_spin_init(&c->btree_gc_time.lock,0);
   pthread_spin_init(&c->btree_split_time.lock,0);
@@ -442,19 +442,19 @@ bch_cache_set_alloc(struct cache_sb *sb)
           bch_bset_sort_state_init(&c->sort, ilog2(c->btree_pages))) {
     goto err;
   }
-  
+
   c->congested_read_threshold_us	= 2000;
   c->congested_write_threshold_us	= 20000;
   c->error_limit	= 8 << IO_ERROR_SHIFT;  /* IO_ERROR_SHIFT=20, 8MB */
   c->expensive_debug_checks = true;
-  
+
   return c;
 err:
   bch_cache_set_unregister(c);
   return NULL;
 }
 
-static void 
+static void
 __write_super(struct cache *c)
 {
   struct cache_sb *sb = NULL;
@@ -522,7 +522,7 @@ static void uuid_io(struct cache_set *c, int op, unsigned long op_flags, struct 
   }
   bch_extent_to_text(buf, sizeof(buf), k);
 
-  CACHE_DEBUGLOG(NULL, "%s UUIDs at %s (nr_uuids %u) \n", 
+  CACHE_DEBUGLOG(NULL, "%s UUIDs at %s (nr_uuids %u) \n",
         op == REQ_OP_WRITE ? "wrote" : "read", buf, c->nr_uuids);
   for (u = c->uuids; u < c->uuids + c->nr_uuids; u++) {
     if (!bch_is_zero(u->uuid, 16)) {
@@ -570,11 +570,11 @@ static char *uuid_read(struct cache_set *c, struct jset *j)
 static int __uuid_write(struct cache_set *c)
 {
   BKEY_PADDED(key) k;
-  
-  CACHE_DEBUGLOG(NULL, "write uuid internal\n"); 
+
+  CACHE_DEBUGLOG(NULL, "write uuid internal\n");
   if (bch_bucket_alloc_set(c, RESERVE_BTREE, &k.key, 1, true))
     return 1;
-  
+
   SET_KEY_SIZE(&k.key, c->sb.bucket_size);
   uuid_io(c, REQ_OP_WRITE, 0, &k.key);
   bkey_copy(&c->uuid_bucket, &k.key);
@@ -584,7 +584,7 @@ static int __uuid_write(struct cache_set *c)
 
 int bch_uuid_write(struct cache_set *c)
 {
-  CACHE_DEBUGLOG(NULL, "write uuid\n"); 
+  CACHE_DEBUGLOG(NULL, "write uuid\n");
   int ret = __uuid_write(c);
   if (!ret) {
     bch_journal_meta(c);
@@ -592,7 +592,7 @@ int bch_uuid_write(struct cache_set *c)
   return ret;
 }
 
-static void 
+static void
 run_cache_set(struct cache_set *c)
 {
   const char *err = "cannot allocate memory";
@@ -680,7 +680,7 @@ run_cache_set(struct cache_set *c)
      * before the next journal entry is written:
      */
     /*printf(" j->verison = %d \n", j->version);*/
-    CACHE_INFOLOG(NULL, "j->verison  %u BCACHE_JSET_VERSION_UUID %d \n", 
+    CACHE_INFOLOG(NULL, "j->verison  %u BCACHE_JSET_VERSION_UUID %d \n",
                         j->version, BCACHE_JSET_VERSION_UUID);
     if (j->version < BCACHE_JSET_VERSION_UUID) {
       __uuid_write(c);
@@ -692,7 +692,7 @@ run_cache_set(struct cache_set *c)
     for_each_cache(ca, c, i) {
       unsigned j;
       ca->sb.keys = clamp_t(int, ca->sb.nbuckets >> 7, 2, SB_JOURNAL_BUCKETS);
-      CACHE_INFOLOG(NULL,"journal keys %u first_bucket %u  \n", 
+      CACHE_INFOLOG(NULL,"journal keys %u first_bucket %u  \n",
                 ca->sb.keys, ca->sb.first_bucket);
       for (j = 0; j < ca->sb.keys; j++) {
         ca->sb.d[j] = ca->sb.first_bucket + j;
@@ -815,7 +815,7 @@ static const char *register_cache_set(struct cache *ca)
   list_add(&c->list, &bch_cache_sets);
 
   sprintf(buf, "cache%i", ca->sb.nr_this_dev);
-  
+
   CACHE_INFOLOG(NULL,"register cache seq %llu, cache set seq %llu \n",ca->sb.seq, c->sb.seq);
   if (ca->sb.seq > c->sb.seq) {
     c->sb.version		= ca->sb.version;
@@ -846,7 +846,7 @@ static const char *register_cache_set(struct cache *ca)
 
 static int _register_cache(struct cache_sb *sb, struct cache *ca)
 {
-  const char *err = NULL; 
+  const char *err = NULL;
   int ret = 0;
 
   memcpy(&ca->sb, sb, sizeof(struct cache_sb));
@@ -880,7 +880,7 @@ err:
 }
 
 
-void 
+void
 data_insert_test(struct cache * c)
 {
   printf(" fuc: %s \n", __func__);
@@ -895,7 +895,7 @@ data_insert_test(struct cache * c)
 }
 
 
-int 
+int
 bch_data_insert_keys(struct cache_set *c_set,
                 struct keylist *insert_keys, struct bkey *replace_key)
 {
@@ -919,7 +919,7 @@ bch_data_insert_keys(struct cache_set *c_set,
   if (ret != 0) {
     CACHE_ERRORLOG(CAT_BTREE,"insert keylist error ret %d\n", ret);
     /*
-     * for test, we assert every io should be sucessfull 
+     * for test, we assert every io should be sucessfull
      * insert to btree, however, one io error should not
      * make crash progress
     */
@@ -1036,10 +1036,10 @@ int cache_sync_write(struct cache *ca, void * data, uint64_t off, uint64_t len)
   return ret;
 }
 
-int 
+int
 traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
 {
-  CACHE_DEBUGLOG("traverse", ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n", 
+  CACHE_DEBUGLOG("traverse", ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n",
                         b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
   CACHE_DUMPLOG(NULL, ">>>>>> Entry Btree Node(level=%d,offset=%lu,size=%lu) <<<<<<<\n",
                         b->level, KEY_OFFSET(&b->key), KEY_SIZE(&b->key));
@@ -1057,7 +1057,7 @@ traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
   return MAP_CONTINUE;
 }
 
-void 
+void
 traverse_btree(struct cache * c)
 {
   struct btree_insert_op op;
@@ -1199,7 +1199,7 @@ static void update_gc_size_wm(evutil_socket_t fd, short events, void *arg)
   ca->wake_up_gc_size_wm = 0;
 }
 
-int 
+int
 init(struct cache * ca)
 {
   int fd = ca->fd;
@@ -1233,7 +1233,7 @@ init(struct cache * ca)
 
   ca->handler = aio_init((void *)ca);
 
-  
+
   bch_cached_dev_writeback_start(ca->set->dc);
   bch_sectors_dirty_init(ca->set->dc);
   /*atomic_set(&ca->set->dc->has_dirty, 1);*/
@@ -1266,7 +1266,7 @@ int destroy(struct cache * ca){
   // Todo: close log
 }
 
-static int 
+static int
 bch_keylist_realloc(struct keylist *l, unsigned u64s, struct cache_set *c)
 {
   size_t oldsize = bch_keylist_nkeys(l);
@@ -1364,7 +1364,7 @@ void aio_write_completion(void *cb)
       case CACHE_MODE_WRITEAROUND:
         CACHE_DEBUGLOG(CAT_AIO_WRITE,"writearound completion start insert keys \n");
         if ( bch_keylist_nkeys(item->insert_keys) != 2) {
-          CACHE_ERRORLOG(NULL, " writeaound error, nkeys = %d \n", 
+          CACHE_ERRORLOG(NULL, " writeaound error, nkeys = %d \n",
                                 bch_keylist_nkeys(item->insert_keys));
           assert(bch_keylist_nkeys(item->insert_keys) == 2);
         }
@@ -1427,7 +1427,7 @@ void aio_write_completion(void *cb)
     /*
      * when error got
      * choice 1. do not call io_completion_cb
-     * choice 2. call io_completion_cb and return error code 
+     * choice 2. call io_completion_cb and return error code
      *    to bluestore
      * choice 2 is most suitable,but for testing, we choose choice 1
      */
@@ -1441,7 +1441,7 @@ void aio_write_completion(void *cb)
       // choice 2
       // item->io_completion_cb(item->io_arg, ret);
       ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_write_lat, item->start, cache_clock_now());
-      item->io_completion_cb(item->io_arg); 
+      item->io_completion_cb(item->io_arg);
     } else {
       CACHE_WARNLOG(NULL, "No io_completion_cb for IO(star=%lu(0x%lx),len=%lu(0x%lx))\n",
                 item->o_offset/512, item->o_offset, item->o_len/512,item->o_len);
@@ -1626,7 +1626,7 @@ err:
   return -1;
 }
 
-int 
+int
 do_write_writeback(struct ring_item * item)
 {
   struct cache *ca = (struct cache *) item->ca_handler;
@@ -1689,7 +1689,7 @@ err:
   return -1;
 }
 
-int 
+int
 do_write_writethrough(struct ring_item * item)
 {
   struct cache *ca = (struct cache *) item->ca_handler;
@@ -1731,7 +1731,7 @@ static void add_sequential(struct current_thread *t)
 {
   ewma_add(t->sequential_io_avg,
            t->sequential_io, 8, 0);
-  
+
   t->sequential_io = 0;
 }
 
@@ -1941,7 +1941,7 @@ err:
   return -1;
 }
 
-void 
+void
 aio_write_test(struct cache *ca)
 {
   printf(" ******** aio_write_test ****** \n");
@@ -1979,7 +1979,7 @@ set_item_io(struct ring_item *item, const struct bkey *k) {
     item->io.len = read_len - (cache_offset - read_offset);
     item->io.pos = (char *)read_data + (cache_offset - read_offset);
   }
-  
+
   if (cache_end < read_end) {
     item->io.len -= (read_end - cache_end);
   } else {
@@ -2028,7 +2028,7 @@ int _write_cache_miss(struct ring_item *item)
   return ret;
 }
 
-void 
+void
 aio_read_completion(struct ring_item *item)
 {
   struct cache *ca = item->ca_handler;
@@ -2316,7 +2316,7 @@ aio_read_backend_completion(void *cb)
 }
 
 
-void 
+void
 aio_read_backend(struct ring_item *item)
 {
   int ret = 0;
@@ -2347,7 +2347,7 @@ static bool cache_read_hits(struct ring_item *item)
   return atomic_read(&ca->set->cached_hits);
 }
 
-int 
+int
 read_is_all_cache_fn(struct btree_op * op, struct btree *b,
                          struct bkey *key)
 {
@@ -2402,7 +2402,7 @@ read_is_all_cache_fn(struct btree_op * op, struct btree *b,
 }
 
 
-int 
+int
 cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
                    io_completion_fn io_completion, void *io_arg)
 {

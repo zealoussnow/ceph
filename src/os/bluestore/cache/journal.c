@@ -29,7 +29,7 @@
 //	closure_put(cl);
 //}
 //
-static int 
+static int
 journal_read_bucket(struct cache *ca, struct list_head *list, unsigned bucket_index)
 {
   /*bucket_index = 2;*/
@@ -567,7 +567,7 @@ static void journal_write_unlocked(struct cache_set *c)
   CACHE_DEBUGLOG(CAT_JOURNAL," journal write \n");
   if (!w->need_write) {
     CACHE_ERRORLOG(CAT_JOURNAL,"need write %d in here\n", w->need_write);
-    assert("need write false" == 0 ); 
+    assert("need write false" == 0 );
 #if 0
     closure_return_with_destructor(cl, journal_write_unlock);
     return;
@@ -655,7 +655,7 @@ journal_wait_for_write(struct cache_set *c, unsigned nkeys)
   pthread_spin_lock( &c->journal.lock);
   while (1) {
     if (fifo_free(&c->journal.pin) <= 1) {
-      dump_journal_pin("fifo full", &c->journal.pin);      
+      dump_journal_pin("fifo full", &c->journal.pin);
       goto flush;
     }
     struct journal_write *w = c->journal.cur;
@@ -698,7 +698,7 @@ flush:
       // 后将其释放的pin记性回收
       journal_reclaim(c);
       /*
-      * btree_flush_write 采用同步刷，这里不用解锁   
+      * btree_flush_write 采用同步刷，这里不用解锁
       */
       //pthread_spin_unlock(&c->journal.lock);
     }

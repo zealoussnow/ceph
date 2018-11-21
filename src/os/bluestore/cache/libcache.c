@@ -304,13 +304,13 @@ static void get_gc_status(struct cache_set *c, struct gc_status *s)
   // unavail = dirty + meta
   s->gc_meta_buckets    = c->gc_stats.gc_meta_buckets;
   s->gc_dirty_buckets    = c->gc_stats.gc_dirty_buckets;
-  
+
   // meta = uuids + writeback_dirty + journal + others(btree nodes)
   s->gc_uuids_buckets    = c->gc_stats.gc_uuids_buckets;
   s->gc_writeback_dirty_buckets    = c->gc_stats.gc_writeback_dirty_buckets;
   s->gc_journal_buckets    = c->gc_stats.gc_journal_buckets;
   s->gc_prio_buckets    = c->gc_stats.gc_prio_buckets;
-  
+
   // moving
   s->gc_moving_stop    = atomic_read(&c->gc_moving_stop);
   s->gc_moving_buckets = c->gc_stats.gc_moving_buckets;
