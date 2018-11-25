@@ -8,7 +8,7 @@
 void io_wait(struct ring_item *item)
 {
   pthread_mutex_lock(&item->sync_io->sync_io_mutex);
-  pthread_cond_wait(&item->sync_io->sync_io_cond, 
+  pthread_cond_wait(&item->sync_io->sync_io_cond,
                      &item->sync_io->sync_io_mutex);
   pthread_mutex_unlock(&item->sync_io->sync_io_mutex);
 }

@@ -114,7 +114,7 @@
 
 #include "util.h"
 #include "list.h"
- 
+
 /*
  * Only used for holding the journal entries we read in btree_journal_read()
  * during cache_registration

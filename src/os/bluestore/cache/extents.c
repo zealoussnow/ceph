@@ -27,7 +27,7 @@
 #include "extents.h"
 #include "writeback.h"
 
-static void 
+static void
 sort_key_next(struct btree_iter *iter,struct btree_iter_set *i)
 {
   i->k = bkey_next(i->k);
@@ -36,14 +36,14 @@ sort_key_next(struct btree_iter *iter,struct btree_iter_set *i)
   }
 }
 
-static bool 
+static bool
 bch_key_sort_cmp(struct btree_iter_set l,struct btree_iter_set r)
 {
   int64_t c = bkey_cmp(l.k, r.k);
   return c ? c > 0 : l.k < r.k;
 }
 
-static bool 
+static bool
 __ptr_invalid(struct cache_set *c, const struct bkey *k)
 {
   unsigned i;
@@ -125,7 +125,7 @@ void bch_extent_to_text(char *buf, size_t size, const struct bkey *k)
 #undef p
 }
 
-static void 
+static void
 bch_bkey_dump(struct btree_keys *keys, const struct bkey *k)
 {
   struct btree *b = container_of(keys, struct btree, keys);
@@ -149,7 +149,7 @@ bool __bch_btree_ptr_invalid(struct cache_set *c, const struct bkey *k)
 {
   char buf[80];
   CACHE_DEBUGLOG(NULL, "bkey(ptrs %u size %u dirty %u) \n",
-     KEY_PTRS(k), KEY_SIZE(k), KEY_DIRTY(k)); 
+     KEY_PTRS(k), KEY_SIZE(k), KEY_DIRTY(k));
   if (!KEY_PTRS(k) || !KEY_SIZE(k) || KEY_DIRTY(k)) {
     goto bad;
   }
@@ -164,14 +164,14 @@ bad:
   return true;
 }
 
-static bool 
+static bool
 bch_btree_ptr_invalid(struct btree_keys *bk, const struct bkey *k)
 {
   struct btree *b = container_of(bk, struct btree, keys);
   return __bch_btree_ptr_invalid(b->c, k);
 }
 
-static bool 
+static bool
 btree_ptr_bad_expensive(struct btree *b, const struct bkey *k)
 {
   unsigned i;
@@ -202,7 +202,7 @@ err:
   return true;
 }
 
-static bool 
+static bool
 bch_btree_ptr_bad(struct btree_keys *bk, const struct bkey *k)
 {
   struct btree *b = container_of(bk, struct btree, keys);
@@ -210,7 +210,7 @@ bch_btree_ptr_bad(struct btree_keys *bk, const struct bkey *k)
   if (!bkey_cmp(k, &ZERO_KEY) || !KEY_PTRS(k) || bch_ptr_invalid(bk, k)) {
     return true;
   }
-  
+
   for (i = 0; i < KEY_PTRS(k); i++) {
     if (!ptr_available(b->c, k, i) || ptr_stale(b->c, k, i)) {
       return true;
@@ -221,11 +221,11 @@ bch_btree_ptr_bad(struct btree_keys *bk, const struct bkey *k)
       btree_ptr_bad_expensive(b, k)) {
     return true;
   }
-  
+
   return false;
 }
 
-static bool 
+static bool
 bch_btree_ptr_insert_fixup(struct btree_keys *bk,struct bkey *insert,
                            struct btree_iter *iter,
                            struct bkey *replace_key,
@@ -259,7 +259,7 @@ const struct btree_keys_ops bch_btree_keys_ops = {
  * Necessary for btree_sort_fixup() - if there are multiple keys that compare
  * equal in different sets, we have to process them newest to oldest.
  */
-static bool 
+static bool
 bch_extent_sort_cmp(struct btree_iter_set l,struct btree_iter_set r)
 {
   int64_t c = bkey_cmp(&START_KEY(l.k), &START_KEY(r.k));
@@ -286,7 +286,7 @@ bch_extent_sort_fixup(struct btree_iter *iter,struct bkey *tmp)
       heap_sift(iter, i - top, bch_extent_sort_cmp);
       continue;
     }
-    
+
     if (top->k > i->k) {
       if (bkey_cmp(top->k, i->k) >= 0)
         sort_key_next(iter, i);
@@ -312,7 +312,7 @@ bch_extent_sort_fixup(struct btree_iter *iter,struct bkey *tmp)
   return NULL;
 }
 
-static void 
+static void
 bch_subtract_dirty(struct bkey *k,struct cache_set *c,
                     uint64_t offset,int sectors)
 {
@@ -527,7 +527,7 @@ bool __bch_extent_invalid(struct cache_set *c, const struct bkey *k)
   if (__ptr_invalid(c, k)) {
     goto bad;
   }
-  
+
   return false;
 bad:
   bch_extent_to_text(buf, sizeof(buf), k);
@@ -536,14 +536,14 @@ bad:
   return true;
 }
 
-static bool 
+static bool
 bch_extent_invalid(struct btree_keys *bk, const struct bkey *k)
 {
   struct btree *b = container_of(bk, struct btree, keys);
   return __bch_extent_invalid(b->c, k);
 }
 
-static bool 
+static bool
 bch_extent_bad_expensive(struct btree *b, const struct bkey *k,unsigned ptr)
 {
   struct bucket *g = PTR_BUCKET(b->c, k, ptr);
@@ -560,7 +560,7 @@ bch_extent_bad_expensive(struct btree *b, const struct bkey *k,unsigned ptr)
     }
     pthread_mutex_unlock(&b->c->bucket_lock);
   }
-  
+
   return false;
 err:
   pthread_mutex_unlock(&b->c->bucket_lock);
@@ -572,7 +572,7 @@ err:
   return true;
 }
 
-static bool 
+static bool
 bch_extent_bad(struct btree_keys *bk, const struct bkey *k)
 {
   struct btree *b = container_of(bk, struct btree, keys);
@@ -587,7 +587,7 @@ bch_extent_bad(struct btree_keys *bk, const struct bkey *k)
       return true;
     }
   }
-  
+
   if (!expensive_debug_checks(b->c) && KEY_DIRTY(k))
     return false;
 
@@ -607,23 +607,23 @@ bch_extent_bad(struct btree_keys *bk, const struct bkey *k)
       return true;
     }
   }
-  
+
   return false;
 }
 
-static uint64_t 
+static uint64_t
 merge_chksums(struct bkey *l, struct bkey *r)
 {
   return (l->ptr[KEY_PTRS(l)] + r->ptr[KEY_PTRS(r)]) &
     ~((uint64_t)1 << 63);
 }
 
-static bool 
+static bool
 bch_extent_merge(struct btree_keys *bk, struct bkey *l, struct bkey *r)
 {
   struct btree *b = container_of(bk, struct btree, keys);
   unsigned i;
-  
+
   if (key_merging_disabled(b->c)) {
     return false;
   }
@@ -649,7 +649,7 @@ bch_extent_merge(struct btree_keys *bk, struct bkey *l, struct bkey *r)
       SET_KEY_CSUM(l, 0);
     }
   }
-  
+
   SET_KEY_OFFSET(l, KEY_OFFSET(l) + KEY_SIZE(r));
   SET_KEY_SIZE(l, KEY_SIZE(l) + KEY_SIZE(r));
 

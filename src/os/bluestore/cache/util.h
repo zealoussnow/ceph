@@ -331,7 +331,7 @@ int bch_parse_uuid(const char *s, char *uuid);
 ssize_t bch_read_string_list(const char *buf, const char * const list[]);
 
 struct time_stats {
-  //spinlock_t      lock; 
+  //spinlock_t      lock;
   pthread_spinlock_t lock;
   uint64_t	max_duration;
   uint64_t	average_duration;
