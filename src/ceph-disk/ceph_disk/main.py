@@ -111,6 +111,10 @@ PTYPE = {
             'ready': '86a32090-3647-40b9-bbbd-38d8c573aa86',
             'tobe': '92dad30f-175b-4d40-a5b0-5c0a258b42be',
         },
+        'ssd_cache': {
+            'ready': 'e515bc64-247b-4b31-b340-3ea49d7ac02c',
+            'tobe': '67ee8e88-d2ba-4e84-b7b0-b08850f42844',
+        },
         'osd': {
             'ready': '4fbd7e29-9d25-41b8-afd0-35865ceff05d',
             'tobe': '89c57f98-2fe5-4dc0-89c1-5ec00ceff2be',
@@ -133,6 +137,10 @@ PTYPE = {
             'ready': '306e8683-4fe2-4330-b7c0-00a917c16966',
             'tobe': 'f2d89683-a621-4063-964a-eb1f7863a2be',
         },
+        'ssd_cache': {
+            'ready': '951b9860-9cd7-472c-bb76-3acc76f04552',
+            'tobe': '90df66c9-9508-4740-bc35-bf564695cfa5',
+        },
         'osd': {
             'ready': '4fbd7e29-9d25-41b8-afd0-5ec00ceff05d',
             'tobe': '89c57f98-2fe5-4dc0-89c1-5ec00ceff2be',
@@ -154,6 +162,10 @@ PTYPE = {
         'block.wal': {
             'ready': '01b41e1b-002a-453c-9f17-88793989ff8f',
             'tobe': '01b41e1b-002a-453c-9f17-88793989f2be',
+        },
+        'ssd_cache': {
+            'ready': '2d5fb39f-bfcb-4f5e-8620-cf00b783c82e',
+            'tobe': 'e6a7d498-0d14-4ad3-92d9-db583ce46916',
         },
         'osd': {
             'ready': '4fbd7e29-8ae0-4982-bf9d-5a8d867af560',
