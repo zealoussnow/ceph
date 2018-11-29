@@ -1473,8 +1473,12 @@ int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
                         offset/512,offset,len/512,len);
   int ret = 0;
   struct keylist *insert_keys = NULL;
-  struct bkey *k = NULL;
+  uint64_t sectors = (len >> 9);
 
+  assert(sectors != 0);
+  if (sectors > MAX_KEY_SIZE) {
+    CACHE_WARNLOG(NULL, "big size sectors %lu, max %u\n", sectors, MAX_KEY_SIZE);
+  }
   insert_keys = calloc(1, sizeof(*insert_keys));
   if ( !insert_keys ) {
     CACHE_ERRORLOG(NULL, "calloc insert_keys no mem\n");
@@ -1483,11 +1487,20 @@ int cache_invalidate_region(struct cache *ca, uint64_t offset, uint64_t len)
   }
   bch_keylist_init(insert_keys);
 
-  k = get_init_bkey(insert_keys, offset, ca);
+  do {
+    struct bkey *k = NULL;
+    uint64_t key_size = 0;
 
-  SET_KEY_OFFSET(k, KEY_OFFSET(k) + (len >> 9));
-  SET_KEY_SIZE(k, (len >> 9));
-  bch_keylist_push(insert_keys);
+    k = get_init_bkey(insert_keys, offset, ca);
+    key_size = sectors > MAX_KEY_SIZE ? MAX_KEY_SIZE : sectors;
+
+    SET_KEY_OFFSET(k, KEY_OFFSET(k) + key_size);
+    SET_KEY_SIZE(k, key_size);
+    bch_keylist_push(insert_keys);
+
+    sectors -= key_size;
+    offset += (key_size << 9);
+  } while (sectors > 0);
 
   ret = bch_data_insert_keys(ca->set, insert_keys, NULL);
   if ( ret != 0 ) {
