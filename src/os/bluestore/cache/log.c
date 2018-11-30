@@ -22,11 +22,45 @@ static int last_errcode = 0;
 #define LOG_PAT_LEN 24
 #define LOG_PAT "%s/ceph-cache.osd.%s.log"
 
-int g_log_level = ZLOG_LEVEL_INFO;
+int g_log_level = 40;
+
+int log_level_error = 100;
+int log_level_warn = 80;
+int log_level_notice = 60;
+int log_level_info = 40;
+int log_level_debug = 20;
+int log_level_dump = 130;
 
 void set_log_level(int level)
 {
   g_log_level = level;
+}
+
+void log_load_level()
+{
+  int i = 0;
+  zlog_iter_level_t *iter_level;
+  while (1) {
+    iter_level = zlog_iter_level(i);
+    if (iter_level) {
+      if (strcmp("T2_ERROR", iter_level->str_uppercase) == 0){
+        log_level_error = iter_level->int_level;
+      } else if (strcmp("T2_WARN", iter_level->str_uppercase) == 0){
+         log_level_warn = iter_level->int_level;
+      } else if (strcmp("T2_NOTICE", iter_level->str_uppercase) == 0){
+         log_level_notice = iter_level->int_level;
+      } else if (strcmp("T2_INFO", iter_level->str_uppercase) == 0){
+         log_level_info = iter_level->int_level;
+      } else if (strcmp("T2_DEBUG", iter_level->str_uppercase) == 0){
+         log_level_debug = iter_level->int_level;
+      } else if (strcmp("T2_DUMP", iter_level->str_uppercase) == 0){
+         log_level_dump = iter_level->int_level;
+      }
+      i = iter_level->int_level + 1;
+    } else {
+      break;
+    }
+  }
 }
 
 void log_init(struct cache_context *ctx)
@@ -46,13 +80,14 @@ void log_init(struct cache_context *ctx)
   snprintf(env_val, NAME_MAX + 1, LOG_PAT, log_path, log_instant);
   setenv("LOG_FILENAME", env_val, 1);
 
-  set_log_level(ZLOG_LEVEL_INFO);
+  set_log_level(40);
 
   if (!log_is_init) {
     int rc = zlog_init(LOG_CONF);
     if (rc)
       assert("log init failed" == 0);
     log_is_init = 1;
+    log_load_level();
   }
 }
 
@@ -102,5 +137,10 @@ void cache_zlog(const char *cat_type, const char *file,
 
 int log_reload()
 {
-  return zlog_reload(LOG_CONF);
+  int rc = 0;
+  rc = zlog_reload(LOG_CONF);
+  if (rc)
+    assert("log reload failed" == 0);
+  log_load_level();
+  return rc;
 }

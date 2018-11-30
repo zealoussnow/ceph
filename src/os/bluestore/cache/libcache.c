@@ -348,17 +348,17 @@ int t2store_set_log_level(const char *level)
 
   CACHE_INFOLOG(NULL, "set log_level to: %s\n", level);
   if (!strcmp(level, "DEBUG"))
-    log_level = ZLOG_LEVEL_DEBUG;
+    log_level = LOG_LEVEL_DEBUG;
   else if (!strcmp(level, "INFO"))
-    log_level = ZLOG_LEVEL_INFO;
+    log_level = LOG_LEVEL_INFO;
   else if (!strcmp(level, "NOTICE"))
-    log_level = ZLOG_LEVEL_NOTICE;
+    log_level = LOG_LEVEL_NOTICE;
   else if (!strcmp(level, "WARN"))
-    log_level = ZLOG_LEVEL_WARN;
+    log_level = LOG_LEVEL_WARN;
   else if (!strcmp(level, "ERROR"))
-    log_level = ZLOG_LEVEL_ERROR;
+    log_level = LOG_LEVEL_ERROR;
   else if (!strcmp(level, "DUMP"))
-    log_level = ZLOG_LEVEL_DUMP;
+    log_level = LOG_LEVEL_DUMP;
   else
     return -1;
   set_log_level(log_level);
