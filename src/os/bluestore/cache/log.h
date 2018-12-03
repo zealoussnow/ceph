@@ -12,7 +12,12 @@ extern void cache_zlog(const char *cat_type, const char *file,
         size_t filelen, const char *func, size_t funclen,
         long line, const int level, const char *format, ...);
 
-
+extern int log_level_error;
+extern int log_level_warn;
+extern int log_level_notice;
+extern int log_level_info;
+extern int log_level_debug;
+extern int log_level_dump;
 
 #define DEFAULT_CAT_TYPE  "cache"
 #define CAT_BTREE "btree"
@@ -38,31 +43,36 @@ extern void cache_zlog(const char *cat_type, const char *file,
 #define MOVINGGC "movinggc"
 #define WRITEBACK "writeback"
 
-#define ZLOG_LEVEL_DUMP 130
+#define LOG_LEVEL_ERROR  log_level_error
+#define LOG_LEVEL_WARN   log_level_warn
+#define LOG_LEVEL_NOTICE log_level_notice
+#define LOG_LEVEL_INFO   log_level_info
+#define LOG_LEVEL_DEBUG  log_level_debug
+#define LOG_LEVEL_DUMP   log_level_dump
 
 #define CACHE_ERRORLOG(cat_type, format, args...) \
         cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
-        ZLOG_LEVEL_ERROR, format, ##args)
+        LOG_LEVEL_ERROR, format, ##args)
 
 #define CACHE_WARNLOG(cat_type, format, args...) \
         cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
-        ZLOG_LEVEL_WARN, format, ##args)
+        LOG_LEVEL_WARN, format, ##args)
 
 #define CACHE_NOTICELOG(cat_type, format, args...) \
         cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
-        ZLOG_LEVEL_NOTICE, format, ##args)
+        LOG_LEVEL_NOTICE, format, ##args)
 
 #define CACHE_INFOLOG(cat_type, format, args...) \
         cache_zlog(cat_type,__FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
-        ZLOG_LEVEL_INFO, format, ##args)
+        LOG_LEVEL_INFO, format, ##args)
 
 #define CACHE_DEBUGLOG(cat_type, format, args...) \
         cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
-        ZLOG_LEVEL_DEBUG, format, ##args)
+        LOG_LEVEL_DEBUG, format, ##args)
 
 #define CACHE_DUMPLOG(cat_type, format, args...) \
         cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
-        ZLOG_LEVEL_DUMP, format, ##args)
+        LOG_LEVEL_DUMP, format, ##args)
 
 #endif
 
