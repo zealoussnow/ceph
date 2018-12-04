@@ -1,3 +1,4 @@
+
 set(libcache_srcs
   ring.c
   init.c
@@ -20,6 +21,11 @@ set(libcache_srcs
 )
 
 if (CACHE_TEST)
+  configure_file(
+    ${CMAKE_SOURCE_DIR}/src/include/config-h.in.cmake
+    ${CMAKE_SOURCE_DIR}/acconfig.h
+  )
+
   list(APPEND libcache_srcs
     test.c
     )
