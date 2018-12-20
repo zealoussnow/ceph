@@ -69,13 +69,13 @@ public:
 
   void try_aio_wake() {
     assert(num_running >= 1);
+    std::lock_guard<std::mutex> l(lock);
     if (num_running.fetch_sub(1) == 1) {
 
       // we might have some pending IOs submitted after the check
       // as there is no lock protection for aio_submit.
       // Hence we might have false conditional trigger.
       // aio_wait has to handle that hence do not care here.
-      std::lock_guard<std::mutex> l(lock);
       cond.notify_all();
     }
   }
