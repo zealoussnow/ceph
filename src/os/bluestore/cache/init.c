@@ -446,7 +446,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
   c->congested_read_threshold_us	= 2000;
   c->congested_write_threshold_us	= 20000;
   c->error_limit	= 8 << IO_ERROR_SHIFT;  /* IO_ERROR_SHIFT=20, 8MB */
-  c->expensive_debug_checks = true;
+  c->expensive_debug_checks = false;
 
   return c;
 err:
