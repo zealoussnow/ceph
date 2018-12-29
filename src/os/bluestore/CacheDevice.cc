@@ -134,6 +134,7 @@ CacheDevice::CacheDevice(CephContext* cct, aio_callback_t cb, void *cbpriv)
     aio_stop(false),
     injecting_crash(0),
     asok_hook(nullptr),
+    cache_ctx{0},
     aio_callback(cb),
     aio_callback_priv(cbpriv)
 {
@@ -505,7 +506,8 @@ void CacheDevice::close()
 {
   dout(1) << __func__ << dendl;
   _aio_stop();
-  t2store_cache_destroy_cache(&cache_ctx);
+  if (cache_ctx.registered)
+    t2store_cache_destroy_cache(&cache_ctx);
 
   _shutdown_logger();
   assert(fd_direct >= 0);
