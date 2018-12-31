@@ -9,7 +9,7 @@
 #define _TYPES_H
 
 typedef long ssize_t;
-typedef uint64_t __u64;
+typedef unsigned long long __u64;
 typedef uint32_t __u32;
 typedef uint16_t __u16;
 typedef uint8_t  __u8;
