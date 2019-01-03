@@ -834,8 +834,11 @@ void CacheDevice::_aio_thread()
     ceph_abort();
   }
   struct ring_items *items_wb = t2store_cache_aio_items_alloc(max_buffer);
+  assert(items_wb !=NULL);
   struct ring_items *items_wa = t2store_cache_aio_items_alloc(max_buffer);
+  assert(items_wa !=NULL);
   struct ring_items *items_wt = t2store_cache_aio_items_alloc(max_buffer);
+  assert(items_wt !=NULL);
   struct ring_item *item;
 
   dout(5) << __func__ << " start aio thread" << dendl;
