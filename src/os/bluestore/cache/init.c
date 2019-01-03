@@ -1787,6 +1787,8 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
     get_random_bytes(&i, sizeof(int));
     if ((i & 3) == 3)
       goto skip;
+    else
+      goto rescale;
   }
 
   list_for_each_entry(task, &dc->io_thread, list) {
@@ -1835,6 +1837,8 @@ found:
       sectors >= dc->sequential_cutoff >> 9) {
     goto skip;
   }
+rescale:
+  bch_rescale_priorities(c, item->o_len >> 9);
   return false;
 skip:
   return true;
@@ -2215,6 +2219,7 @@ read_cache_lookup_fn(struct btree_op * op, struct btree *b,
      bkey_copy(&tmp, key);
      bkey_cut_invalid(&tmp.key, item->o_offset >> 9, item->o_len >> 9);
      bch_keylist_add(item->read_new_keys, &tmp.key);
+     PTR_BUCKET(b->c, key, 0)->prio = INITIAL_PRIO;
    }
    return MAP_CONTINUE;
 }
@@ -2440,6 +2445,7 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   item->start = cache_clock_now();
   item->read_keys = calloc(1, sizeof(struct keylist));
   bch_keylist_init(item->read_keys);
+  bch_rescale_priorities(ca->set, len >> 9);
 
   atomic_add(1 + (len >> 8) / 2, &ca->set->dc->read_iops);
   s.item = item;
