@@ -85,17 +85,17 @@ static void cache_io_completion_cb(struct iocb *iocb, long res,
 
 void *thr_insert_keys(void *arg) {
   struct thread_data *td = (struct thread_data *) arg;
-  struct cache *myca = td->ca;
-  struct cache_set *c = myca->set;
+  struct cache *ca = td->ca;
+  struct cache_set *c = ca->set;
   struct rte_ring *r = c->journal_ring;
   struct ring_items *items = NULL;
   struct ring_item *item = NULL;
   int i;
-  void *x;
+  void *ring_data;
 
   while (td->t_options->running) {
-    if (!rte_ring_dequeue(r, &x)) {
-      items = (struct ring_items*)x;
+    if (!rte_ring_dequeue(r, &ring_data)) {
+      items = (struct ring_items*)ring_data;
       bch_insert_keys_batch(c, items->insert_keys, NULL, items->journal_ref);
       for (i = 0; i < items->count; i++) {
         item = items->items[i];
@@ -116,9 +116,6 @@ poller_fn(void *arg) {
   struct thread_data *td = (struct thread_data *) arg;
   struct io_event *events = td->thread_info->events;
   struct timespec *timeout = td->thread_info->timeout;
-  struct io_event *ring_event = NULL;
-  struct ring_item *item = NULL;
-  struct cache *myca = td->ca;
   int num_events = 0;
   int i = 0;
   while(td->t_options->running) {
@@ -307,18 +304,19 @@ aio_enqueue_batch(uint16_t type, struct aio_handler *h, struct ring_items *items
 #define DE_INSERT 2
 
 int
-cache_rte_dequeue_init(void *ca) {
+cache_rte_dequeue_init(struct cache *ca) {
   int i;
   pthread_t *pde;
-  struct cache *myca = (struct cache *) ca;
   struct rte_ring_handler *handler = g_rte_ring_handler;
   struct thread_options *options = NULL;
   struct thread_data *td = NULL;
-  struct cache_set *c = myca->set;
+  struct cache_set *c = ca->set;
 
   c->journal_ring = rte_ring_create(RING_SIZE, 0);
-  if (c->journal_ring == NULL)
+  if (c->journal_ring == NULL) {
+    CACHE_ERRORLOG(NULL, "error create journal rte ring\n");
     assert("no mem" == 0);
+  }
 
   handler->journal_ring = c->journal_ring;
   pde = calloc(DE_INSERT, sizeof(*pde));
@@ -328,11 +326,13 @@ cache_rte_dequeue_init(void *ca) {
     options->running = true;
     options->type = CACHE_THREAD_CACHE;
     td->t_options = options;
-    td->ca = myca;
+    td->ca = ca;
     if(pthread_create(&pde[i], NULL, thr_insert_keys, (void*)td)){
+      CACHE_ERRORLOG(NULL, "error create insert keys pthread\n");
       assert("error create pthread" == 0);
     }
     if (pthread_setname_np(pde[i], "insert_keys")){
+      CACHE_ERRORLOG(NULL, "error set insert keys pthread name\n");
       assert("failed to set insert_keys" == 0);
     }
     td->dequeue_td = pde[i];
@@ -460,6 +460,10 @@ cache_rte_ring_init() {
   struct rte_ring_handler* handler = NULL;
 
   handler = calloc(1, sizeof(*handler));
+  if (!handler) {
+    CACHE_ERRORLOG(NULL, "error calloc handler\n");
+    assert("error calloc handler" == 0);
+  }
   pthread_spin_init(&handler->lock, 0);
 
   INIT_LIST_HEAD(&handler->dequeue_threads);
@@ -480,14 +484,14 @@ rte_dequeue_ring_destroy() {
   while(!list_empty(&handler->dequeue_threads)) {
     td = list_first_entry(&handler->dequeue_threads, typeof(*td), node);
     pthread_join(td->dequeue_td, NULL);
-    free(td->t_options);
+    T2Free(td->t_options);
     list_del(&td->node);
-    free(td);
+    T2Free(td);
   }
 
   rte_ring_free(handler->journal_ring);
 
-  free(handler);
+  T2Free(handler);
 }
 
 void *

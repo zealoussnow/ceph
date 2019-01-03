@@ -738,6 +738,7 @@ static void journal_write_batch(struct cache_set *c)
       }
 
       if (ring_items_add(insert_items, item) != 0) {
+        CACHE_ERRORLOG(CAT_JOURNAL, "add item to insert_items error, items count %u\n", insert_items->count);
         assert("error add item" == 0);
       }
     }
@@ -753,6 +754,7 @@ static void journal_write_batch(struct cache_set *c)
     journal_try_write(c);
 
     while (rte_ring_enqueue(c->journal_ring, insert_items)) {
+      pthread_yield();
     }
     pthread_cond_broadcast(&c->journal_ring_cond);
 
@@ -790,6 +792,7 @@ atomic_t *bch_prep_journal(struct ring_item *item)
   }
 
   if (ring_items_add(c->items, item) != 0) {
+    CACHE_ERRORLOG(CAT_JOURNAL, "add item to items error, items count %u\n", c->items->count);
     assert("error add item" == 0);
   }
   c->items->nkeys += bch_keylist_nkeys(item->insert_keys);

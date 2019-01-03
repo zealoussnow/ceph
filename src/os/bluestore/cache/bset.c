@@ -173,12 +173,36 @@ bch_keylist_realloc(struct keylist *l, unsigned u64s, struct cache_set *c)
    * and finish the rest when the keylist is empty.
    */
   if (newsize * sizeof(uint64_t) > block_bytes(c) - sizeof(struct jset)) {
-    CACHE_ERRORLOG(NULL, "keylist realloc jset has nomem\n");
+    CACHE_ERRORLOG(NULL, "keylist realloc jset has nomem, newsize %u, block_bytes %u, jset %u\n", newsize, block_bytes(c), sizeof(struct jset));
     assert("keylist realloc jset has nomem" == 0);
     return -ENOMEM;
   }
 
   return __bch_keylist_realloc(l, u64s);
+}
+
+int
+bch_keylist_insert(struct keylist *l, struct bkey *insert, struct cache_set *c)
+{
+  struct bkey *where;
+
+  if (bch_keylist_realloc(l, bkey_u64s(insert), c)){
+    CACHE_ERRORLOG(CAT_BKEY, "keylist realloc failed!\n");
+    assert("keylist realloc failed" == 0);
+  }
+
+  for (where= l->keys; where!=l->top; where = bkey_next(where)){
+    if (bkey_cmp(insert, where) < 0)
+      break;
+  }
+  BUG_ON(where < l->keys);
+  BUG_ON(where > l->top);
+  if (where!=l->top)
+    memmove((uint64_t *) where + bkey_u64s(insert), where,
+            (char *) l->top_p - (char *) where);
+  bkey_copy(where, insert);
+  l->top_p += bkey_u64s(insert);
+  return bkey_u64s(insert);
 }
 
 struct bkey *

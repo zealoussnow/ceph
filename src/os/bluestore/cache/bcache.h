@@ -1118,6 +1118,7 @@ void bch_cached_dev_run(struct cached_dev *);
 //void bch_cache_set_unregister(struct cache_set *);
 void bch_cache_set_stop(struct cache_set *);
 int bch_keylist_realloc(struct keylist *, unsigned, struct cache_set *);
+int bch_keylist_insert(struct keylist *, struct bkey *, struct cache_set *);
 
 struct cache_set *bch_cache_set_alloc(struct cache_sb *);
 void bch_btree_cache_free(struct cache_set *);

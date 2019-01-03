@@ -834,7 +834,7 @@ static const char *register_cache_set(struct cache *ca)
   ca->set->bluestore_cd = ca->bluestore_cd;
 
   c->dc = calloc(1, sizeof(struct cached_dev));
-  c->items = ring_items_alloc(4096);
+  c->items = ring_items_alloc((block_bytes(c) - sizeof(struct jset))/sizeof(uint64_t) + 1);
   c->last_journal_lat = 1;
   c->last_journal_count = 0;
   c->journal_batch_dirty = false;
@@ -925,7 +925,7 @@ bch_insert_keys_batch(struct cache_set *c_set,
     atomic_dec_bug(journal_ref);
   }
   bch_keylist_free(insert_keys);
-  free(insert_keys);
+  T2Free(insert_keys);
 
   return ret;
 }

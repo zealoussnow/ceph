@@ -2229,9 +2229,9 @@ out:
 static int btree_insert_fn(struct btree_op *b_op, struct btree *b)
 {
   struct btree_insert_op *op = container_of(b_op, struct btree_insert_op, op);
-  struct bkey *k = op->keys->keys;
+  struct bkey *insert_start_key = op->keys->keys;
 
-  if (bkey_cmp(&START_KEY(k), &b->key) >= 0) {
+  if (bkey_cmp(&START_KEY(insert_start_key), &b->key) >= 0) {
     return MAP_CONTINUE;
   }
 
@@ -2244,8 +2244,7 @@ static int btree_insert_fn(struct btree_op *b_op, struct btree *b)
     CACHE_DEBUGLOG(CAT_BTREE,"insert return error ret %d\n", ret);
     return ret;
   } else if (!op->op.insert_nomem && !bch_keylist_empty(op->keys)) {
-    // 如果是正常的插入成功，但是还有未插入的成功的，则
-    // 可以接着插入到下一个节点
+    // 当前节点插入成功，并且还有未插完的bkey需要插入到其他节
     CACHE_DEBUGLOG(CAT_BTREE,"insert return map continue\n");
     return MAP_CONTINUE;
   } else {

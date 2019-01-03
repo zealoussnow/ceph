@@ -575,7 +575,7 @@ static inline void
 bch_keylist_free(struct keylist *l)
 {
   if (l->keys_p != l->inline_keys) {
-    free(l->keys_p);
+    T2Free(l->keys_p);
     l->keys_p = l->inline_keys;
   }
 }
@@ -590,29 +590,6 @@ static inline size_t
 bch_keylist_bytes(struct keylist *l)
 {
   return bch_keylist_nkeys(l) * sizeof(uint64_t);
-}
-
-static inline size_t
-bch_keylist_insert(struct keylist *l, struct bkey *insert, struct cache_set *c)
-{
-  struct bkey *where;
-
-  if (bch_keylist_realloc(l, bkey_u64s(insert), c)){
-    //CACHE_DEBUGLOG(CAT_BKEY, "keylist realloc failed!\n");
-    assert("keylist realloc failed" == 0);
-  }
-
-  for (where= l->keys; where!=l->top; where = bkey_next(where)){
-    if (bkey_cmp(insert, where) < 0)
-      break;
-  }
-  BUG_ON(where < l->keys);
-  BUG_ON(where > l->top);
-  if (where!=l->top)
-    memmove((uint64_t *) where + bkey_u64s(insert), where,
-            (char *) l->top_p - (char *) where);
-  bkey_copy(where, insert);
-  l->top_p += bkey_u64s(insert);
 }
 
 /* Debug stuff */
