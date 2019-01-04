@@ -3202,9 +3202,9 @@ std::vector<Option> get_global_options() {
     .set_description(""),
 
     // t2cache
-    Option("block_type", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_enum_allowed({"cache", "kernel", "pmem", "ust-nvme"})
-    .set_default("")
+    Option("backend_type", Option::TYPE_STR, Option::LEVEL_ADVANCED)
+    .set_enum_allowed({"t2ce", "kernel", "pmem", "ust-nvme"})
+    .set_default("kernel")
     .set_description("backend store block type"),
 
     Option("log_crash_on_nospc", Option::TYPE_BOOL, Option::LEVEL_DEV)

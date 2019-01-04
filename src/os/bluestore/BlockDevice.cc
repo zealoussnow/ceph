@@ -53,16 +53,16 @@ void IOContext::aio_wait()
 }
 
 BlockDevice *BlockDevice::create(CephContext* cct, const string& path,
-        aio_callback_t cb, void *cbpriv, const std::string &block_type)
+        aio_callback_t cb, void *cbpriv, const std::string &backend_type)
 {
 
-  assert(!block_type.empty());
+  assert(!backend_type.empty());
 
-  if (block_type == "cache" ) {
+  if (backend_type == "t2ce" ) {
     return new CacheDevice(cct, cb, cbpriv);
-  } else if (block_type == "kernel") {
+  } else if (backend_type == "kernel") {
     return new KernelDevice(cct, cb, cbpriv);
-  } else if (block_type == "pmem") {
+  } else if (backend_type == "pmem") {
 #if defined(HAVE_PMEM)
     int is_pmem = 0;
     void *addr = pmem_map_file(path.c_str(), 1024*1024, PMEM_FILE_EXCL, O_RDONLY, NULL, &is_pmem);
@@ -72,11 +72,11 @@ BlockDevice *BlockDevice::create(CephContext* cct, const string& path,
         return new PMEMDevice(cct, cb, cbpriv);
       }
       pmem_unmap(addr, 1024*1024);
-      assert(" device not pmem block_type " == 0);
+      assert(" device not pmem backend_type " == 0);
     }
 #endif
     assert(" HAVE_PMEM not enable " == 0);
-  } else if (block_type == "ust-nvme") {
+  } else if (backend_type == "ust-nvme") {
 #if defined(HAVE_SPDK)
     char buf[PATH_MAX + 1];
     int r = ::readlink(path.c_str(), buf, sizeof(buf) - 1);
@@ -84,7 +84,7 @@ BlockDevice *BlockDevice::create(CephContext* cct, const string& path,
       buf[r] = '\0';
       char *bname = ::basename(buf);
       if (strncmp(bname, SPDK_PREFIX, sizeof(SPDK_PREFIX)-1) != 0) {
-        assert(" device not ust-nvme block_type " == 0);
+        assert(" device not ust-nvme backend_type " == 0);
       }
     }
     return new NVMEDevice(cct, cb, cbpriv);
@@ -92,7 +92,7 @@ BlockDevice *BlockDevice::create(CephContext* cct, const string& path,
     assert(" HAVE_SPDK not enable " == 0);
   }
 
-  derr << __func__ << " unknown backend " << block_type << dendl;
+  derr << __func__ << " unknown backend " << backend_type << dendl;
   ceph_abort();
   return NULL;
 

@@ -1017,7 +1017,7 @@ OPTION(bluestore_spdk_coremask, OPT_STR)
 OPTION(bluestore_spdk_max_io_completion, OPT_U32)
 
 // t2cache
-OPTION(block_type, OPT_STR)
+OPTION(backend_type, OPT_STR)
 OPTION(log_crash_on_nospc, OPT_BOOL)
 OPTION(t2store_cache_path, OPT_STR)
 OPTION(t2store_cache_size, OPT_U64)  // 10gb for testing

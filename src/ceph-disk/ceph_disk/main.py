@@ -81,7 +81,7 @@ PTYPE = {
             'ready': '5ce17fce-4087-4169-b7ff-056cc58473f9',
             'tobe': '5ce17fce-4087-4169-b7ff-056cc58472be',
         },
-        'ssd_cache': {
+        'block.t2ce': {
             'ready': '9edda69e-d60c-4db5-ab3b-5f2f9a8e8362',
             'tobe': '3993b747-8ad6-489f-b5ef-9d74844bd14c',
         },
@@ -111,7 +111,7 @@ PTYPE = {
             'ready': '86a32090-3647-40b9-bbbd-38d8c573aa86',
             'tobe': '92dad30f-175b-4d40-a5b0-5c0a258b42be',
         },
-        'ssd_cache': {
+        'block.t2ce': {
             'ready': 'e515bc64-247b-4b31-b340-3ea49d7ac02c',
             'tobe': '67ee8e88-d2ba-4e84-b7b0-b08850f42844',
         },
@@ -137,7 +137,7 @@ PTYPE = {
             'ready': '306e8683-4fe2-4330-b7c0-00a917c16966',
             'tobe': 'f2d89683-a621-4063-964a-eb1f7863a2be',
         },
-        'ssd_cache': {
+        'block.t2ce': {
             'ready': '951b9860-9cd7-472c-bb76-3acc76f04552',
             'tobe': '90df66c9-9508-4740-bc35-bf564695cfa5',
         },
@@ -163,7 +163,7 @@ PTYPE = {
             'ready': '01b41e1b-002a-453c-9f17-88793989ff8f',
             'tobe': '01b41e1b-002a-453c-9f17-88793989f2be',
         },
-        'ssd_cache': {
+        'block.t2ce': {
             'ready': '2d5fb39f-bfcb-4f5e-8620-cf00b783c82e',
             'tobe': 'e6a7d498-0d14-4ad3-92d9-db583ce46916',
         },
@@ -2142,7 +2142,7 @@ class PrepareBluestore(Prepare):
         self.block = PrepareBluestoreBlock(args)
         self.blockdb = PrepareBluestoreBlockDB(args)
         self.blockwal = PrepareBluestoreBlockWAL(args)
-        self.ssd_cache = PrepareBlueStoreCache(args)
+        self.blockt2ce = PrepareBlueStoreCache(args)
 
     @staticmethod
     def parser():
@@ -2184,15 +2184,15 @@ class PrepareBluestore(Prepare):
             variable='block_type',
         )
         if block_type == 'cache':
-            if getattr(self.data.args, 'ssd_cache'):
-                to_prepare_list.append(self.ssd_cache)
+            if getattr(self.data.args, 'block.t2ce'):
+                to_prepare_list.append(self.blockt2ce)
         to_prepare_list.append(self.block)
         self.data.prepare(*to_prepare_list)
 
 
 class Space(object):
 
-    NAMES = ('block', 'journal', 'block.db', 'block.wal', 'ssd_cache')
+    NAMES = ('block', 'journal', 'block.db', 'block.wal', 'block.t2ce')
 
 
 class PrepareSpace(object):
@@ -2600,7 +2600,7 @@ class PrepareBluestoreBlockWAL(PrepareSpace):
 class PrepareBlueStoreCache(PrepareSpace):
 
     def __init__(self, args):
-        self.name = 'ssd_cache'
+        self.name = 'block.t2ce'
         super(PrepareBlueStoreCache, self).__init__(args)
 
     def get_space_size(self):
@@ -2616,7 +2616,7 @@ class PrepareBlueStoreCache(PrepareSpace):
 
 
     def desired_partition_number(self):
-        if getattr(self.args, 'ssd_cache') == self.args.data:
+        if getattr(self.args, 'block.t2ce') == self.args.data:
             num = 5
         else:
             num = 0
@@ -2627,11 +2627,11 @@ class PrepareBlueStoreCache(PrepareSpace):
 
     @staticmethod
     def parser():
-        parser = PrepareSpace.parser('ssd_cache', positional=False)
+        parser = PrepareSpace.parser('block.t2ce', positional=False)
         parser.add_argument(
-            '--ssd_cache',
-            metavar='SSD_CACHE',
-            help='path to the device for bluestore ssd_cache',
+            '--block.t2ce',
+            metavar='BLOCKT2CE',
+            help='path to the device for bluestore block.t2ce',
         )
         return parser
 
