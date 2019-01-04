@@ -2179,11 +2179,11 @@ class PrepareBluestore(Prepare):
             to_prepare_list.append(self.blockdb)
         if getattr(self.data.args, 'block.wal'):
             to_prepare_list.append(self.blockwal)
-        block_type = get_conf(
+        backend_type = get_conf(
             cluster=self.args.cluster,
-            variable='block_type',
+            variable='backend_type',
         )
-        if block_type == 'cache':
+        if backend_type == 't2ce':
             if getattr(self.data.args, 'block.t2ce'):
                 to_prepare_list.append(self.blockt2ce)
         to_prepare_list.append(self.block)
