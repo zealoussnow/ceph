@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "rte_ring.h"
+
 #include "aio.h"
 #include "list.h"
 #include "log.h"
@@ -12,6 +14,7 @@
 struct thread_data;
 
 struct aio_handler *g_handler = NULL;
+struct rte_ring_handler *g_rte_ring_handler = NULL;
 #define LIBAIO_NR_EVENTS 4096
 #define LIBAIO_EVENTS_PER_GET 32
 
@@ -39,6 +42,8 @@ struct thread_data {
   struct list_head node;
   pthread_t pooler_td;
   pthread_t aio_td;
+  struct cache *ca;
+  pthread_t dequeue_td;
 };
 
 struct aio_handler {
@@ -49,7 +54,14 @@ struct aio_handler {
   struct list_head backend_threads;
 };
 
-static void cache_io_completion_cb(io_context_t ctx, struct iocb *iocb, long res,
+struct rte_ring_handler {
+  pthread_spinlock_t      lock;
+  uint32_t nr_dequeue;
+  struct list_head dequeue_threads;
+  struct rte_ring *journal_ring;
+};
+
+static void cache_io_completion_cb(struct iocb *iocb, long res,
                        long res2, struct ring_item *item)
 {
   struct cache *ca = item->ca_handler;
@@ -57,7 +69,46 @@ static void cache_io_completion_cb(io_context_t ctx, struct iocb *iocb, long res
   free(iocb);
   cache_bug_on((res < 0 || res2 != 0), ca->set, "aio get error res %d res2 %d\n", res, res2);
   item->io.success = true;
-  item->iou_completion_cb(item->iou_arg);
+  switch (item->type) {
+    case ITEM_AIO_WRITE:
+      bch_prep_journal(item->iou_arg);
+      break;
+    case ITEM_AIO_READ:
+    case ITEM_WRITEBACK:
+    case ITEM_MOVINGGC:
+      item->iou_completion_cb(item->iou_arg);
+      break;
+    default:
+      assert("item error" == 0);
+  }
+}
+
+void *thr_insert_keys(void *arg) {
+  struct thread_data *td = (struct thread_data *) arg;
+  struct cache *ca = td->ca;
+  struct cache_set *c = ca->set;
+  struct rte_ring *r = c->journal_ring;
+  struct ring_items *items = NULL;
+  struct ring_item *item = NULL;
+  int i;
+  void *ring_data;
+
+  while (td->t_options->running) {
+    if (!rte_ring_dequeue(r, &ring_data)) {
+      items = (struct ring_items*)ring_data;
+      bch_insert_keys_batch(c, items->insert_keys, NULL, items->journal_ref);
+      for (i = 0; i < items->count; i++) {
+        item = items->items[i];
+        item->iou_completion_cb(item);
+      }
+      ring_items_free(items);
+    } else {
+      struct timespec out = time_from_now(0, 100*NSEC_PER_USEC);
+      pthread_mutex_lock(&c->journal_ring_mut);
+      pthread_cond_timedwait(&c->journal_ring_cond, &c->journal_ring_mut, &out);
+      pthread_mutex_unlock(&c->journal_ring_mut);
+    }
+  }
 }
 
 void *
@@ -73,8 +124,7 @@ poller_fn(void *arg) {
       continue;
     for (i = 0; i < num_events; i++) {
       struct io_event event = events[i];
-      cache_io_completion_cb(*td->thread_info->ioctx, event.obj,
-                             event.res, event.res2, event.data);
+      cache_io_completion_cb(event.obj, event.res, event.res2, event.data);
     }
   }
 
@@ -250,6 +300,51 @@ aio_enqueue_batch(uint16_t type, struct aio_handler *h, struct ring_items *items
   return 0;
 }
 
+#define RING_SIZE 4096
+#define DE_INSERT 2
+
+int
+cache_rte_dequeue_init(struct cache *ca) {
+  int i;
+  pthread_t *pde;
+  struct rte_ring_handler *handler = g_rte_ring_handler;
+  struct thread_options *options = NULL;
+  struct thread_data *td = NULL;
+  struct cache_set *c = ca->set;
+
+  c->journal_ring = rte_ring_create(RING_SIZE, 0);
+  if (c->journal_ring == NULL) {
+    CACHE_ERRORLOG(NULL, "error create journal rte ring\n");
+    assert("no mem" == 0);
+  }
+
+  handler->journal_ring = c->journal_ring;
+  pde = calloc(DE_INSERT, sizeof(*pde));
+  for (i=0;i<DE_INSERT;i++) {
+    td = calloc(1, sizeof(*td));
+    options = calloc(1, sizeof(*options));
+    options->running = true;
+    options->type = CACHE_THREAD_CACHE;
+    td->t_options = options;
+    td->ca = ca;
+    if(pthread_create(&pde[i], NULL, thr_insert_keys, (void*)td)){
+      CACHE_ERRORLOG(NULL, "error create insert keys pthread\n");
+      assert("error create pthread" == 0);
+    }
+    if (pthread_setname_np(pde[i], "insert_keys")){
+      CACHE_ERRORLOG(NULL, "error set insert keys pthread name\n");
+      assert("failed to set insert_keys" == 0);
+    }
+    td->dequeue_td = pde[i];
+    pthread_spin_lock(&handler->lock);
+    handler->nr_dequeue++;
+    list_add(&td->node, &handler->dequeue_threads);
+    pthread_spin_unlock(&handler->lock);
+  }
+
+  return 0;
+}
+
 int
 aio_thread_init(void *ca) {
   CACHE_DEBUGLOG(CAT_AIO, "libevent aio init\n");
@@ -269,6 +364,7 @@ aio_thread_init(void *ca) {
 
   for (i = 0; i < 2; i++) {
     struct thread_data *td = calloc(1, sizeof(*td));
+    td->ca = myca;
 
     iocxt = calloc(1, sizeof(io_context_t));
     rc = io_setup(LIBAIO_NR_EVENTS, iocxt);
@@ -352,6 +448,50 @@ aio_thread_init(void *ca) {
   err:
   assert(msg == 0);
   return rc;
+}
+
+void *
+cache_rte_ring_init() {
+
+  if (g_rte_ring_handler) {
+    return (void *) g_rte_ring_handler;
+  }
+
+  struct rte_ring_handler* handler = NULL;
+
+  handler = calloc(1, sizeof(*handler));
+  if (!handler) {
+    CACHE_ERRORLOG(NULL, "error calloc handler\n");
+    assert("error calloc handler" == 0);
+  }
+  pthread_spin_init(&handler->lock, 0);
+
+  INIT_LIST_HEAD(&handler->dequeue_threads);
+  handler->nr_dequeue = 0;
+
+  g_rte_ring_handler = handler;
+  return (void *) g_rte_ring_handler;
+}
+
+void *
+rte_dequeue_ring_destroy() {
+  struct thread_data *td;
+  struct rte_ring_handler *handler = g_rte_ring_handler;
+
+  list_for_each_entry(td, &handler->dequeue_threads, node)
+    td->t_options->running = false;
+
+  while(!list_empty(&handler->dequeue_threads)) {
+    td = list_first_entry(&handler->dequeue_threads, typeof(*td), node);
+    pthread_join(td->dequeue_td, NULL);
+    T2Free(td->t_options);
+    list_del(&td->node);
+    T2Free(td);
+  }
+
+  rte_ring_free(handler->journal_ring);
+
+  T2Free(handler);
 }
 
 void *

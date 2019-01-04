@@ -149,10 +149,7 @@
     rw_unlock(_w, _b);                                                                          \
     bch_cannibalize_unlock(c);                                                                  \
     if (_r == -EINTR) {                                                                         \
-      struct timespec out = time_from_now(0, 100*NSEC_PER_USEC);                                \
-      pthread_mutex_lock(&(c)->btree_cache_wait_mut);                                           \
-      pthread_cond_timedwait(&(c)->btree_cache_wait_cond, &(c)->btree_cache_wait_mut,&out);     \
-      pthread_mutex_unlock(&(c)->btree_cache_wait_mut);                                         \
+      pthread_yield();                                                                          \
     }                                                                                           \
   } while (_r == -EINTR);                                                                       \
   _r;                                                                                           \
@@ -1983,6 +1980,7 @@ bch_btree_insert_keys(struct btree *b, struct btree_op *op, struct keylist *inse
     if (bkey_u64s(k) > insert_u64s_remaining(b)) {
       CACHE_ERRORLOG(CAT_BTREE,"inserting error(bkey_u64s %u remaining %u)\n",
                 bkey_u64s(k),insert_u64s_remaining(b));
+      op->insert_nomem = true;
       break;
     }
     if (bkey_cmp(k, &b->key) <= 0) {
@@ -2003,10 +2001,12 @@ bch_btree_insert_keys(struct btree *b, struct btree_op *op, struct keylist *inse
       ret |= btree_insert_key(b, &temp.key, replace_key);
       break;
     } else {
-      CACHE_ERRORLOG(CAT_BSET,"not match\n");
+      // xxx:Bkey's offset is not continuous. So it not a error.
+      /*CACHE_ERRORLOG(CAT_BSET,"not match\n");*/
       break;
     }
   }
+  // Todo:We need notice another error
   if (!ret && !replace_key) {
     CACHE_ERRORLOG(CAT_BSET,"inserting keys got error ret %d \n",ret);
     assert("inserting keys got error"==0);
@@ -2229,6 +2229,11 @@ out:
 static int btree_insert_fn(struct btree_op *b_op, struct btree *b)
 {
   struct btree_insert_op *op = container_of(b_op, struct btree_insert_op, op);
+  struct bkey *insert_start_key = op->keys->keys;
+
+  if (bkey_cmp(&START_KEY(insert_start_key), &b->key) >= 0) {
+    return MAP_CONTINUE;
+  }
 
   int ret = bch_btree_insert_node(b, &op->op, op->keys, op->journal_ref,
       op->replace_key);
@@ -2238,14 +2243,12 @@ static int btree_insert_fn(struct btree_op *b_op, struct btree *b)
     // 内部错误，等待下一次插入
     CACHE_DEBUGLOG(CAT_BTREE,"insert return error ret %d\n", ret);
     return ret;
-  } else if (!bch_keylist_empty(op->keys)) {
-    // 如果是正常的插入成功，但是还有未插入的成功的，则
-    // 可以接着插入到下一个节点
+  } else if (!op->op.insert_nomem && !bch_keylist_empty(op->keys)) {
+    // 当前节点插入成功，并且还有未插完的bkey需要插入到其他节
     CACHE_DEBUGLOG(CAT_BTREE,"insert return map continue\n");
     return MAP_CONTINUE;
   } else {
-    // 全部插入成功，结束
-    CACHE_DEBUGLOG(CAT_BTREE,"insert return map done\n");
+    // 全部插入成功，或者当前节点已经没有剩余空间，需要返回重新分裂
     return MAP_DONE;
   }
 }
@@ -2261,19 +2264,20 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   * 0: means op only lock leaf node
   * SHRT_MAX: means op lock from root
   */
-  /*bch_btree_op_init(&op.op, 0); */
+  bch_btree_op_init(&op.op, 0);
   /* we don't have rw_sem, so lock from root, this is
   * not a good choice, we should change in the future
   */
-  bch_btree_op_init(&op.op, SHRT_MAX);
+  /*bch_btree_op_init(&op.op, SHRT_MAX);*/
 
   op.keys		= keys;
   op.journal_ref	= journal_ref;
   op.replace_key	= replace_key;
 
   while (!ret && !bch_keylist_empty(keys)) {
-    /*op.op.lock = 0;*/
-    op.op.lock = SHRT_MAX;
+    op.op.lock = 0;
+    op.op.insert_nomem = false;
+    /*op.op.lock = SHRT_MAX;*/
     ret = bch_btree_map_leaf_nodes(&op.op, c, &START_KEY(keys->keys),
         btree_insert_fn);
     CACHE_DEBUGLOG(CAT_BTREE,"remap leaf nodes again(ret %d keylist empty %d\n",
@@ -2340,6 +2344,10 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op, struct bkey *f
         CACHE_DEBUGLOG(CAT_BTREE,"map nodes recurse done ret %d\n", ret);
         return ret;
       }
+    }
+    if (ret == MAP_CONTINUE) {
+      CACHE_ERRORLOG(CAT_BTREE,"can't find node to insert, recurse done ret %d\n", ret);
+      assert("should not be here" == 0);
     }
   }
   // level=0: means leaf node

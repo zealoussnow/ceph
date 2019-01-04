@@ -18,6 +18,7 @@ set(libcache_srcs
   log.c
   delayed_work.c
   rbtree.c
+  rte_ring.c
 )
 
 if (CACHE_TEST)

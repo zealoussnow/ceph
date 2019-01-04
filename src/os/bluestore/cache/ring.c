@@ -48,7 +48,7 @@ ring_items_alloc(int max_buffer){
   }
   items->count = 0;
   items->buf_size = max_buffer;
-  items->items = calloc(max_buffer, sizeof(struct ring_items *));
+  items->items = calloc(max_buffer, sizeof(struct ring_item *));
   if (!items->items){
     free(items);
     return NULL;
@@ -76,6 +76,7 @@ void ring_items_reset(struct ring_items *items)
 {
   if (items != NULL) {
     items->count =0;
+    items->nkeys =0;
   }
 }
 

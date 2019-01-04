@@ -36,37 +36,35 @@ struct moving_item {
   struct cache_set *c;
 };
 
-static void free_moving_item(struct moving_item *d)
+static void free_moving_item(struct ring_item *item)
 {
-  if (d->item) {
-    if (d->item->data)
-      free(d->item->data);
-    free_ring_item(d->item);
-  }
+  if (item->data)
+    free(item->data);
+  free_ring_item(item);
 
-  free(d);
 }
 
 static void write_completion(void *arg){
-  struct moving_item *d = (struct moving_item *)arg;
-  struct ring_item *item = d->item;
-  struct keybuf_key *w = d->w;
-  struct cache_set *c = d->c;
+  struct ring_item *item = (struct ring_item *)arg;
+  struct keybuf_key *w = (struct keybuf_key *)item->io_arg;
+  struct cache * ca = (struct cache *)item->ca_handler;
+  struct cache_set *c = ca->set;
 
   CACHE_DEBUGLOG(MOVINGGC, "Write completion key(%p) \n", &w->key);
-  bch_keylist_push(item->insert_keys);
   bch_data_insert_keys(c, item->insert_keys, &w->key);
 
   bch_keybuf_del(&c->moving_gc_keys, w);
   atomic_dec(&c->gc_seq);
-  free_moving_item(d);
+  free_moving_item(item);
 }
 
 static void read_completion(void *arg){
-  struct moving_item *d = (struct moving_item *)arg;
-  struct ring_item *item = d->item;
-  struct keybuf_key *w = d->w;
-  struct cache_set *c = d->c;
+  struct ring_item *item = (struct ring_item *)arg;
+  /*struct moving_item *d = container_of(&item, struct moving_item, item);*/
+  /*struct ring_item *item = d->item;*/
+  struct keybuf_key *w = (struct keybuf_key *)item->io_arg;
+  struct cache *ca = (struct cache *)item->ca_handler;
+  struct cache_set *c = ca->set;
   int ret;
   int i;
 
@@ -95,10 +93,13 @@ static void read_completion(void *arg){
 	    GC_MARK_DIRTY);
     }
 
+    bch_keylist_push(insert_keys);
     item->io.offset = PTR_OFFSET(new_key, 0) << 9;
     item->io.type=CACHE_IO_TYPE_WRITE;
     item->iou_completion_cb = write_completion;
     item->insert_keys = insert_keys;
+    item->iou_arg = item;
+    item->type = ITEM_MOVINGGC;
 
     pdump_bkey(WRITEBACK, __func__, &w->key);
     ret = aio_enqueue(CACHE_THREAD_CACHE, c->cache[0]->handler, item);
@@ -114,7 +115,7 @@ static void read_completion(void *arg){
 out:
   bch_keybuf_del(&c->moving_gc_keys, w);
   atomic_dec(&c->gc_seq);
-  free_moving_item(d);
+  free_moving_item(item);
   return;
 }
 
@@ -125,18 +126,23 @@ static void begin_io_read(struct keybuf_key *w, struct cache_set *c)
   void *data = malloc(len);
   uint64_t offset = PTR_OFFSET(&w->key, 0) << 9;
   struct ring_item *item = get_ring_item(data, offset, len);
-  struct moving_item *d = malloc(sizeof(struct moving_item));
+  /*struct moving_item *d = malloc(sizeof(struct moving_item));*/
 
-  d->item = item;
-  d->w = w;
-  d->c = c;
+  /*d->item = item;*/
+  /*d->w = w;*/
+  /*d->c = c;*/
 
   item->iou_completion_cb = read_completion;
-  item->iou_arg = d;
+  /*item->iou_arg = d;*/
+  item->ca_handler = c->cache[0];
+  item->iou_arg = item;
+  item->io_arg = w;
+
   item->io.type=CACHE_IO_TYPE_READ;
   item->io.pos = item->data;
   item->io.offset = item->o_offset;
   item->io.len = item->o_len;
+  item->type = ITEM_AIO_READ;
 
   atomic_inc(&c->gc_seq);
   ret = aio_enqueue(CACHE_THREAD_CACHE, c->cache[0]->handler, item);
@@ -152,6 +158,7 @@ static void read_moving(struct cache_set *c)
 {
   struct keybuf_key       *w;
 
+  CACHE_INFOLOG(MOVINGGC, "start moving gc\n");
   while (!test_bit(CACHE_SET_STOPPING, &c->flags)) {
     /*
      * 填充moving_gc_keys
@@ -173,6 +180,7 @@ static void read_moving(struct cache_set *c)
 
     begin_io_read(w, c);
   }
+  CACHE_INFOLOG(MOVINGGC, "end of moving gc\n");
 }
 
 static bool bucket_cmp(struct bucket *l, struct bucket *r)
@@ -261,14 +269,14 @@ void bch_moving_gc(struct cache_set *c)
        * 统计哪些bucket可以通过移动来合并bucket的使用
        * 标记这些bucket为SET_GC_MOVE(b, 1);
        */
-      CACHE_INFOLOG(NULL, "moving dirty gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
+      CACHE_INFOLOG(MOVINGGC, "moving dirty gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
 
       while (heap_pop(&ca->heap, b, bucket_dirty_cmp)) {
         SET_GC_MOVE(b, 1);
         b->move_dirty_only = true;
         c->gc_stats.gc_moving_buckets++;
       }
-      CACHE_INFOLOG(NULL, " need to gc dirty moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
+      CACHE_INFOLOG(MOVINGGC, " need to gc dirty moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
     }
   } else {
     for_each_cache(ca, c, i) {
@@ -310,14 +318,14 @@ void bch_moving_gc(struct cache_set *c)
        * 统计哪些bucket可以通过移动来合并bucket的使用
        * 标记这些bucket为SET_GC_MOVE(b, 1);
        */
-      CACHE_INFOLOG(NULL, "moving gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
+      CACHE_INFOLOG(MOVINGGC, "moving gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
 
       while (heap_pop(&ca->heap, b, bucket_cmp)) {
         SET_GC_MOVE(b, 1);
         b->move_dirty_only = false;
         c->gc_stats.gc_moving_buckets++;
       }
-      CACHE_INFOLOG(NULL, " need to gc moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
+      CACHE_INFOLOG(MOVINGGC, " need to gc moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
     }
   }
 

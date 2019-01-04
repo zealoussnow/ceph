@@ -17,6 +17,15 @@ struct io_sync_write {
   pthread_mutex_t         sync_io_mutex;
   pthread_cond_t         sync_io_cond;
 };
+
+enum ITEM_TYPE
+{
+  ITEM_AIO_READ=1,
+  ITEM_AIO_WRITE,
+  ITEM_WRITEBACK,
+  ITEM_MOVINGGC
+};
+
 struct ring_item {
   bool write_through_done;
   void *ca_handler;
@@ -40,12 +49,16 @@ struct ring_item {
   struct io_sync_write *sync_io;
   struct timespec start;
   struct timespec aio_start;
+  enum ITEM_TYPE type;
 };
 
 struct ring_items {
   struct ring_item **items;
   unsigned count;
   unsigned buf_size;
+  unsigned nkeys;
+  struct keylist *insert_keys;
+  atomic_t *journal_ref;
 };
 
 struct ring_items *ring_items_alloc(int max_buffer);

@@ -574,8 +574,10 @@ bch_keylist_reset(struct keylist *l)
 static inline void
 bch_keylist_free(struct keylist *l)
 {
-  if (l->keys_p != l->inline_keys)
-    free(l->keys_p);
+  if (l->keys_p != l->inline_keys) {
+    T2Free(l->keys_p);
+    l->keys_p = l->inline_keys;
+  }
 }
 
 static inline size_t
@@ -589,7 +591,6 @@ bch_keylist_bytes(struct keylist *l)
 {
   return bch_keylist_nkeys(l) * sizeof(uint64_t);
 }
-
 
 /* Debug stuff */
 

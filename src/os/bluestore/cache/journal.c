@@ -9,6 +9,7 @@
 #include "btree.h"
 #include "debug.h"
 #include "extents.h"
+#include "rte_ring.h"
 
 /*
  * Journal replay/recovery:
@@ -652,7 +653,7 @@ journal_wait_for_write(struct cache_set *c, unsigned nkeys)
 {
   size_t sectors;
 
-  pthread_spin_lock( &c->journal.lock);
+  /*pthread_spin_lock( &c->journal.lock);*/
   while (1) {
     if (fifo_free(&c->journal.pin) <= 1) {
       dump_journal_pin("fifo full", &c->journal.pin);
@@ -694,30 +695,81 @@ flush:
       dump_journal("journal full", &c->journal);
       dump_journal_pin("journal full",&c->journal.pin);
       // 先刷入，释放pin
+      journal_reclaim(c);
+      pthread_spin_unlock(&c->journal.lock);
+
       btree_flush_write(c);
       // 后将其释放的pin记性回收
-      journal_reclaim(c);
       /*
       * btree_flush_write 采用同步刷，这里不用解锁
       */
       //pthread_spin_unlock(&c->journal.lock);
     }
     /*spin_lock(&c->journal.lock);*/
-    //pthread_spin_lock(&c->journal.lock);
+    pthread_spin_lock(&c->journal.lock);
   }
 }
 
-/*static void journal_write_work(struct work_struct *work)*/
-/*{*/
-/*struct cache_set *c = container_of(to_delayed_work(work),*/
-/*struct cache_set,*/
-/*journal.work);*/
-/*spin_lock(&c->journal.lock);*/
-/*if (c->journal.cur->dirty)*/
-/*journal_try_write(c);*/
-/*else*/
-/*spin_unlock(&c->journal.lock);*/
-/*}*/
+static void journal_write_batch(struct cache_set *c)
+{
+  struct journal_write *w = NULL;
+  struct ring_items *items = c->items;
+  struct ring_item *item = NULL;
+  int i = 0;
+  uint32_t new_lat = 0;
+  struct bkey *insert;
+  int ret;
+
+  if (items->count) {
+    struct ring_items *insert_items = ring_items_alloc(items->count);
+    insert_items->insert_keys = calloc(1, sizeof(struct keylist));
+    bch_keylist_init(insert_items->insert_keys);
+
+    c->last_journal_count = items->count;
+    new_lat = c->last_journal_count / c->last_journal_lat;
+    c->last_journal_lat = clamp_t(uint32_t, new_lat,
+        1, 10);
+
+    for(i = 0; i< items->count; i++){
+      item = items->items[i];
+
+      for(insert = item->insert_keys->keys; insert != item->insert_keys->top; insert = bkey_next(insert)){
+        bch_keylist_insert(insert_items->insert_keys, insert, c);
+      }
+
+      if (ring_items_add(insert_items, item) != 0) {
+        CACHE_ERRORLOG(CAT_JOURNAL, "add item to insert_items error, items count %u\n", insert_items->count);
+        assert("error add item" == 0);
+      }
+    }
+    ring_items_reset(items);
+    c->journal_batch_dirty = false;
+
+    w = journal_wait_for_write(c, bch_keylist_nkeys(insert_items->insert_keys));
+
+    memcpy(bset_bkey_last(w->data), insert_items->insert_keys->keys, bch_keylist_bytes(insert_items->insert_keys));
+    w->data->keys += bch_keylist_nkeys(insert_items->insert_keys);
+    insert_items->journal_ref = &fifo_back(&c->journal.pin);
+    atomic_inc(insert_items->journal_ref);
+    journal_try_write(c);
+
+    while (rte_ring_enqueue(c->journal_ring, insert_items)) {
+      pthread_yield();
+    }
+    pthread_cond_broadcast(&c->journal_ring_cond);
+
+  } else {
+    pthread_spin_unlock(&c->journal.lock);
+  }
+}
+
+static void journal_write_work(evutil_socket_t fd, short events, void *arg)
+{
+  struct cache_set *c = arg;
+
+  pthread_spin_lock( &c->journal.lock);
+  journal_write_batch(c);
+}
 
 /*
  * Entry point to the journalling code - bio_insert() and btree_invalidate()
@@ -725,6 +777,42 @@ flush:
  * bch_journal() hands those same keys off to btree_insert_async()
  * 向btree添加时，调用该函数建立journal
  */
+atomic_t *bch_prep_journal(struct ring_item *item)
+{
+  /*struct journal_write *w = NULL;*/
+  struct keylist *keys = item->insert_keys;
+  struct cache *ca = item->ca_handler;
+  struct cache_set *c = ca->set;
+  atomic_t *ret;
+
+  pthread_spin_lock( &c->journal.lock);
+  if ((c->items->nkeys + bch_keylist_nkeys(item->insert_keys)) * sizeof(uint64_t) > (block_bytes(c) - sizeof(struct jset))) {
+    journal_write_batch(c);
+    pthread_spin_lock( &c->journal.lock);
+  }
+
+  if (ring_items_add(c->items, item) != 0) {
+    CACHE_ERRORLOG(CAT_JOURNAL, "add item to items error, items count %u\n", c->items->count);
+    assert("error add item" == 0);
+  }
+  c->items->nkeys += bch_keylist_nkeys(item->insert_keys);
+  if (!c->journal_batch_dirty) {
+    c->journal_batch_dirty = true;
+    struct timeval tv;
+    evutil_timerclear(&tv);
+    tv.tv_sec = 0;
+    tv.tv_usec = c->last_journal_lat * USEC_PER_MSEC;
+    delayed_work_add(&c->journal.ev_journal_write, &tv);
+    pthread_spin_unlock(&c->journal.lock);
+  } else {
+    pthread_spin_unlock(&c->journal.lock);
+  }
+
+  /*dump_pin("journal write done", ret, c);*/
+
+  return ret;
+}
+
 atomic_t *bch_journal(struct cache_set *c, struct keylist *keys)
 {
   struct journal_write *w = NULL;
@@ -735,6 +823,8 @@ atomic_t *bch_journal(struct cache_set *c, struct keylist *keys)
     CACHE_WARNLOG(CAT_JOURNAL,"not sync, do not allowed journal\n");
     return NULL;
   }
+
+  pthread_spin_lock( &c->journal.lock);
   w = journal_wait_for_write(c, bch_keylist_nkeys(keys));
 
   memcpy(bset_bkey_last(w->data), keys->keys, bch_keylist_bytes(keys));
@@ -744,17 +834,6 @@ atomic_t *bch_journal(struct cache_set *c, struct keylist *keys)
   journal_try_write(c);
 
   dump_pin("journal write done", ret, c);
-  /*if (parent) {*/
-  /*closure_wait(&w->wait, parent);*/
-  /*journal_try_write(c);*/
-  /*} else if (!w->dirty) {*/
-  /*w->dirty = true;*/
-  /*schedule_delayed_work(&c->journal.work,*/
-  /*msecs_to_jiffies(c->journal_delay_ms));*/
-  /*spin_unlock(&c->journal.lock);*/
-  /*} else {*/
-  /*spin_unlock(&c->journal.lock);*/
-  /*}*/
   return ret;
 }
 
@@ -789,6 +868,7 @@ int bch_journal_alloc(struct cache_set *c)
   j->w[0].c = c;
   j->w[1].c = c;
 
+  delayed_work_assign(&j->ev_journal_write, c->ev_base, journal_write_work, (void*)c, 0);
   if (!(init_fifo(&j->pin, JOURNAL_PIN)) ||
       posix_memalign(&j->w[0].data, MEMALIGN, PAGE_SIZE << JSET_BITS ) ||
       posix_memalign(&j->w[1].data, MEMALIGN, PAGE_SIZE << JSET_BITS ))

@@ -830,8 +830,14 @@ static const char *register_cache_set(struct cache *ca)
   c->cache_by_alloc[c->caches_loaded++] = ca;
   ca->set->fd = ca->fd;
   ca->set->hdd_fd = ca->hdd_fd;
+  ca->set->logger_cb = ca->logger_cb;
+  ca->set->bluestore_cd = ca->bluestore_cd;
 
   c->dc = calloc(1, sizeof(struct cached_dev));
+  c->items = ring_items_alloc((block_bytes(c) - sizeof(struct jset))/sizeof(uint64_t) + 1);
+  c->last_journal_lat = 1;
+  c->last_journal_count = 0;
+  c->journal_batch_dirty = false;
   memcpy(&c->dc->sb, &c->sb, sizeof(struct cache_sb));
   c->dc->c = c;
   cached_dev_init(c->dc);
@@ -864,6 +870,9 @@ static int _register_cache(struct cache_sb *sb, struct cache *ca)
   err = register_cache_set(ca);
   pthread_mutex_unlock(&bch_register_lock);
 
+  cache_rte_ring_init();
+  cache_rte_dequeue_init(ca);
+
   if (err) {
     ret = -ENODEV;
     goto err;
@@ -892,6 +901,33 @@ data_insert_test(struct cache * c)
   SET_KEY_INODE(k, 0);
   SET_KEY_OFFSET(k, 500);
   bch_alloc_sectors(c->set, k, 10, 0,0,1);
+}
+
+int
+bch_insert_keys_batch(struct cache_set *c_set,
+                struct keylist *insert_keys, struct bkey *replace_key, atomic_t *journal_ref)
+{
+  int ret;
+
+  ret = bch_btree_insert(c_set, insert_keys, journal_ref, replace_key);
+
+  if (ret != 0) {
+    CACHE_ERRORLOG(CAT_BTREE,"insert keylist error ret %d\n", ret);
+    /*
+     * for test, we assert every io should be sucessfull
+     * insert to btree, however, one io error should not
+     * make crash progress
+     */
+    assert("bch btree insert error"==0);
+  }
+
+  if (journal_ref) {
+    atomic_dec_bug(journal_ref);
+  }
+  bch_keylist_free(insert_keys);
+  T2Free(insert_keys);
+
+  return ret;
 }
 
 
@@ -1261,30 +1297,10 @@ int destroy(struct cache * ca){
   bch_gc_thread_stop(ca->set);
   bch_cached_dev_writeback_stop(ca->set->dc);
   aio_destroy((void *)ca);
+  rte_dequeue_ring_destroy();
   bch_delayed_work_stop(ca->set);
   bch_cache_allocator_stop(ca);
   // Todo: close log
-}
-
-static int
-bch_keylist_realloc(struct keylist *l, unsigned u64s, struct cache_set *c)
-{
-  size_t oldsize = bch_keylist_nkeys(l);
-  size_t newsize = oldsize + u64s;
-
-  /*
-   * The journalling code doesn't handle the case where the keys to insert
-   * is bigger than an empty write: If we just return -ENOMEM here,
-   * bio_insert() and bio_invalidate() will insert the keys created so far
-   * and finish the rest when the keylist is empty.
-   */
-  if (newsize * sizeof(uint64_t) > block_bytes(c) - sizeof(struct jset)) {
-    CACHE_ERRORLOG(NULL, "keylist realloc jset has nomem\n");
-    assert("keylist realloc jset has nomem" == 0);
-    return -ENOMEM;
-  }
-
-  return __bch_keylist_realloc(l, u64s);
 }
 
 struct bkey *
@@ -1363,13 +1379,13 @@ void aio_write_completion(void *cb)
     switch (item->strategy) {
       case CACHE_MODE_WRITEAROUND:
         CACHE_DEBUGLOG(CAT_AIO_WRITE,"writearound completion start insert keys \n");
-        if ( bch_keylist_nkeys(item->insert_keys) != 2) {
-          CACHE_ERRORLOG(NULL, " writeaound error, nkeys = %d \n",
-                                bch_keylist_nkeys(item->insert_keys));
-          assert(bch_keylist_nkeys(item->insert_keys) == 2);
-        }
+        /*if ( bch_keylist_nkeys(item->insert_keys) != 2) {*/
+          /*CACHE_ERRORLOG(NULL, " writeaound error, nkeys = %d \n",*/
+                                /*bch_keylist_nkeys(item->insert_keys));*/
+          /*assert(bch_keylist_nkeys(item->insert_keys) == 2);*/
+        /*}*/
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
-        ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);
+        /*ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);*/
         break;
       case CACHE_MODE_WRITETHROUGH:
         // write through 写完hhd之后，开始写ssd
@@ -1410,13 +1426,13 @@ void aio_write_completion(void *cb)
         }
       case CACHE_MODE_WRITEBACK:
         CACHE_DEBUGLOG(CAT_AIO_WRITE,"writeback completion start insert keys \n");
-        if (bch_keylist_nkeys(item->insert_keys) != 3) {
-          CACHE_ERRORLOG(NULL, " nkeys %d error \n", bch_keylist_nkeys(item->insert_keys));
-          assert("nkeys error" == 0);
-        }
+        /*if (bch_keylist_nkeys(item->insert_keys) != 3) {*/
+          /*CACHE_ERRORLOG(NULL, " nkeys %d error \n", bch_keylist_nkeys(item->insert_keys));*/
+          /*assert("nkeys error" == 0);*/
+        /*}*/
         /*assert(bch_keylist_nkeys(item->insert_keys) == 3);*/
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
-        ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);
+        /*ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);*/
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_insert_keys, insert_start, cache_clock_now());
         bch_writeback_add(ca->set->dc);
         break;
@@ -1543,6 +1559,7 @@ _prep_writearound(struct ring_item * item)
   item->io.len = (KEY_SIZE(k)<<9);
   item->iou_arg = item;
   item->iou_completion_cb = aio_write_completion;
+  item->type = ITEM_AIO_WRITE;
 
   bch_keylist_push(insert_keys);
   item->insert_keys = insert_keys;
@@ -1624,6 +1641,7 @@ int _prep_writeback(struct ring_item * item){
   item->io.len = (KEY_SIZE(k)<<9);
   item->iou_arg = item;
   item->iou_completion_cb = aio_write_completion;
+  item->type = ITEM_AIO_WRITE;
 
   bch_keylist_push(insert_keys);
   if (bch_keylist_nkeys(insert_keys) != 3) {
@@ -1696,6 +1714,7 @@ _prep_writethrough(struct ring_item * item)
   item->iou_arg = item;
   item->iou_completion_cb = aio_write_completion;
   item->insert_keys = insert_keys;
+  item->type = ITEM_AIO_WRITE;
 
   return 0;
 err:
@@ -1895,7 +1914,8 @@ int get_cache_strategy(struct cache *ca, struct ring_item *item)
   } else if (writeback) {
     return CACHE_MODE_WRITEBACK;
   } else {
-    return CACHE_MODE_WRITETHROUGH;
+    /*return CACHE_MODE_WRITETHROUGH;*/
+    return CACHE_MODE_WRITEAROUND;
   }
 }
 
@@ -1912,6 +1932,7 @@ int cache_aio_write(struct cache*ca, void *data, uint64_t offset, uint64_t len, 
   item->io_completion_cb = cb;
   item->io_arg = cb_arg;
   item->start = cache_clock_now();
+  item->type = ITEM_AIO_WRITE;
 
   item->strategy = get_cache_strategy(ca, item);
   /**********   策略相关的代码 ******************/
@@ -2444,6 +2465,7 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   item->need_read_cache = false;
   item->start = cache_clock_now();
   item->read_keys = calloc(1, sizeof(struct keylist));
+  item->type = ITEM_AIO_READ;
   bch_keylist_init(item->read_keys);
   bch_rescale_priorities(ca->set, len >> 9);
 

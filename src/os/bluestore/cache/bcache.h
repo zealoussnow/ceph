@@ -443,6 +443,8 @@ enum alloc_reserve {
 typedef void (*logger_callback_fn)(void *cd, int serial, struct timespec start, struct timespec end);
 
 struct cache {
+  logger_callback_fn logger_cb;
+  void               *bluestore_cd;
   struct aio_handler  * handler;
   int                  fd;
   int                  hdd_fd;
@@ -594,6 +596,10 @@ struct gc_stat {
 struct cache_set {
   int                     fd;
   int                     hdd_fd;
+  struct ring_items       *items;
+  uint32_t                last_journal_count;
+  uint32_t                last_journal_lat;
+  bool journal_batch_dirty;
 
   logger_callback_fn logger_cb;
   void               *bluestore_cd;
@@ -681,6 +687,10 @@ struct cache_set {
   //wait_queue_head_t   bucket_wait;
   pthread_mutex_t         bucket_wait_mut;
   pthread_cond_t          bucket_wait_cond;
+
+  pthread_mutex_t         journal_ring_mut;
+  pthread_cond_t          journal_ring_cond;
+  struct rte_ring         *journal_ring;
 
   /*
   * For any bio we don't skip we subtract the number of sectors from
@@ -1107,6 +1117,8 @@ void bch_cached_dev_run(struct cached_dev *);
 
 //void bch_cache_set_unregister(struct cache_set *);
 void bch_cache_set_stop(struct cache_set *);
+int bch_keylist_realloc(struct keylist *, unsigned, struct cache_set *);
+int bch_keylist_insert(struct keylist *, struct bkey *, struct cache_set *);
 
 struct cache_set *bch_cache_set_alloc(struct cache_sb *);
 void bch_btree_cache_free(struct cache_set *);
