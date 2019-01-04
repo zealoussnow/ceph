@@ -320,9 +320,21 @@ cache_rte_dequeue_init(struct cache *ca) {
 
   handler->journal_ring = c->journal_ring;
   pde = calloc(DE_INSERT, sizeof(*pde));
+  if (pde == NULL ) {
+    CACHE_ERRORLOG(NULL, "calloc pthread failed \n");
+    assert("calloc pthread failed "==0);
+  }
   for (i=0;i<DE_INSERT;i++) {
     td = calloc(1, sizeof(*td));
+    if (td == NULL) {
+      CACHE_ERRORLOG(NULL, "calloc thread_data failed \n");
+      assert("calloc thread_data failed "==0);
+    }
     options = calloc(1, sizeof(*options));
+    if ( options == NULL ) {
+      CACHE_ERRORLOG(NULL, "calloc thread_options failed \n");
+      assert("calloc thread_options failed "==0);
+    }
     options->running = true;
     options->type = CACHE_THREAD_CACHE;
     td->t_options = options;
@@ -364,9 +376,17 @@ aio_thread_init(void *ca) {
 
   for (i = 0; i < 2; i++) {
     struct thread_data *td = calloc(1, sizeof(*td));
+    if (td == NULL) {
+      CACHE_ERRORLOG(NULL, "calloc thread_data failed \n");
+      assert("calloc thread_data failed"==0);
+    }
     td->ca = myca;
 
     iocxt = calloc(1, sizeof(io_context_t));
+    if (iocxt == NULL) {
+      CACHE_ERRORLOG(NULL, "calloc iocxt failed \n");
+      assert("calloc iocxt failed"==0);
+    }
     rc = io_setup(LIBAIO_NR_EVENTS, iocxt);
     if (rc) {
       msg = "failed to setup aio\n";
@@ -382,12 +402,20 @@ aio_thread_init(void *ca) {
 
     thread_info->events = malloc(sizeof(struct io_event) * LIBAIO_EVENTS_PER_GET);
     thread_info->timeout = calloc(1, sizeof(struct timespec));
+    if (thread_info->timeout == NULL) {
+      CACHE_ERRORLOG(NULL, "calloc thread_info timeout spec failed \n");
+      assert("calloc thread_info timeout spec failed"==0);
+    }
     thread_info->timeout->tv_sec = 5;
     thread_info->timeout->tv_nsec = 100000000;
     thread_info->ioctx = iocxt;
 
     if (i < 1) {
       cache_options = calloc(1, sizeof(*cache_options));
+      if (cache_options == NULL)  {
+        CACHE_ERRORLOG(NULL, "calloc cache_options failed \n");
+        assert("calloc cache_options failed"==0);
+      }
       cache_options->type = CACHE_THREAD_CACHE;
       cache_options->running = true;
       td->t_options = cache_options;
@@ -415,6 +443,10 @@ aio_thread_init(void *ca) {
       pthread_spin_unlock(&handler->lock);
     } else {
       hdd_options = calloc(1, sizeof(*hdd_options));
+      if (hdd_options == NULL)  {
+        CACHE_ERRORLOG(NULL, "calloc hdd_options failed \n");
+        assert("calloc hdd_options failed"==0);
+      }
       hdd_options->type = CACHE_THREAD_BACKEND;
       hdd_options->running = true;
 
@@ -505,6 +537,10 @@ aio_init(void *ca) {
   struct aio_handler *handler = NULL;
 
   handler = calloc(1, sizeof(*handler));
+  if (handler == NULL) {
+    CACHE_ERRORLOG(NULL, "calloc handler failed \n");
+    assert("calloc handler failed" == 0);
+  }
   pthread_spin_init(&handler->lock, 0);
 
   INIT_LIST_HEAD(&handler->cache_threads);

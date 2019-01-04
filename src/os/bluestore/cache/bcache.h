@@ -596,10 +596,6 @@ struct gc_stat {
 struct cache_set {
   int                     fd;
   int                     hdd_fd;
-  struct ring_items       *items;
-  uint32_t                last_journal_count;
-  uint32_t                last_journal_lat;
-  bool journal_batch_dirty;
 
   logger_callback_fn logger_cb;
   void               *bluestore_cd;

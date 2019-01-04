@@ -71,6 +71,10 @@ static void read_completion(void *arg){
   if (KEY_DIRTY(&w->key) || !ptr_stale(c, &w->key, 0)) {
     struct bkey *new_key = NULL;
     struct keylist *insert_keys = calloc(1, sizeof(struct keylist));
+    if (insert_keys == NULL) {
+      CACHE_ERRORLOG(NULL, "calloc insert_keys keylist failed \n");
+      assert("calloc insert_keys keylist failed " == 0);
+    }
 
     bch_keylist_init(insert_keys);
 

@@ -834,10 +834,11 @@ static const char *register_cache_set(struct cache *ca)
   ca->set->bluestore_cd = ca->bluestore_cd;
 
   c->dc = calloc(1, sizeof(struct cached_dev));
-  c->items = ring_items_alloc((block_bytes(c) - sizeof(struct jset))/sizeof(uint64_t) + 1);
-  c->last_journal_lat = 1;
-  c->last_journal_count = 0;
-  c->journal_batch_dirty = false;
+  if ( c->dc == NULL ) {
+    CACHE_ERRORLOG(NULL, " calloc cache device failed \n" );
+    assert("calloc cache device failed " == 0);
+  }
+
   memcpy(&c->dc->sb, &c->sb, sizeof(struct cache_sb));
   c->dc->c = c;
   cached_dev_init(c->dc);
@@ -1816,6 +1817,10 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
   }
 
   task = calloc(1, sizeof(*task));
+  if ( task == NULL ) {
+    CACHE_ERRORLOG(NULL, "calloc thread task faild \n");
+    assert("calloc thread task faild " == 0);
+  }
   task->thread_id = pthread_self();
   pthread_spin_lock(&dc->io_lock);
   list_add_tail(&task->list, &dc->io_thread);
@@ -2137,12 +2142,25 @@ int _do_read_cache(struct ring_item *item){
   struct bkey *old_bkey = item->read_keys->keys;
   BKEY_PADDED(key) _bkey;
   struct bkey *tmp = &_bkey.key;
-  struct keylist *caches = calloc(1, sizeof(struct keylist));
-  struct keylist *backends = calloc(1, sizeof(struct keylist));
-  bch_keylist_init(caches);
-  bch_keylist_init(backends);
+  struct keylist *caches = NULL;
+  struct keylist *backends = NULL;
   int io_num = 0;
   int ret;
+
+
+  caches = calloc(1, sizeof(struct keylist));
+  if ( caches == NULL ) {
+    CACHE_ERRORLOG(NULL, "alloc keylist failed \n");
+    assert("calloc thread task failed" == 0);
+  }
+  backends = calloc(1, sizeof(struct keylist));
+  if ( backends == NULL ) {
+    CACHE_ERRORLOG(NULL, "alloc keylist failed \n");
+    assert("calloc thread task failed" == 0);
+  }
+
+  bch_keylist_init(caches);
+  bch_keylist_init(backends);
 
   CACHE_DEBUGLOG(CAT_WRITE, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
                  item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
@@ -2265,11 +2283,17 @@ int _read_check_bkey(struct ring_item *item){
   struct cache *ca = item->ca_handler;
   int seq = 0;
   int ret;
-  struct keylist *backends = calloc(1, sizeof(struct keylist));
+  struct keylist *backends = NULL;
+
+
+  backends = calloc(1, sizeof(struct keylist));
+  if ( backends == NULL ) {
+    CACHE_ERRORLOG(NULL, "alloc keylist failed \n");
+    assert("calloc thread task failed" == 0);
+  }
   bch_keylist_init(backends);
 
   SAFE_FREE_INC(item);
-
   for (iter = item->read_new_keys->keys; iter!= item->read_new_keys->top; iter = bkey_next(iter)){
     if(ptr_stale(ca->set, iter, 0)){
       CACHE_WARNLOG(CAT_READ, "aio read cache completion but key stable \n");
@@ -2465,6 +2489,10 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   item->need_read_cache = false;
   item->start = cache_clock_now();
   item->read_keys = calloc(1, sizeof(struct keylist));
+  if (item->read_keys == NULL) {
+    CACHE_ERRORLOG(NULL, "calloc read_keys failed \n");
+    assert("calloc read_keys failed" == 0);
+  }
   item->type = ITEM_AIO_READ;
   bch_keylist_init(item->read_keys);
   bch_rescale_priorities(ca->set, len >> 9);

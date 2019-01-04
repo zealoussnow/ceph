@@ -12,6 +12,7 @@
 #include <fcntl.h>
 
 #include "util.h"
+#include "log.h"
 
 /*
  * This is a common helper function for find_next_bit and
@@ -441,6 +442,10 @@ uint64_t bch_crc64(const void *data, size_t len)
 void * T2Molloc(size_t size)
 {
   void * ret = malloc(size);
+  if ( ret == NULL) {
+    CACHE_ERRORLOG(NULL, "malloc failed \n");
+    assert("malloc failed" == 0);
+  }
   memset(ret, 0, size);
   return ret;
 }

@@ -148,8 +148,9 @@ struct journal {
   BKEY_PADDED(key);
   struct journal_write	w[2], *cur;
   struct ring_items *items;
-  uint32_t journal_batch_lat;
-  uint32_t journal_batch_count;
+  uint32_t                last_journal_count;
+  uint32_t                last_journal_lat;
+  bool journal_batch_dirty;
 };
 
 /*

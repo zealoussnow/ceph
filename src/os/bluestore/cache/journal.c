@@ -712,8 +712,9 @@ flush:
 
 static void journal_write_batch(struct cache_set *c)
 {
+  struct journal *j = &c->journal;
   struct journal_write *w = NULL;
-  struct ring_items *items = c->items;
+  struct ring_items *items = j->items;
   struct ring_item *item = NULL;
   int i = 0;
   uint32_t new_lat = 0;
@@ -723,11 +724,15 @@ static void journal_write_batch(struct cache_set *c)
   if (items->count) {
     struct ring_items *insert_items = ring_items_alloc(items->count);
     insert_items->insert_keys = calloc(1, sizeof(struct keylist));
+    if (insert_items->insert_keys == NULL) {
+      CACHE_ERRORLOG(NULL, "calloc insert items insert_keys keylist failed\n");
+      assert("calloc insert items insert_keys keylist failed" == 0);
+    }
     bch_keylist_init(insert_items->insert_keys);
 
-    c->last_journal_count = items->count;
-    new_lat = c->last_journal_count / c->last_journal_lat;
-    c->last_journal_lat = clamp_t(uint32_t, new_lat,
+    j->last_journal_count = items->count;
+    new_lat = j->last_journal_count / j->last_journal_lat;
+    j->last_journal_lat = clamp_t(uint32_t, new_lat,
         1, 10);
 
     for(i = 0; i< items->count; i++){
@@ -743,7 +748,7 @@ static void journal_write_batch(struct cache_set *c)
       }
     }
     ring_items_reset(items);
-    c->journal_batch_dirty = false;
+    j->journal_batch_dirty = false;
 
     w = journal_wait_for_write(c, bch_keylist_nkeys(insert_items->insert_keys));
 
@@ -783,25 +788,28 @@ atomic_t *bch_prep_journal(struct ring_item *item)
   struct keylist *keys = item->insert_keys;
   struct cache *ca = item->ca_handler;
   struct cache_set *c = ca->set;
+  struct journal *j = &c->journal;
   atomic_t *ret;
 
   pthread_spin_lock( &c->journal.lock);
-  if ((c->items->nkeys + bch_keylist_nkeys(item->insert_keys)) * sizeof(uint64_t) > (block_bytes(c) - sizeof(struct jset))) {
+  if ((j->items->nkeys + bch_keylist_nkeys(item->insert_keys)) * sizeof(uint64_t) > (block_bytes(c) - sizeof(struct jset))) {
     journal_write_batch(c);
     pthread_spin_lock( &c->journal.lock);
   }
 
-  if (ring_items_add(c->items, item) != 0) {
-    CACHE_ERRORLOG(CAT_JOURNAL, "add item to items error, items count %u\n", c->items->count);
+  if (ring_items_add(j->items, item) != 0) {
+    CACHE_ERRORLOG(CAT_JOURNAL, "add item to items error, items count %u\n", j->items->count);
     assert("error add item" == 0);
   }
-  c->items->nkeys += bch_keylist_nkeys(item->insert_keys);
-  if (!c->journal_batch_dirty) {
-    c->journal_batch_dirty = true;
+
+  j->items->nkeys += bch_keylist_nkeys(item->insert_keys);
+
+  if (!j->journal_batch_dirty) {
+    j->journal_batch_dirty = true;
     struct timeval tv;
     evutil_timerclear(&tv);
     tv.tv_sec = 0;
-    tv.tv_usec = c->last_journal_lat * USEC_PER_MSEC;
+    tv.tv_usec = j->last_journal_lat * USEC_PER_MSEC;
     delayed_work_add(&c->journal.ev_journal_write, &tv);
     pthread_spin_unlock(&c->journal.lock);
   } else {
@@ -869,6 +877,17 @@ int bch_journal_alloc(struct cache_set *c)
   j->w[1].c = c;
 
   delayed_work_assign(&j->ev_journal_write, c->ev_base, journal_write_work, (void*)c, 0);
+
+  j->items = ring_items_alloc((block_bytes(c) - sizeof(struct jset))/sizeof(uint64_t) + 1);
+  if ( j->items == NULL) {
+    CACHE_ERRORLOG(NULL, "alloc ring items faild \n");
+    assert("alloc ring items faild " == 0);
+  }
+  j->last_journal_lat = 1;
+  j->last_journal_count = 0;
+  j->journal_batch_dirty = false;
+
+
   if (!(init_fifo(&j->pin, JOURNAL_PIN)) ||
       posix_memalign(&j->w[0].data, MEMALIGN, PAGE_SIZE << JSET_BITS ) ||
       posix_memalign(&j->w[1].data, MEMALIGN, PAGE_SIZE << JSET_BITS ))
