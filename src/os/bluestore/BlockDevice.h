@@ -99,7 +99,7 @@ public:
   typedef void (*aio_callback_t)(void *handle, void *aio);
 
   static BlockDevice *create(CephContext* cct, const std::string& path, aio_callback_t cb, 
-      void *cbpriv, const std::string &block_type);
+      void *cbpriv, const std::string &backend_type);
   virtual bool supported_bdev_label() { return true; }
   virtual bool supported_cache() { return false; }
   virtual bool is_rotational() { return rotational; }

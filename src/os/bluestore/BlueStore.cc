@@ -3580,6 +3580,7 @@ const char **BlueStore::get_tracked_conf_keys() const
     "bluestore_max_blob_size",
     "bluestore_max_blob_size_ssd",
     "bluestore_max_blob_size_hdd",
+    "backend_type",
     NULL
   };
   return KEYS;
@@ -4168,11 +4169,36 @@ void BlueStore::_set_alloc_sizes(void)
 int BlueStore::_open_bdev(bool create)
 {
   assert(bdev == NULL);
-  string p = path + "/block";
-  bdev = BlockDevice::create(cct, p, aio_cb, static_cast<void*>(this), cct->_conf->block_type);
   int r = 0;
+  string backend;
+  string p = path + "/block";
+
+  if (create) {
+    r = write_meta("backend_type", cct->_conf->backend_type);
+    if ( r < 0 ) {
+      derr << __func__ << " write backend_type failed " << cpp_strerror(r) << dendl;
+      goto fail_meta;
+    }
+  } else {
+    r = read_meta("backend_type", &backend);
+    if ( r < 0) {
+      derr << __func__ << " read backend_type failed " << cpp_strerror(r) << dendl;
+      goto fail_meta;
+    }
+    if (!backend.empty()) {
+      stringstream err_ss;
+      int ret = cct->_conf->set_val("backend_type", backend, true, &err_ss);
+      if ( ret ) {
+        derr << __func__ << " read backend_type failed " << cpp_strerror(ret) << " err " << err_ss.str() << dendl;
+      }
+    }
+  }
+
+  dout(1) << __func__ << " backend_type " << cct->_conf->backend_type << dendl;
+
+  bdev = BlockDevice::create(cct, p, aio_cb, static_cast<void*>(this), cct->_conf->backend_type);
   if (bdev->supported_cache()) {
-    string cache_path = path + "/ssd_cache";
+    string cache_path = path + "/block.t2ce";
     r = bdev->open(p, cache_path);
   } else {
     r = bdev->open(p);
@@ -4204,6 +4230,7 @@ int BlueStore::_open_bdev(bool create)
  fail:
   delete bdev;
   bdev = NULL;
+ fail_meta:
   return r;
 }
 
@@ -5229,8 +5256,8 @@ int BlueStore::mkfs()
   if (r < 0)
     goto out_close_fsid;
   
-  if (cct->_conf->block_type == "cache") {
-    r = _setup_block_symlink_or_file("ssd_cache", cct->_conf->t2store_cache_path,
+  if (cct->_conf->backend_type == "t2ce") {
+    r = _setup_block_symlink_or_file("block.t2ce", cct->_conf->t2store_cache_path,
         cct->_conf->t2store_cache_size,
         cct->_conf->t2store_cache_create);
     if (r < 0)
@@ -5255,7 +5282,7 @@ int BlueStore::mkfs()
     goto out_close_fsid;
 
   {
-    string cache_path = path + "/ssd_cache";
+    string cache_path = path + "/block.t2ce";
     r = bdev->write_cache_super(cache_path);
     if ( r< 0)
       goto out_close_bdev;
