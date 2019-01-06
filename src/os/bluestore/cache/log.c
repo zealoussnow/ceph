@@ -1,5 +1,4 @@
 #include <zlog.h>
-
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -7,8 +6,6 @@
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
-
-//#include <unistd.h>
 
 #include "log.h"
 
@@ -103,12 +100,6 @@ void cache_zlog(const char *cat_type, const char *file,
   if ( level < g_log_level) {
     return ;
   }
-  char formatted_buf[BUFSIZ];
-  memset(formatted_buf, 0, BUFSIZ);
-
-  va_list ap;
-  va_start(ap, format);
-  vsnprintf(formatted_buf, sizeof(formatted_buf), format, ap);
 
   zlog_category_t *zc = NULL;
   if (cat_type == NULL ) {
@@ -117,12 +108,13 @@ void cache_zlog(const char *cat_type, const char *file,
     zc = zlog_get_category(cat_type);
   }
   if (!zc) {
-    va_end(ap);
     zlog_fini();
     return ;
   }
 
-  int rc = zlog(zc, file, filelen, func, funclen, line, level, "%s", formatted_buf);
+  va_list args;
+  va_start(args, format);
+  int rc = zlog(zc, file, filelen, func, funclen, line, level, format, args);
   if (rc != last_errcode) {
     if (rc < 0) {
       fprintf(stderr, "log output failed, errno: %d\n", errno);
@@ -132,7 +124,7 @@ void cache_zlog(const char *cat_type, const char *file,
     last_errcode = rc;
   }
 
-  va_end(ap);
+  va_end(args);
 }
 
 int log_reload()
