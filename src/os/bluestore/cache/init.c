@@ -501,6 +501,7 @@ void bcache_write_super(struct cache_set *c)
 
 static void uuid_io(struct cache_set *c, int op, unsigned long op_flags, struct bkey *k)
 {
+  return;
   struct uuid_entry *u;
   char buf[80];
   off_t start = PTR_OFFSET(k, 0) << 9; // bucket_number * bucket_size
