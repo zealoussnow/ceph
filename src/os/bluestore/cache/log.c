@@ -114,7 +114,7 @@ void cache_zlog(const char *cat_type, const char *file,
 
   va_list args;
   va_start(args, format);
-  int rc = zlog(zc, file, filelen, func, funclen, line, level, format, args);
+  int rc = t2zlog(zc, file, filelen, func, funclen, line, level, format, args);
   if (rc != last_errcode) {
     if (rc < 0) {
       fprintf(stderr, "log output failed, errno: %d\n", errno);
