@@ -2340,12 +2340,12 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op, struct bkey *f
         dump_bkey("update bkey",from);
       }
       // if has uninsert bkey, we should map_continue
-      if (op->btree_op_type == BTREE_OP_INSERT && ret != MAP_CONTINUE) {
+      if ( ret != MAP_CONTINUE ) {
         CACHE_DEBUGLOG(CAT_BTREE,"map nodes recurse done ret %d\n", ret);
         return ret;
       }
     }
-    if (ret == MAP_CONTINUE) {
+    if ( op->btree_op_type == BTREE_OP_INSERT && ret == MAP_CONTINUE ) {
       CACHE_ERRORLOG(CAT_BTREE,"can't find node to insert, recurse done ret %d\n", ret);
       assert("should not be here" == 0);
     }
