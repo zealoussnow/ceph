@@ -246,7 +246,7 @@ void Objecter::init()
 		PerfCountersBuilder::PRIO_CRITICAL);
     pcb.add_u64(l_osdc_op_laggy, "op_laggy", "Laggy operations");
     pcb.add_u64_counter(l_osdc_op_send, "op_send", "Sent operations");
-    pcb.add_u64_counter(l_osdc_op_send_bytes, "op_send_bytes", "Sent data");
+    pcb.add_u64_counter(l_osdc_op_send_bytes, "op_send_bytes", "Sent data", NULL, 0, unit_t(BYTES));
     pcb.add_u64_counter(l_osdc_op_resend, "op_resend", "Resent operations");
     pcb.add_u64_counter(l_osdc_op_reply, "op_reply", "Operation reply");
 
@@ -593,6 +593,10 @@ void Objecter::_linger_commit(LingerOp *info, int r, bufferlist& outbl)
   if (info->on_reg_commit) {
     info->on_reg_commit->complete(r);
     info->on_reg_commit = NULL;
+  }
+  if (r < 0 && info->on_notify_finish) {
+    info->on_notify_finish->complete(r);
+    info->on_notify_finish = nullptr;
   }
 
   // only tell the user the first time we do this
@@ -1639,8 +1643,14 @@ void Objecter::_check_linger_pool_dne(LingerOp *op, bool *need_unregister)
   }
   if (op->map_dne_bound > 0) {
     if (osdmap->get_epoch() >= op->map_dne_bound) {
+      LingerOp::unique_lock wl{op->watch_lock};
       if (op->on_reg_commit) {
 	op->on_reg_commit->complete(-ENOENT);
+	op->on_reg_commit = nullptr;
+      }
+      if (op->on_notify_finish) {
+        op->on_notify_finish->complete(-ENOENT);
+        op->on_notify_finish = nullptr;
       }
       *need_unregister = true;
     }
@@ -1696,7 +1706,9 @@ void Objecter::C_Command_Map_Latest::finish(int r)
   if (c->map_dne_bound == 0)
     c->map_dne_bound = latest;
 
+  OSDSession::unique_lock sul(c->session->lock);
   objecter->_check_command_map_dne(c);
+  sul.unlock();
 
   c->put();
 }
@@ -1704,6 +1716,7 @@ void Objecter::C_Command_Map_Latest::finish(int r)
 void Objecter::_check_command_map_dne(CommandOp *c)
 {
   // rwlock is locked unique
+  // session is locked unique
 
   ldout(cct, 10) << "_check_command_map_dne tid " << c->tid
 		 << " current " << osdmap->get_epoch()
@@ -1721,6 +1734,7 @@ void Objecter::_check_command_map_dne(CommandOp *c)
 void Objecter::_send_command_map_check(CommandOp *c)
 {
   // rwlock is locked unique
+  // session is locked unique
 
   // ask the monitor
   if (check_latest_map_commands.count(c->tid) == 0) {
@@ -1809,6 +1823,7 @@ void Objecter::get_session(Objecter::OSDSession *s)
 
 void Objecter::_reopen_session(OSDSession *s)
 {
+  // rwlock is locked unique
   // s->lock is locked
 
   entity_inst_t inst = osdmap->get_inst(s->osd);
@@ -2532,6 +2547,16 @@ int Objecter::op_cancel(ceph_tid_t tid, int r)
   return ret;
 }
 
+int Objecter::op_cancel(const vector<ceph_tid_t>& tids, int r)
+{
+  unique_lock wl(rwlock);
+  ldout(cct,10) << __func__ << " " << tids << dendl;
+  for (auto tid : tids) {
+    _op_cancel(tid, r);
+  }
+  return 0;
+}
+
 int Objecter::_op_cancel(ceph_tid_t tid, int r)
 {
   int ret = 0;
@@ -2928,7 +2953,10 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
   if (legacy_change || unpaused || force_resend) {
     return RECALC_OP_TARGET_NEED_RESEND;
   }
-  if (split && con && con->has_features(CEPH_FEATUREMASK_RESEND_ON_SPLIT)) {
+  if (split &&
+      (osdmap->require_osd_release >= CEPH_RELEASE_LUMINOUS ||
+       HAVE_FEATURE(osdmap->get_xinfo(acting_primary).features,
+		    RESEND_ON_SPLIT))) {
     return RECALC_OP_TARGET_NEED_RESEND;
   }
   return RECALC_OP_TARGET_NO_ACTION;
@@ -3171,7 +3199,11 @@ MOSDOp *Objecter::_prepare_osd_op(Op *op)
   }
 
   logger->inc(l_osdc_op_send);
-  logger->inc(l_osdc_op_send_bytes, m->get_data().length());
+  ssize_t sum = 0;
+  for (unsigned i = 0; i < m->ops.size(); i++) {
+    sum += m->ops[i].indata.length();
+  }
+  logger->inc(l_osdc_op_send_bytes, sum);
 
   return m;
 }
@@ -3182,9 +3214,9 @@ void Objecter::_send_op(Op *op, MOSDOp *m)
   // op->session->lock is locked
 
   // backoff?
-  hobject_t hoid = op->target.get_hobj();
   auto p = op->session->backoffs.find(op->target.actual_pgid);
   if (p != op->session->backoffs.end()) {
+    hobject_t hoid = op->target.get_hobj();
     auto q = p->second.lower_bound(hoid);
     if (q != p->second.begin()) {
       --q;
@@ -3407,7 +3439,7 @@ void Objecter::handle_osd_op_reply(MOSDOpReply *m)
     op->tid = 0;
     m->get_redirect().combine_with_locator(op->target.target_oloc,
 					   op->target.target_oid.name);
-    op->target.flags |= CEPH_OSD_FLAG_REDIRECTED;
+    op->target.flags |= (CEPH_OSD_FLAG_REDIRECTED | CEPH_OSD_FLAG_IGNORE_OVERLAY);
     _op_submit(op, sul, NULL);
     m->put();
     return;
@@ -4384,11 +4416,12 @@ bool Objecter::ms_handle_reset(Connection *con)
   if (!initialized)
     return false;
   if (con->get_peer_type() == CEPH_ENTITY_TYPE_OSD) {
+    unique_lock wl(rwlock);
+    
     OSDSession *session = static_cast<OSDSession*>(con->get_priv());
     if (session) {
       ldout(cct, 1) << "ms_handle_reset " << con << " session " << session
 		    << " osd." << session->osd << dendl;
-      unique_lock wl(rwlock);
       if (!initialized) {
 	wl.unlock();
 	return false;
@@ -4756,8 +4789,10 @@ void Objecter::handle_command_reply(MCommandReply *m)
 
   sl.unlock();
 
-
+  OSDSession::unique_lock sul(s->lock);
   _finish_command(c, m->r, m->rs);
+  sul.unlock();
+
   m->put();
   if (s)
     s->put();
@@ -4904,13 +4939,16 @@ int Objecter::command_op_cancel(OSDSession *s, ceph_tid_t tid, int r)
 
   CommandOp *op = it->second;
   _command_cancel_map_check(op);
+  OSDSession::unique_lock sl(op->session->lock);
   _finish_command(op, r, "");
+  sl.unlock();
   return 0;
 }
 
 void Objecter::_finish_command(CommandOp *c, int r, string rs)
 {
   // rwlock is locked unique
+  // session lock is locked
 
   ldout(cct, 10) << "_finish_command " << c->tid << " = " << r << " "
 		 << rs << dendl;
@@ -4923,9 +4961,7 @@ void Objecter::_finish_command(CommandOp *c, int r, string rs)
     timer.cancel_event(c->ontimeout);
 
   OSDSession *s = c->session;
-  OSDSession::unique_lock sl(s->lock);
   _session_command_op_remove(c->session, c);
-  sl.unlock();
 
   c->put();
 

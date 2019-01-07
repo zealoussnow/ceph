@@ -14,6 +14,19 @@
 #ifndef CEPH_ENCODING_H
 #define CEPH_ENCODING_H
 
+#include <set>
+#include <map>
+#include <deque>
+#include <vector>
+#include <string>
+#include <boost/utility/string_view.hpp>
+#include <tuple>
+#include <boost/optional/optional_io.hpp>
+#include <boost/tuple/tuple.hpp>
+
+#include "include/unordered_map.h"
+#include "include/unordered_set.h"
+
 #include "include/int_types.h"
 
 #include "include/memory.h"
@@ -126,7 +139,7 @@ WRITE_INTTYPE_ENCODER(int16_t, le16)
       break;								\
     char fn[PATH_MAX];							\
     snprintf(fn, sizeof(fn), ENCODE_STRINGIFY(ENCODE_DUMP_PATH) "/%s__%d.%x", #cl, getpid(), i++); \
-    int fd = ::open(fn, O_WRONLY|O_TRUNC|O_CREAT, 0644);		\
+    int fd = ::open(fn, O_WRONLY|O_TRUNC|O_CREAT|O_CLOEXEC, 0644);		\
     if (fd >= 0) {							\
       bufferlist sub;							\
       sub.substr_of(bl, pre_off, bl.length() - pre_off);		\
@@ -162,12 +175,16 @@ WRITE_INTTYPE_ENCODER(int16_t, le16)
 
 
 // string
-inline void encode(const std::string& s, bufferlist& bl, uint64_t features=0)
+inline void encode(boost::string_view s, bufferlist& bl, uint64_t features=0)
 {
   __u32 len = s.length();
   encode(len, bl);
   if (len)
     bl.append(s.data(), len);
+}
+inline void encode(const std::string& s, bufferlist& bl, uint64_t features=0)
+{
+  return encode(boost::string_view(s), bl, features);
 }
 inline void decode(std::string& s, bufferlist::iterator& p)
 {
@@ -177,9 +194,13 @@ inline void decode(std::string& s, bufferlist::iterator& p)
   p.copy(len, s);
 }
 
-inline void encode_nohead(const std::string& s, bufferlist& bl)
+inline void encode_nohead(boost::string_view s, bufferlist& bl)
 {
   bl.append(s.data(), s.length());
+}
+inline void encode_nohead(const std::string& s, bufferlist& bl)
+{
+  encode_nohead(boost::string_view(s), bl);
 }
 inline void decode_nohead(int len, std::string& s, bufferlist::iterator& p)
 {
@@ -190,10 +211,7 @@ inline void decode_nohead(int len, std::string& s, bufferlist::iterator& p)
 // const char* (encode only, string compatible)
 inline void encode(const char *s, bufferlist& bl) 
 {
-  __u32 len = strlen(s);
-  encode(len, bl);
-  if (len)
-    bl.append(s, len);
+  encode(boost::string_view(s, strlen(s)), bl);
 }
 
 
@@ -1040,7 +1058,7 @@ decode(std::array<T, N>& v, bufferlist::iterator& p)
 #define ENCODE_FINISH(bl) ENCODE_FINISH_NEW_COMPAT(bl, 0)
 
 #define DECODE_ERR_OLDVERSION(func, v, compatv)					\
-  (std::string(func) + " no longer understand old encoding version " #v " < " #compatv)
+  (std::string(func) + " no longer understand old encoding version " #v " < " + std::to_string(compatv))
 
 #define DECODE_ERR_PAST(func) \
   (std::string(func) + " decode past end of struct encoding")

@@ -62,7 +62,6 @@ void LogMonitor::create_initial()
 {
   dout(10) << "create_initial -- creating initial map" << dendl;
   LogEntry e;
-  memset(&e.who, 0, sizeof(e.who));
   e.name = g_conf->name;
   e.stamp = ceph_clock_now();
   e.prio = CLOG_INFO;
@@ -115,6 +114,10 @@ void LogMonitor::update_from_paxos(bool *need_bootstrap)
       string channel = le.channel;
       if (channel.empty()) // keep retrocompatibility
         channel = CLOG_CHANNEL_CLUSTER;
+
+      if (g_conf->get_val<bool>("mon_cluster_log_to_stderr")) {
+	cerr << channel << " " << le << std::endl;
+      }
 
       if (channels.do_log_to_syslog(channel)) {
         string level = channels.get_level(channel);
@@ -182,7 +185,7 @@ void LogMonitor::update_from_paxos(bool *need_bootstrap)
              << "' logging " << p->second.length() << " bytes" << dendl;
     string log_file = channels.get_log_file(p->first);
 
-    int fd = ::open(log_file.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0600);
+    int fd = ::open(log_file.c_str(), O_WRONLY|O_APPEND|O_CREAT|O_CLOEXEC, 0600);
     if (fd < 0) {
       int err = -errno;
       dout(1) << "unable to write to '" << log_file << "' for channel '"
@@ -310,6 +313,7 @@ bool LogMonitor::preprocess_log(MonOpRequestRef op)
   return false;
 
  done:
+  mon->no_reply(op);
   return true;
 }
 
@@ -643,7 +647,7 @@ void LogMonitor::_create_sub_incremental(MLog *mlog, int level, version_t sv)
   }
 
   version_t summary_ver = summary.version;
-  while (sv <= summary_ver) {
+  while (sv && sv <= summary_ver) {
     bufferlist bl;
     int err = get_version(sv, bl);
     assert(err == 0);

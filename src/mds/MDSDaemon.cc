@@ -70,7 +70,7 @@
 #define dout_prefix *_dout << "mds." << name << ' '
 
 // cons/des
-MDSDaemon::MDSDaemon(const std::string &n, Messenger *m, MonClient *mc) :
+MDSDaemon::MDSDaemon(boost::string_view n, Messenger *m, MonClient *mc) :
   Dispatcher(m->cct),
   mds_lock("MDSDaemon::mds_lock"),
   stopping(false),
@@ -90,7 +90,8 @@ MDSDaemon::MDSDaemon(const std::string &n, Messenger *m, MonClient *mc) :
   mgrc(m->cct, m),
   log_client(m->cct, messenger, &mc->monmap, LogClient::NO_FLAGS),
   mds_rank(NULL),
-  asok_hook(NULL)
+  asok_hook(NULL),
+  starttime(mono_clock::now())
 {
   orig_argc = 0;
   orig_argv = NULL;
@@ -180,6 +181,9 @@ void MDSDaemon::dump_status(Formatter *f)
     f->dump_unsigned("osdmap_epoch", 0);
     f->dump_unsigned("osdmap_epoch_barrier", 0);
   }
+
+  f->dump_float("uptime", get_uptime().count());
+
   f->close_section(); // status
 }
 
@@ -254,6 +258,11 @@ void MDSDaemon::set_up_admin_socket()
 				     asok_hook,
 				     "dump metadata cache for subtree");
   assert(r == 0);
+  r = admin_socket->register_command("dump loads",
+                                     "dump loads",
+                                     asok_hook,
+                                     "dump metadata loads");
+  assert(r == 0);
   r = admin_socket->register_command("session evict",
 				     "session evict name=client_id,type=CephString",
 				     asok_hook,
@@ -323,6 +332,7 @@ void MDSDaemon::clean_up_admin_socket()
   admin_socket->unregister_command("dump cache");
   admin_socket->unregister_command("cache status");
   admin_socket->unregister_command("dump tree");
+  admin_socket->unregister_command("dump loads");
   admin_socket->unregister_command("session evict");
   admin_socket->unregister_command("osdmap barrier");
   admin_socket->unregister_command("session ls");
@@ -348,15 +358,29 @@ const char** MDSDaemon::get_tracked_conf_keys() const
     "clog_to_syslog",
     "clog_to_syslog_facility",
     "clog_to_syslog_level",
+    "clog_to_graylog",
+    "clog_to_graylog_host",
+    "clog_to_graylog_port",
+    // MDCache
+    "mds_cache_size",
+    "mds_cache_memory_limit",
+    "mds_cache_reservation",
+    "mds_health_cache_threshold",
+    "mds_cache_mid",
+    // MDBalancer
+    "mds_bal_fragment_interval",
     // PurgeQueue
     "mds_max_purge_ops",
     "mds_max_purge_ops_per_pg",
     "mds_max_purge_files",
-    "clog_to_graylog",
-    "clog_to_graylog_host",
-    "clog_to_graylog_port",
+    // Migrator
+    "mds_max_export_size",
+    "mds_inject_migrator_session_race",
+    "mds_inject_migrator_message_loss",
     "host",
     "fsid",
+    "mds_request_load_average_decay_rate",
+    "mds_cap_revoke_eviction_timeout",
     NULL
   };
   return KEYS;
@@ -426,7 +450,8 @@ int MDSDaemon::init()
   dout(10) << sizeof(MDSCacheObject) << "\tMDSCacheObject" << dendl;
   dout(10) << sizeof(CInode) << "\tCInode" << dendl;
   dout(10) << sizeof(elist<void*>::item) << "\t elist<>::item   *7=" << 7*sizeof(elist<void*>::item) << dendl;
-  dout(10) << sizeof(inode_t) << "\t inode_t " << dendl;
+  dout(10) << sizeof(CInode::mempool_inode) << "\t inode  " << dendl;
+  dout(10) << sizeof(CInode::mempool_old_inode) << "\t old_inode " << dendl;
   dout(10) << sizeof(nest_info_t) << "\t  nest_info_t " << dendl;
   dout(10) << sizeof(frag_info_t) << "\t  frag_info_t " << dendl;
   dout(10) << sizeof(SimpleLock) << "\t SimpleLock   *5=" << 5*sizeof(SimpleLock) << dendl;
@@ -553,24 +578,25 @@ void MDSDaemon::tick()
 
 void MDSDaemon::send_command_reply(MCommand *m, MDSRank *mds_rank,
 				   int r, bufferlist outbl,
-				   const std::string& outs)
+				   boost::string_view outs)
 {
   Session *session = static_cast<Session *>(m->get_connection()->get_priv());
   assert(session != NULL);
   // If someone is using a closed session for sending commands (e.g.
   // the ceph CLI) then we should feel free to clean up this connection
   // as soon as we've sent them a response.
-  const bool live_session = mds_rank &&
-    mds_rank->sessionmap.get_session(session->info.inst.name) != nullptr
-    && session->get_state_seq() > 0;
+  const bool live_session =
+    session->get_state_seq() > 0 &&
+    mds_rank &&
+    mds_rank->sessionmap.get_session(session->info.inst.name);
 
   if (!live_session) {
     // This session only existed to issue commands, so terminate it
     // as soon as we can.
     assert(session->is_closed());
     session->connection->mark_disposable();
-    session->put();
   }
+  session->put();
 
   MCommandReply *reply = new MCommandReply(r, outs);
   reply->set_tid(m->get_tid());
@@ -609,6 +635,7 @@ void MDSDaemon::handle_command(MCommand *m)
   } else {
     r = _handle_command(cmdmap, m, &outbl, &outs, &run_after, &need_reply);
   }
+  session->put();
 
   if (need_reply) {
     send_command_reply(m, mds_rank, r, outbl, outs);
@@ -823,18 +850,19 @@ int MDSDaemon::_handle_command(
     cpu_profiler_handle_command(argvec, ds);
   } else {
     // Give MDSRank a shot at the command
-    if (mds_rank) {
+    if (!mds_rank) {
+      ss << "MDS not active";
+      r = -EINVAL;
+    }
+    else {
       bool handled = mds_rank->handle_command(cmdmap, m, &r, &ds, &ss,
 					      need_reply);
-      if (handled) {
-        goto out;
+      if (!handled) {
+        // MDSDaemon doesn't know this command
+        ss << "unrecognized command! " << prefix;
+        r = -EINVAL;
       }
     }
-
-    // Neither MDSDaemon nor MDSRank know this command
-    std::ostringstream ss;
-    ss << "unrecognized command! " << prefix;
-    r = -EINVAL;
   }
 
 out:
@@ -848,15 +876,16 @@ out:
 void MDSDaemon::handle_mds_map(MMDSMap *m)
 {
   version_t epoch = m->get_epoch();
-  dout(5) << "handle_mds_map epoch " << epoch << " from " << m->get_source() << dendl;
 
   // is it new?
   if (epoch <= mdsmap->get_epoch()) {
-    dout(5) << " old map epoch " << epoch << " <= " << mdsmap->get_epoch()
-	    << ", discarding" << dendl;
+    dout(5) << "handle_mds_map old map epoch " << epoch << " <= "
+            << mdsmap->get_epoch() << ", discarding" << dendl;
     m->put();
     return;
   }
+
+  dout(1) << "Updating MDS map to version " << epoch << " from " << m->get_source() << dendl;
 
   entity_addr_t addr;
 
@@ -876,7 +905,7 @@ void MDSDaemon::handle_mds_map(MMDSMap *m)
   mds_rank_t whoami = mdsmap->get_rank_gid(mds_gid_t(monc->get_global_id()));
 
   // verify compatset
-  CompatSet mdsmap_compat(get_mdsmap_compat_set_all());
+  CompatSet mdsmap_compat(MDSMap::get_compat_set_all());
   dout(10) << "     my compat " << mdsmap_compat << dendl;
   dout(10) << " mdsmap compat " << mdsmap->compat << dendl;
   if (!mdsmap_compat.writeable(mdsmap->compat)) {
@@ -916,7 +945,7 @@ void MDSDaemon::handle_mds_map(MMDSMap *m)
         if (mds_gid_t existing = mdsmap->find_mds_gid_by_name(name)) {
           const MDSMap::mds_info_t& i = mdsmap->get_info_gid(existing);
           if (i.global_id > myid) {
-            dout(1) << "map replaced me with another mds." << whoami
+            dout(1) << "Map replaced me with another mds." << whoami
                     << " with gid (" << i.global_id << ") larger than myself ("
                     << myid << "); quitting!" << dendl;
             // Call suicide() rather than respawn() because if someone else
@@ -929,7 +958,7 @@ void MDSDaemon::handle_mds_map(MMDSMap *m)
         }
       }
 
-      dout(1) << "map removed me (mds." << whoami << " gid:"
+      dout(1) << "Map removed me (mds." << whoami << " gid:"
               << myid << ") from cluster due to lost contact; respawning" << dendl;
       respawn();
     }
@@ -977,7 +1006,7 @@ void MDSDaemon::_handle_mds_map(MDSMap *oldmap)
   // Normal rankless case, we're marked as standby
   if (new_state == MDSMap::STATE_STANDBY) {
     beacon.set_want_state(mdsmap, new_state);
-    dout(1) << "handle_mds_map standby" << dendl;
+    dout(1) << "Map has assigned me to become a standby" << dendl;
 
     return;
   }
@@ -1017,7 +1046,7 @@ void MDSDaemon::suicide()
   assert(stopping == false);
   stopping = true;
 
-  dout(1) << "suicide.  wanted state "
+  dout(1) << "suicide! Wanted state "
           << ceph_mds_state_name(beacon.get_want_state()) << dendl;
 
   if (tick_event) {
@@ -1056,7 +1085,11 @@ void MDSDaemon::suicide()
 
 void MDSDaemon::respawn()
 {
-  dout(1) << "respawn" << dendl;
+  dout(1) << "respawn!" << dendl;
+
+  /* Dump recent in case the MDS was stuck doing something which caused it to
+   * be removed from the MDSMap leading to respawn. */
+  g_ceph_context->_log->dump_recent();
 
   char *new_argv[orig_argc+1];
   dout(1) << " e: '" << orig_argv[0] << "'" << dendl;
@@ -1254,7 +1287,8 @@ bool MDSDaemon::ms_handle_refused(Connection *con)
 
 bool MDSDaemon::ms_verify_authorizer(Connection *con, int peer_type,
 			       int protocol, bufferlist& authorizer_data, bufferlist& authorizer_reply,
-			       bool& is_valid, CryptoKey& session_key)
+				     bool& is_valid, CryptoKey& session_key,
+				     std::unique_ptr<AuthAuthorizerChallenge> *challenge)
 {
   Mutex::Locker l(mds_lock);
   if (stopping) {
@@ -1286,7 +1320,7 @@ bool MDSDaemon::ms_verify_authorizer(Connection *con, int peer_type,
     is_valid = authorize_handler->verify_authorizer(
       cct, keys,
       authorizer_data, authorizer_reply, name, global_id, caps_info,
-      session_key);
+      session_key, nullptr, challenge);
   } else {
     dout(10) << __func__ << " no rotating_keys (yet), denied" << dendl;
     is_valid = false;
@@ -1317,6 +1351,9 @@ bool MDSDaemon::ms_verify_authorizer(Connection *con, int peer_type,
       dout(10) << " new session " << s << " for " << s->info.inst << " con " << con << dendl;
       con->set_priv(s);
       s->connection = con;
+      if (mds_rank) {
+        mds_rank->kick_waiters_for_any_client_connection();
+      }
     } else {
       dout(10) << " existing session " << s << " for " << s->info.inst << " existing con " << s->connection
 	       << ", new/authorizing con " << con << dendl;

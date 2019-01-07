@@ -201,6 +201,7 @@ using ceph::crypto::MD5;
 #define ERR_NO_SUCH_LC           2041
 #define ERR_NO_SUCH_USER         2042
 #define ERR_NO_SUCH_SUBUSER      2043
+#define ERR_NO_SUCH_CORS_CONFIGURATION 2044
 #define ERR_USER_SUSPENDED       2100
 #define ERR_INTERNAL_ERROR       2200
 #define ERR_NOT_IMPLEMENTED      2201
@@ -316,8 +317,7 @@ class NameVal
 };
 
 /** Stores the XML arguments associated with the HTTP request in req_state*/
-class RGWHTTPArgs
-{
+class RGWHTTPArgs {
   string str, empty_str;
   map<string, string> val_map;
   map<string, string> sys_val_map;
@@ -376,7 +376,7 @@ class RGWHTTPArgs
   const string& get_str() {
     return str;
   }
-};
+}; // RGWHTTPArgs
 
 const char *rgw_conf_get(const map<string, string, ltstr_nocase>& conf_map, const char *name, const char *def_val);
 int rgw_conf_get_int(const map<string, string, ltstr_nocase>& conf_map, const char *name, int def_val);
@@ -407,7 +407,7 @@ public:
 
   void init(CephContext *cct);
   void init(CephContext *cct, char **envp);
-  void set(const boost::string_ref& name, const boost::string_ref& val);
+  void set(std::string name, std::string val);
   const char *get(const char *name, const char *def_val = nullptr) const;
   int get_int(const char *name, int def_val = 0) const;
   bool get_bool(const char *name, bool def_val = 0);
@@ -1098,7 +1098,7 @@ struct rgw_bucket {
 WRITE_CLASS_ENCODER(rgw_bucket)
 
 inline ostream& operator<<(ostream& out, const rgw_bucket &b) {
-  out << b.name << "[" << b.marker << "])";
+  out << b.name << "[" << b.marker << "]";
   return out;
 }
 
@@ -1186,8 +1186,7 @@ inline ostream& operator<<(ostream& out, const RGWBucketIndexType &index_type)
   }
 }
 
-struct RGWBucketInfo
-{
+struct RGWBucketInfo {
   enum BIShardsHashType {
     MOD = 0
   };
@@ -1717,6 +1716,7 @@ struct rgw_obj_key {
     DECODE_FINISH(bl);
   }
   void dump(Formatter *f) const;
+  void decode_json(JSONObj *obj);
 };
 WRITE_CLASS_ENCODER(rgw_obj_key)
 
@@ -2044,7 +2044,7 @@ struct rgw_obj {
           if (pos < 0) {
             throw buffer::error();
           }
-          key.name = key.name.substr(pos);
+          key.name = key.name.substr(pos + 1);
         }
       }
     } else {
@@ -2249,6 +2249,8 @@ bool verify_bucket_permission_no_policy(
   const int perm);
 bool verify_bucket_permission_no_policy(struct req_state * const s,
 					const int perm);
+int verify_bucket_owner_or_policy(struct req_state* const s,
+				  const uint64_t op);
 extern bool verify_object_permission(
   struct req_state * const s,
   const rgw_obj& obj,
@@ -2353,5 +2355,56 @@ static constexpr uint32_t MATCH_POLICY_STRING = 0x08;
 
 extern bool match_policy(boost::string_view pattern, boost::string_view input,
                          uint32_t flag);
+
+void rgw_setup_saved_curl_handles();
+void rgw_release_all_curl_handles();
+
+static inline void rgw_escape_str(const string& s, char esc_char,
+				  char special_char, string *dest)
+{
+  const char *src = s.c_str();
+  char dest_buf[s.size() * 2 + 1];
+  char *destp = dest_buf;
+
+  for (size_t i = 0; i < s.size(); i++) {
+    char c = src[i];
+    if (c == esc_char || c == special_char) {
+      *destp++ = esc_char;
+    }
+    *destp++ = c;
+  }
+  *destp++ = '\0';
+  *dest = dest_buf;
+}
+
+static inline ssize_t rgw_unescape_str(const string& s, ssize_t ofs,
+				       char esc_char, char special_char,
+				       string *dest)
+{
+  const char *src = s.c_str();
+  char dest_buf[s.size() + 1];
+  char *destp = dest_buf;
+  bool esc = false;
+
+  dest_buf[0] = '\0';
+
+  for (size_t i = ofs; i < s.size(); i++) {
+    char c = src[i];
+    if (!esc && c == esc_char) {
+      esc = true;
+      continue;
+    }
+    if (!esc && c == special_char) {
+      *destp = '\0';
+      *dest = dest_buf;
+      return (ssize_t)i + 1;
+    }
+    *destp++ = c;
+    esc = false;
+  }
+  *destp = '\0';
+  *dest = dest_buf;
+  return string::npos;
+}
 
 #endif

@@ -30,6 +30,7 @@
 #include "messages/MMonMap.h"
 #include "msg/Messenger.h"
 #include "include/assert.h"
+#include "mds/MDSMap.h"
 
 #include "include/cephfs/libcephfs.h"
 
@@ -1392,41 +1393,7 @@ extern "C" int ceph_ll_lookup_inode(
     struct inodeno_t ino,
     Inode **inode)
 {
-  int r = (cmount->get_client())->lookup_ino(ino, cmount->default_perms, inode);
-  if (r) {
-    return r;
-  }
-
-  assert(inode != NULL);
-  assert(*inode != NULL);
-
-  // Request the parent inode, so that we can look up the name
-  Inode *parent;
-  r = (cmount->get_client())->lookup_parent(*inode, cmount->default_perms, &parent);
-  if (r && r != -EINVAL) {
-    // Unexpected error
-    (cmount->get_client())->ll_forget(*inode, 1);
-    return r;
-  } else if (r == -EINVAL) {
-    // EINVAL indicates node without parents (root), drop out now
-    // and don't try to look up the non-existent dentry.
-    return 0;
-  }
-  // FIXME: I don't think this works; lookup_parent() returns 0 if the parent
-  // is already in cache
-  assert(parent != NULL);
-
-  // Finally, get the name (dentry) of the requested inode
-  r = (cmount->get_client())->lookup_name(*inode, parent, cmount->default_perms);
-  if (r) {
-    // Unexpected error
-    (cmount->get_client())->ll_forget(parent, 1);
-    (cmount->get_client())->ll_forget(*inode, 1);
-    return r;
-  }
-
-  (cmount->get_client())->ll_forget(parent, 1);
-  return 0;
+  return (cmount->get_client())->ll_lookup_inode(ino, cmount->default_perms, inode);
 }
 
 extern "C" int ceph_ll_lookup(struct ceph_mount_info *cmount,
@@ -1536,6 +1503,12 @@ extern "C" int ceph_ll_fsync(class ceph_mount_info *cmount,
 			     Fh *fh, int syncdataonly)
 {
   return (cmount->get_client()->ll_fsync(fh, syncdataonly));
+}
+
+extern "C" int ceph_ll_sync_inode(class ceph_mount_info *cmount,
+			     Inode *in, int syncdataonly)
+{
+  return (cmount->get_client()->ll_sync_inode(in, syncdataonly));
 }
 
 extern "C" off_t ceph_ll_lseek(class ceph_mount_info *cmount,
@@ -1723,6 +1696,12 @@ extern "C" int ceph_ll_setlk(struct ceph_mount_info *cmount,
   return (cmount->get_client()->ll_setlk(fh, fl, owner, sleep));
 }
 
+extern "C" int ceph_ll_delegation(struct ceph_mount_info *cmount, Fh *fh,
+				  unsigned cmd, ceph_deleg_cb_t cb, void *priv)
+{
+  return (cmount->get_client()->ll_delegation(fh, cmd, cb, priv));
+}
+
 extern "C" uint32_t ceph_ll_stripe_unit(class ceph_mount_info *cmount,
 					Inode *in)
 {
@@ -1777,4 +1756,18 @@ extern "C" void ceph_buffer_free(char *buf)
   if (buf) {
     free(buf);
   }
+}
+
+extern "C" uint32_t ceph_get_cap_return_timeout(class ceph_mount_info *cmount)
+{
+  if (!cmount->is_mounted())
+    return 0;
+  return cmount->get_client()->mdsmap->get_session_autoclose().sec();
+}
+
+extern "C" int ceph_set_deleg_timeout(class ceph_mount_info *cmount, uint32_t timeout)
+{
+  if (!cmount->is_mounted())
+    return -ENOTCONN;
+  return cmount->get_client()->set_deleg_timeout(timeout);
 }

@@ -15,6 +15,8 @@
 #ifndef CEPH_MDS_SERVER_H
 #define CEPH_MDS_SERVER_H
 
+#include <boost/utility/string_view.hpp>
+
 #include "MDSRank.h"
 #include "Mutation.h"
 
@@ -36,38 +38,43 @@ enum {
   l_mdss_handle_client_request,
   l_mdss_handle_client_session,
   l_mdss_handle_slave_request,
-  l_mdss_req_create,
-  l_mdss_req_getattr,
-  l_mdss_req_getfilelock,
-  l_mdss_req_link,
-  l_mdss_req_lookup,
-  l_mdss_req_lookuphash,
-  l_mdss_req_lookupino,
-  l_mdss_req_lookupname,
-  l_mdss_req_lookupparent,
-  l_mdss_req_lookupsnap,
-  l_mdss_req_lssnap,
-  l_mdss_req_mkdir,
-  l_mdss_req_mknod,
-  l_mdss_req_mksnap,
-  l_mdss_req_open,
-  l_mdss_req_readdir,
-  l_mdss_req_rename,
-  l_mdss_req_renamesnap,
-  l_mdss_req_rmdir,
-  l_mdss_req_rmsnap,
-  l_mdss_req_rmxattr,
-  l_mdss_req_setattr,
-  l_mdss_req_setdirlayout,
-  l_mdss_req_setfilelock,
-  l_mdss_req_setlayout,
-  l_mdss_req_setxattr,
-  l_mdss_req_symlink,
-  l_mdss_req_unlink,
+  l_mdss_req_create_latency,
+  l_mdss_req_getattr_latency,
+  l_mdss_req_getfilelock_latency,
+  l_mdss_req_link_latency,
+  l_mdss_req_lookup_latency,
+  l_mdss_req_lookuphash_latency,
+  l_mdss_req_lookupino_latency,
+  l_mdss_req_lookupname_latency,
+  l_mdss_req_lookupparent_latency,
+  l_mdss_req_lookupsnap_latency,
+  l_mdss_req_lssnap_latency,
+  l_mdss_req_mkdir_latency,
+  l_mdss_req_mknod_latency,
+  l_mdss_req_mksnap_latency,
+  l_mdss_req_open_latency,
+  l_mdss_req_readdir_latency,
+  l_mdss_req_rename_latency,
+  l_mdss_req_renamesnap_latency,
+  l_mdss_req_rmdir_latency,
+  l_mdss_req_rmsnap_latency,
+  l_mdss_req_rmxattr_latency,
+  l_mdss_req_setattr_latency,
+  l_mdss_req_setdirlayout_latency,
+  l_mdss_req_setfilelock_latency,
+  l_mdss_req_setlayout_latency,
+  l_mdss_req_setxattr_latency,
+  l_mdss_req_symlink_latency,
+  l_mdss_req_unlink_latency,
+  l_mdss_cap_revoke_eviction,
   l_mdss_last,
 };
 
 class Server {
+public:
+  using clock = ceph::coarse_mono_clock;
+  using time = ceph::coarse_mono_time;
+
 private:
   MDSRank *mds;
   MDCache *mdcache;
@@ -82,6 +89,8 @@ private:
   int failed_reconnects;
   bool reconnect_evicting;  // true if I am waiting for evictions to complete
                             // before proceeding to reconnect_gather_finish
+
+  double cap_revoke_eviction_timeout = 0;
 
   friend class MDSContinuation;
   friend class ServerContext;
@@ -110,14 +119,12 @@ public:
   bool waiting_for_reconnect(client_t c) const;
   void dump_reconnect_status(Formatter *f) const;
 
-  Session *get_session(Message *m);
   void handle_client_session(class MClientSession *m);
   void _session_logged(Session *session, uint64_t state_seq, 
 		       bool open, version_t pv, interval_set<inodeno_t>& inos,version_t piv);
   version_t prepare_force_open_sessions(map<client_t,entity_inst_t> &cm,
-					map<client_t,uint64_t>& sseqmap);
-  void finish_force_open_sessions(map<client_t,entity_inst_t> &cm,
-				  map<client_t,uint64_t>& sseqmap,
+					map<client_t,pair<Session*,uint64_t> >& smap);
+  void finish_force_open_sessions(const map<client_t,pair<Session*,uint64_t> >& smap,
 				  bool dec_import=true);
   void flush_client_sessions(set<client_t>& client_set, MDSGatherBuilder& gather);
   void finish_flush_session(Session *session, version_t seq);
@@ -144,6 +151,7 @@ public:
   void submit_mdlog_entry(LogEvent *le, MDSLogContextBase *fin,
                           MDRequestRef& mdr, const char *evt);
   void dispatch_client_request(MDRequestRef& mdr);
+  void perf_gather_op_latency(const MClientRequest* req, utime_t lat);
   void early_reply(MDRequestRef& mdr, CInode *tracei, CDentry *tracedn);
   void respond_to_request(MDRequestRef& mdr, int r = 0);
   void set_trace_dist(Session *session, MClientReply *reply, CInode *in, CDentry *dn,
@@ -165,9 +173,9 @@ public:
   bool check_fragment_space(MDRequestRef& mdr, CDir *in);
   bool check_access(MDRequestRef& mdr, CInode *in, unsigned mask);
   bool _check_access(Session *session, CInode *in, unsigned mask, int caller_uid, int caller_gid, int setattr_uid, int setattr_gid);
-  CDir *validate_dentry_dir(MDRequestRef& mdr, CInode *diri, const string& dname);
+  CDir *validate_dentry_dir(MDRequestRef& mdr, CInode *diri, boost::string_view dname);
   CDir *traverse_to_auth_dir(MDRequestRef& mdr, vector<CDentry*> &trace, filepath refpath);
-  CDentry *prepare_null_dentry(MDRequestRef& mdr, CDir *dir, const string& dname, bool okexist=false);
+  CDentry *prepare_null_dentry(MDRequestRef& mdr, CDir *dir, boost::string_view dname, bool okexist=false);
   CDentry *prepare_stray_dentry(MDRequestRef& mdr, CInode *in);
   CInode* prepare_new_inode(MDRequestRef& mdr, CDir *dir, inodeno_t useino, unsigned mode,
 			    file_layout_t *layout=NULL);
@@ -305,6 +313,10 @@ public:
   void do_rename_rollback(bufferlist &rbl, mds_rank_t master, MDRequestRef& mdr, bool finish_mdr=false);
   void _rename_rollback_finish(MutationRef& mut, MDRequestRef& mdr, CDentry *srcdn, version_t srcdnpv,
 			       CDentry *destdn, CDentry *staydn, bool finish_mdr);
+
+  void evict_cap_revoke_non_responders();
+  void handle_conf_change(const struct md_config_t *,
+                          const std::set <std::string> &changed);
 
 private:
   void reply_client_request(MDRequestRef& mdr, MClientReply *reply);

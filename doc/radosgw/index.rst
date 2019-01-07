@@ -1,3 +1,5 @@
+.. _object-gateway:
+
 =====================
  Ceph Object Gateway
 =====================
@@ -37,6 +39,7 @@ you may write data with one API and retrieve it with the other.
    :maxdepth: 1
 
    Manual Install w/Civetweb <../../install/install-ceph-gateway>
+   HTTP Frontends <frontends>
    Multisite Configuration <multisite>
    Configuring Pools <pools>
    Config Reference <config-ref>

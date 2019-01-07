@@ -287,6 +287,7 @@ private:
   int64_t m_local_pool_id;
   std::string m_local_image_id;
   std::string m_global_image_id;
+  std::string m_local_image_name;
   std::string m_name;
 
   mutable Mutex m_lock;
@@ -331,6 +332,8 @@ private:
   bool m_update_status_requested = false;
   Context *m_on_update_status_finish = nullptr;
 
+  cls::journal::ClientState m_client_state =
+    cls::journal::CLIENT_STATE_DISCONNECTED;
   librbd::journal::MirrorPeerClientMeta m_client_meta;
 
   ReplayEntry m_replay_entry;
@@ -425,8 +428,7 @@ private:
 
   void register_admin_socket_hook();
   void unregister_admin_socket_hook();
-
-  void on_name_changed();
+  void reregister_admin_socket_hook();
 };
 
 } // namespace mirror

@@ -293,7 +293,7 @@ int FileStore::lfn_open(const coll_t& cid,
     goto fail;
   }
 
-  r = ::open((*path)->path(), flags, 0644);
+  r = ::open((*path)->path(), flags|O_CLOEXEC, 0644);
   if (r < 0) {
     r = -errno;
     dout(10) << "error opening file " << (*path)->path() << " with flags="
@@ -612,7 +612,8 @@ FileStore::FileStore(CephContext* cct, const std::string &base,
   plb.add_u64(l_filestore_journal_ops, "journal_ops", "Active journal entries to be applied");
   plb.add_u64(l_filestore_journal_queue_bytes, "journal_queue_bytes", "Size of journal queue");
   plb.add_u64(l_filestore_journal_bytes, "journal_bytes", "Active journal operation size to be applied");
-  plb.add_time_avg(l_filestore_journal_latency, "journal_latency", "Average journal queue completing latency");
+  plb.add_time_avg(l_filestore_journal_latency, "journal_latency", "Average journal queue completing latency",
+                   NULL, PerfCountersBuilder::PRIO_USEFUL);
   plb.add_u64_counter(l_filestore_journal_wr, "journal_wr", "Journal write IOs");
   plb.add_u64_avg(l_filestore_journal_wr_bytes, "journal_wr_bytes", "Journal data written");
   plb.add_u64(l_filestore_op_queue_max_ops, "op_queue_max_ops", "Max operations in writing to FS queue");
@@ -628,7 +629,8 @@ FileStore::FileStore(CephContext* cct, const std::string &base,
   plb.add_time_avg(l_filestore_commitcycle_interval, "commitcycle_interval", "Average interval between commits");
   plb.add_time_avg(l_filestore_commitcycle_latency, "commitcycle_latency", "Average latency of commit");
   plb.add_u64_counter(l_filestore_journal_full, "journal_full", "Journal writes while full");
-  plb.add_time_avg(l_filestore_queue_transaction_latency_avg, "queue_transaction_latency_avg", "Store operation queue latency");
+  plb.add_time_avg(l_filestore_queue_transaction_latency_avg, "queue_transaction_latency_avg",
+                   "Store operation queue latency", NULL, PerfCountersBuilder::PRIO_USEFUL);
   plb.add_time(l_filestore_sync_pause_max_lat, "sync_pause_max_latency", "Max latency of op_wq pause before syncfs");
 
   logger = plb.create_perf_counters();
@@ -816,7 +818,7 @@ int FileStore::mkfs()
   uuid_d old_omap_fsid;
 
   dout(1) << "mkfs in " << basedir << dendl;
-  basedir_fd = ::open(basedir.c_str(), O_RDONLY);
+  basedir_fd = ::open(basedir.c_str(), O_RDONLY|O_CLOEXEC);
   if (basedir_fd < 0) {
     ret = -errno;
     derr << __FUNC__ << ": failed to open base dir " << basedir << ": " << cpp_strerror(ret) << dendl;
@@ -825,7 +827,7 @@ int FileStore::mkfs()
 
   // open+lock fsid
   snprintf(fsid_fn, sizeof(fsid_fn), "%s/fsid", basedir.c_str());
-  fsid_fd = ::open(fsid_fn, O_RDWR|O_CREAT, 0644);
+  fsid_fd = ::open(fsid_fn, O_RDWR|O_CREAT|O_CLOEXEC, 0644);
   if (fsid_fd < 0) {
     ret = -errno;
     derr << __FUNC__ << ": failed to open " << fsid_fn << ": " << cpp_strerror(ret) << dendl;
@@ -940,7 +942,7 @@ int FileStore::mkfs()
 
       if (backend->can_checkpoint()) {
 	// create snap_1 too
-	current_fd = ::open(current_fn.c_str(), O_RDONLY);
+	current_fd = ::open(current_fn.c_str(), O_RDONLY|O_CLOEXEC);
 	assert(current_fd >= 0);
 	char s[NAME_MAX];
 	snprintf(s, sizeof(s), COMMIT_SNAP_ITEM, 1ull);
@@ -965,7 +967,7 @@ int FileStore::mkfs()
   int omap_fsid_fd;
   char omap_fsid_fn[PATH_MAX];
   snprintf(omap_fsid_fn, sizeof(omap_fsid_fn), "%s/osd_uuid", omap_dir.c_str());
-  omap_fsid_fd = ::open(omap_fsid_fn, O_RDWR|O_CREAT, 0644);
+  omap_fsid_fd = ::open(omap_fsid_fn, O_RDWR|O_CREAT|O_CLOEXEC, 0644);
   if (omap_fsid_fd < 0) {
     ret = -errno;
     derr << __FUNC__ << ": failed to open " << omap_fsid_fn << ": " << cpp_strerror(ret) << dendl;
@@ -1041,7 +1043,7 @@ int FileStore::mkjournal()
   int ret;
   char fn[PATH_MAX];
   snprintf(fn, sizeof(fn), "%s/fsid", basedir.c_str());
-  int fd = ::open(fn, O_RDONLY, 0644);
+  int fd = ::open(fn, O_RDONLY|O_CLOEXEC, 0644);
   if (fd < 0) {
     int err = errno;
     derr << __FUNC__ << ": open error: " << cpp_strerror(err) << dendl;
@@ -1123,7 +1125,7 @@ bool FileStore::test_mount_in_use()
 
   // verify fs isn't in use
 
-  fsid_fd = ::open(fn, O_RDWR, 0644);
+  fsid_fd = ::open(fn, O_RDWR|O_CLOEXEC, 0644);
   if (fsid_fd < 0)
     return 0;   // no fsid, ok.
   bool inuse = lock_fsid() < 0;
@@ -1138,7 +1140,7 @@ bool FileStore::is_rotational()
   if (backend) {
     rotational = backend->is_rotational();
   } else {
-    int fd = ::open(basedir.c_str(), O_RDONLY);
+    int fd = ::open(basedir.c_str(), O_RDONLY|O_CLOEXEC);
     if (fd < 0)
       return true;
     struct statfs st;
@@ -1162,7 +1164,7 @@ bool FileStore::is_journal_rotational()
   if (backend) {
     journal_rotational = backend->is_journal_rotational();
   } else {
-    int fd = ::open(journalpath.c_str(), O_RDONLY);
+    int fd = ::open(journalpath.c_str(), O_RDONLY|O_CLOEXEC);
     if (fd < 0)
       return true;
     struct statfs st;
@@ -1210,7 +1212,7 @@ int FileStore::_detect_fs()
   int x = rand();
   int y = x+1;
   snprintf(fn, sizeof(fn), "%s/xattr_test", basedir.c_str());
-  int tmpfd = ::open(fn, O_CREAT|O_WRONLY|O_TRUNC, 0700);
+  int tmpfd = ::open(fn, O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC, 0700);
   if (tmpfd < 0) {
     int ret = -errno;
     derr << __FUNC__ << ": unable to create " << fn << ": " << cpp_strerror(ret) << dendl;
@@ -1387,7 +1389,7 @@ int FileStore::upgrade()
 
 int FileStore::read_op_seq(uint64_t *seq)
 {
-  int op_fd = ::open(current_op_seq_fn.c_str(), O_CREAT|O_RDWR, 0644);
+  int op_fd = ::open(current_op_seq_fn.c_str(), O_CREAT|O_RDWR|O_CLOEXEC, 0644);
   if (op_fd < 0) {
     int r = -errno;
     assert(!m_filestore_fail_eio || r != -EIO);
@@ -1443,7 +1445,7 @@ int FileStore::mount()
 
   // get fsid
   snprintf(buf, sizeof(buf), "%s/fsid", basedir.c_str());
-  fsid_fd = ::open(buf, O_RDWR, 0644);
+  fsid_fd = ::open(buf, O_RDWR|O_CLOEXEC, 0644);
   if (fsid_fd < 0) {
     ret = -errno;
     derr << __FUNC__ << ": error opening '" << buf << "': "
@@ -1506,7 +1508,7 @@ int FileStore::mount()
   }
 
   // open some dir handles
-  basedir_fd = ::open(basedir.c_str(), O_RDONLY);
+  basedir_fd = ::open(basedir.c_str(), O_RDONLY|O_CLOEXEC);
   if (basedir_fd < 0) {
     ret = -errno;
     derr << __FUNC__ << ": failed to open " << basedir << ": "
@@ -1616,7 +1618,7 @@ int FileStore::mount()
   }
   initial_op_seq = 0;
 
-  current_fd = ::open(current_fn.c_str(), O_RDONLY);
+  current_fd = ::open(current_fn.c_str(), O_RDONLY|O_CLOEXEC);
   if (current_fd < 0) {
     ret = -errno;
     derr << __FUNC__ << ": error opening: " << current_fn << ": " << cpp_strerror(ret) << dendl;
@@ -1667,7 +1669,7 @@ int FileStore::mount()
              << dendl;
   }else{
     // if osd_uuid exists, compares osd_uuid with fsid
-    omap_fsid_fd = ::open(omap_fsid_buf, O_RDONLY, 0644);
+    omap_fsid_fd = ::open(omap_fsid_buf, O_RDONLY|O_CLOEXEC, 0644);
     if (omap_fsid_fd < 0) {
         ret = -errno;
         derr << __FUNC__ << ": error opening '" << omap_fsid_buf << "': "
@@ -2364,7 +2366,7 @@ void FileStore::_set_global_replay_guard(const coll_t& cid,
 
   char fn[PATH_MAX];
   get_cdir(cid, fn, sizeof(fn));
-  int fd = ::open(fn, O_RDONLY);
+  int fd = ::open(fn, O_RDONLY|O_CLOEXEC);
   if (fd < 0) {
     int err = errno;
     derr << __FUNC__ << ": " << cid << " error " << cpp_strerror(err) << dendl;
@@ -2398,7 +2400,7 @@ int FileStore::_check_global_replay_guard(const coll_t& cid,
 {
   char fn[PATH_MAX];
   get_cdir(cid, fn, sizeof(fn));
-  int fd = ::open(fn, O_RDONLY);
+  int fd = ::open(fn, O_RDONLY|O_CLOEXEC);
   if (fd < 0) {
     dout(10) << __FUNC__ << ": " << cid << " dne" << dendl;
     return 1;  // if collection does not exist, there is no guard, and we can replay.
@@ -2430,7 +2432,7 @@ void FileStore::_set_replay_guard(const coll_t& cid,
 {
   char fn[PATH_MAX];
   get_cdir(cid, fn, sizeof(fn));
-  int fd = ::open(fn, O_RDONLY);
+  int fd = ::open(fn, O_RDONLY|O_CLOEXEC);
   if (fd < 0) {
     int err = errno;
     derr << __FUNC__ << ": " << cid << " error " << cpp_strerror(err) << dendl;
@@ -2489,7 +2491,7 @@ void FileStore::_close_replay_guard(const coll_t& cid,
 {
   char fn[PATH_MAX];
   get_cdir(cid, fn, sizeof(fn));
-  int fd = ::open(fn, O_RDONLY);
+  int fd = ::open(fn, O_RDONLY|O_CLOEXEC);
   if (fd < 0) {
     int err = errno;
     derr << __FUNC__ << ": " << cid << " error " << cpp_strerror(err) << dendl;
@@ -2562,7 +2564,7 @@ int FileStore::_check_replay_guard(const coll_t& cid, const SequencerPosition& s
 
   char fn[PATH_MAX];
   get_cdir(cid, fn, sizeof(fn));
-  int fd = ::open(fn, O_RDONLY);
+  int fd = ::open(fn, O_RDONLY|O_CLOEXEC);
   if (fd < 0) {
     dout(10) << __FUNC__ << ": " << cid << " dne" << dendl;
     return 1;  // if collection does not exist, there is no guard, and we can replay.
@@ -2981,7 +2983,8 @@ void FileStore::_do_transaction(
         const coll_t &cid = !_need_temp_object_collection(_cid, oid) ?
           _cid : _cid.get_temp();
         tracepoint(objectstore, omap_clear_enter, osr_name);
-        r = _omap_clear(cid, oid, spos);
+        if (_check_replay_guard(cid, oid, spos) > 0)
+	  r = _omap_clear(cid, oid, spos);
         tracepoint(objectstore, omap_clear_exit, r);
       }
       break;
@@ -2994,7 +2997,8 @@ void FileStore::_do_transaction(
         map<string, bufferlist> aset;
         i.decode_attrset(aset);
         tracepoint(objectstore, omap_setkeys_enter, osr_name);
-        r = _omap_setkeys(cid, oid, aset, spos);
+        if (_check_replay_guard(cid, oid, spos) > 0)
+	  r = _omap_setkeys(cid, oid, aset, spos);
         tracepoint(objectstore, omap_setkeys_exit, r);
       }
       break;
@@ -3007,7 +3011,8 @@ void FileStore::_do_transaction(
         set<string> keys;
         i.decode_keyset(keys);
         tracepoint(objectstore, omap_rmkeys_enter, osr_name);
-        r = _omap_rmkeys(cid, oid, keys, spos);
+        if (_check_replay_guard(cid, oid, spos) > 0)
+	  r = _omap_rmkeys(cid, oid, keys, spos);
         tracepoint(objectstore, omap_rmkeys_exit, r);
       }
       break;
@@ -3021,7 +3026,8 @@ void FileStore::_do_transaction(
         first = i.decode_string();
         last = i.decode_string();
         tracepoint(objectstore, omap_rmkeyrange_enter, osr_name);
-        r = _omap_rmkeyrange(cid, oid, first, last, spos);
+        if (_check_replay_guard(cid, oid, spos) > 0)
+	  r = _omap_rmkeyrange(cid, oid, first, last, spos);
         tracepoint(objectstore, omap_rmkeyrange_exit, r);
       }
       break;
@@ -3034,7 +3040,8 @@ void FileStore::_do_transaction(
         bufferlist bl;
         i.decode_bl(bl);
         tracepoint(objectstore, omap_setheader_enter, osr_name);
-        r = _omap_setheader(cid, oid, bl, spos);
+        if (_check_replay_guard(cid, oid, spos) > 0)
+	  r = _omap_setheader(cid, oid, bl, spos);
         tracepoint(objectstore, omap_setheader_exit, r);
       }
       break;
@@ -3578,8 +3585,8 @@ int FileStore::_zero(const coll_t& cid, const ghobject_t& oid, uint64_t offset, 
     if (ret < 0) {
       ret = -errno;
     } else {
-      // ensure we extent file size, if needed
-      if (offset + len > (uint64_t)st.st_size) {
+      // ensure we extend file size, if needed
+      if (len > 0 && offset + len > (uint64_t)st.st_size) {
 	ret = ::ftruncate(**fd, offset + len);
 	if (ret < 0) {
 	  ret = -errno;
@@ -3784,10 +3791,10 @@ int FileStore::_do_copy_range(int from, int to, uint64_t srcoff, uint64_t len, u
 #ifdef CEPH_HAVE_SPLICE
   if (backend->has_splice()) {
     int pipefd[2];
-    if (pipe(pipefd) < 0) {
-      r = -errno;
-      derr << " pipe " << " got " << cpp_strerror(r) << dendl;
-      return r;
+    if (pipe_cloexec(pipefd) < 0) {
+      int e = errno;
+      derr << " pipe " << " got " << cpp_strerror(e) << dendl;
+      return -e;
     }
 
     loff_t dstpos = dstoff;
@@ -3888,7 +3895,7 @@ int FileStore::_do_copy_range(int from, int to, uint64_t srcoff, uint64_t len, u
   if (r < 0 && replaying) {
     assert(r == -ERANGE);
     derr << __FUNC__ << ": short source tolerated because we are replaying" << dendl;
-    r = pos - from;;
+    r = len;
   }
   assert(replaying || pos == end);
   if (r >= 0 && !skip_sloppycrc && m_filestore_sloppy_crc) {
@@ -4914,7 +4921,7 @@ int FileStore::_collection_set_bits(const coll_t& c, int bits)
   char n[PATH_MAX];
   int r;
   int32_t v = bits;
-  int fd = ::open(fn, O_RDONLY);
+  int fd = ::open(fn, O_RDONLY|O_CLOEXEC);
   if (fd < 0) {
     r = -errno;
     goto out;
@@ -4935,7 +4942,7 @@ int FileStore::collection_bits(const coll_t& c)
   int r;
   char n[PATH_MAX];
   int32_t bits;
-  int fd = ::open(fn, O_RDONLY);
+  int fd = ::open(fn, O_RDONLY|O_CLOEXEC);
   if (fd < 0) {
     bits = r = -errno;
     goto out;
@@ -5967,9 +5974,10 @@ uint64_t FileStore::estimate_objects_overhead(uint64_t num_objects)
   return res;
 }
 
-int FileStore::apply_layout_settings(const coll_t &cid)
+int FileStore::apply_layout_settings(const coll_t &cid, int target_level)
 {
-  dout(20) << __FUNC__ << ": " << cid << dendl;
+  dout(20) << __FUNC__ << ": " << cid << " target level: " 
+           << target_level << dendl;
   Index index;
   int r = get_index(cid, &index);
   if (r < 0) {
@@ -5978,7 +5986,7 @@ int FileStore::apply_layout_settings(const coll_t &cid)
     return r;
   }
 
-  return index->apply_layout_settings();
+  return index->apply_layout_settings(target_level);
 }
 
 

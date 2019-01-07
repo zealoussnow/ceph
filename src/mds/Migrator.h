@@ -31,6 +31,7 @@ class MDSRank;
 class CDir;
 class CInode;
 class CDentry;
+class Session;
 
 class MExportDirDiscover;
 class MExportDirDiscoverAck;
@@ -101,31 +102,50 @@ public:
   }
 
   // -- cons --
-  Migrator(MDSRank *m, MDCache *c) : mds(m), cache(c) {}
+  Migrator(MDSRank *m, MDCache *c);
 
-
+  void handle_conf_change(const struct md_config_t *conf,
+                          const std::set <std::string> &changed,
+                          const MDSMap &mds_map);
 
 protected:
+  struct export_base_t {
+    dirfrag_t dirfrag;
+    mds_rank_t dest;
+    unsigned pending_children;
+    uint64_t export_queue_gen;
+    bool restart = false;
+    export_base_t(dirfrag_t df, mds_rank_t d, unsigned c, uint64_t g) :
+      dirfrag(df), dest(d), pending_children(c), export_queue_gen(g) {}
+  };
+
   // export fun
   struct export_state_t {
-    int state;
-    mds_rank_t peer;
-    uint64_t tid;
+    int state = 0;
+    mds_rank_t peer = MDS_RANK_NONE;
+    uint64_t tid = 0;
     set<mds_rank_t> warning_ack_waiting;
     set<mds_rank_t> notify_ack_waiting;
     map<inodeno_t,map<client_t,Capability::Import> > peer_imported;
     MutationRef mut;
+    size_t approx_size = 0;
+    size_t orig_size = 0;
     // for freeze tree deadlock detection
     utime_t last_cum_auth_pins_change;
-    int last_cum_auth_pins;
-    int num_remote_waiters; // number of remote authpin waiters
-    export_state_t() : state(0), peer(0), tid(0), mut(),
-		       last_cum_auth_pins(0), num_remote_waiters(0) {}
-  };
+    int last_cum_auth_pins = 0;
+    int num_remote_waiters = 0; // number of remote authpin waiters
+    export_state_t() {}
 
+    std::shared_ptr<export_base_t> parent;
+  };
   map<CDir*, export_state_t>  export_state;
+  typedef map<CDir*, export_state_t>::iterator export_state_iterator;
+
+  uint64_t total_exporting_size = 0;
+  unsigned num_locking_exports = 0; // exports in locking state (approx_size == 0)
 
   list<pair<dirfrag_t,mds_rank_t> >  export_queue;
+  uint64_t export_queue_gen = 1;
 
   // import fun
   struct import_state_t {
@@ -135,7 +155,7 @@ protected:
     set<mds_rank_t> bystanders;
     list<dirfrag_t> bound_ls;
     list<ScatterLock*> updated_scatterlocks;
-    map<client_t,entity_inst_t> client_map;
+    map<client_t,pair<Session*,uint64_t> > session_map;
     map<CInode*, map<client_t,Capability::Export> > peer_exports;
     MutationRef mut;
     import_state_t() : state(0), peer(0), tid(0), mut() {}
@@ -150,9 +170,9 @@ protected:
   void export_go(CDir *dir);
   void export_go_synced(CDir *dir, uint64_t tid);
   void export_try_cancel(CDir *dir, bool notify_peer=true);
-  void export_cancel_finish(CDir *dir);
-  void export_reverse(CDir *dir);
-  void export_notify_abort(CDir *dir, set<CDir*>& bounds);
+  void export_cancel_finish(export_state_iterator& it);
+  void export_reverse(CDir *dir, export_state_t& stat);
+  void export_notify_abort(CDir *dir, export_state_t& stat, set<CDir*>& bounds);
   void handle_export_ack(MExportDirAck *m);
   void export_logged_finish(CDir *dir);
   void handle_export_notify_ack(MExportDirNotifyAck *m);
@@ -175,23 +195,22 @@ protected:
 
   void import_reverse_discovering(dirfrag_t df);
   void import_reverse_discovered(dirfrag_t df, CInode *diri);
-  void import_reverse_prepping(CDir *dir);
+  void import_reverse_prepping(CDir *dir, import_state_t& stat);
   void import_remove_pins(CDir *dir, set<CDir*>& bounds);
   void import_reverse_unfreeze(CDir *dir);
   void import_reverse_final(CDir *dir);
   void import_notify_abort(CDir *dir, set<CDir*>& bounds);
   void import_notify_finish(CDir *dir, set<CDir*>& bounds);
   void import_logged_start(dirfrag_t df, CDir *dir, mds_rank_t from,
-			   map<client_t,entity_inst_t> &imported_client_map,
-			   map<client_t,uint64_t>& sseqmap);
+			   map<client_t,pair<Session*,uint64_t> >& imported_session_map);
   void handle_export_finish(MExportDirFinish *m);
 
   void handle_export_caps(MExportCaps *m);
+  void handle_export_caps_ack(MExportCapsAck *m);
   void logged_import_caps(CInode *in,
 			  mds_rank_t from,
-			  map<CInode*, map<client_t,Capability::Export> >& cap_imports,
-			  map<client_t,entity_inst_t>& client_map,
-			  map<client_t,uint64_t>& sseqmap);
+			  map<client_t,pair<Session*,uint64_t> >& imported_session_map,
+			  map<CInode*, map<client_t,Capability::Export> >& cap_imports);
 
 
   friend class C_MDS_ImportDirLoggedStart;
@@ -292,8 +311,16 @@ public:
   void maybe_do_queued_export();
   void clear_export_queue() {
     export_queue.clear();
+    export_queue_gen++;
   }
   
+  void maybe_split_export(CDir* dir, uint64_t max_size, bool null_okay,
+			  vector<pair<CDir*, size_t> >& results);
+  void restart_export_dir(CDir *dir, uint64_t tid);
+  bool adjust_export_size(export_state_t &stat, CDir *dir);
+  void adjust_export_after_rename(CInode* diri, CDir *olddir);
+  void child_export_finish(std::shared_ptr<export_base_t>& parent, bool success);
+
   void get_export_lock_set(CDir *dir, set<SimpleLock*>& locks);
   void get_export_client_set(CDir *dir, set<client_t> &client_set);
   void get_export_client_set(CInode *in, set<client_t> &client_set);
@@ -328,7 +355,8 @@ public:
   void decode_import_inode_caps(CInode *in, bool auth_cap, bufferlist::iterator &blp,
 				map<CInode*, map<client_t,Capability::Export> >& cap_imports);
   void finish_import_inode_caps(CInode *in, mds_rank_t from, bool auth_cap,
-				map<client_t,Capability::Export> &export_map,
+				const map<client_t,pair<Session*,uint64_t> >& smap,
+				const map<client_t,Capability::Export> &export_map,
 				map<client_t,Capability::Import> &import_map);
   int decode_import_dir(bufferlist::iterator& blp,
 			mds_rank_t oldauth,
@@ -345,6 +373,9 @@ public:
 private:
   MDSRank *mds;
   MDCache *cache;
+  uint64_t max_export_size = 0;
+  bool inject_session_race = false;
+  int inject_message_loss = 0;
 };
 
 #endif

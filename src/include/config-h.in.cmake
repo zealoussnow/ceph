@@ -136,9 +136,6 @@
 /* ibverbs experimental conditional compilation */
 #cmakedefine HAVE_IBV_EXP
 
-/* define if embedded enabled */
-#cmakedefine WITH_EMBEDDED
-
 /* define if cephfs enabled */
 #cmakedefine WITH_CEPHFS
 
@@ -162,6 +159,9 @@
 
 /* define if radosgw's beast frontend enabled */
 #cmakedefine WITH_RADOSGW_BEAST_FRONTEND
+
+/* define if radosgw has openssl support */
+#cmakedefine WITH_CURL_OPENSSL
 
 /* define if HAVE_THREAD_SAFE_RES_QUERY */
 #cmakedefine HAVE_THREAD_SAFE_RES_QUERY
@@ -298,6 +298,9 @@
 /* Defined if pthread_setname_np() is available */
 #cmakedefine HAVE_PTHREAD_SETNAME_NP 1
 
+/* Defined if pthread_rwlockattr_setkind_np() is available */
+#cmakedefine HAVE_PTHREAD_RWLOCKATTR_SETKIND_NP
+
 /* Defined if blkin enabled */
 #cmakedefine WITH_BLKIN
 
@@ -323,5 +326,7 @@
 
 /* Define if you need use urcu */
 #cmakedefine WITH_URCU
+/* Defined if boost::context is available */
+#cmakedefine HAVE_BOOST_CONTEXT
 
 #endif /* CONFIG_H */

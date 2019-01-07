@@ -493,7 +493,6 @@ set(libcommon_files
   osd/OpRequest.cc
   common/blkdev.cc
   common/common_init.cc
-  common/pipe.c
   common/ceph_argparse.cc
   common/ceph_context.cc
   common/code_environment.cc
@@ -531,11 +530,13 @@ set(libcommon_files
   common/bit_str.cc
   osdc/Striper.cc
   osdc/Objecter.cc
+  common/compat.cc
   common/Graylog.cc
   common/fs_types.cc
   common/dns_resolve.cc
   common/hostname.cc
   common/util.cc
+  common/PriorityCache.cc
   arch/probe.cc
   ${auth_files}
   ${mds_files})
@@ -662,6 +663,20 @@ target_link_libraries(ceph-common ${ceph_common_deps})
 set_target_properties(ceph-common PROPERTIES
   SOVERSION 0
   INSTALL_RPATH "")
+if(NOT APPLE)
+  # Apple uses Mach-O, not ELF. so this option does not apply to APPLE.
+  #
+  # prefer the local symbol definitions when binding references to global
+  # symbols. otherwise we could reference the symbols defined by the application
+  # with the same name, instead of using the one defined in libceph-common.
+  # in other words, we require libceph-common to use local symbols, even if redefined
+  # in application".
+  set_property(
+    TARGET ceph-common
+    APPEND APPEND_STRING
+    PROPERTY LINK_FLAGS "-Wl,-Bsymbolic -Wl,-Bsymbolic-functions")
+endif()
+
 install(TARGETS ceph-common DESTINATION ${CMAKE_INSTALL_PKGLIBDIR})
 
 add_library(common_utf8 STATIC common/utf8.c)
@@ -695,6 +710,7 @@ if (WITH_MGR)
       mgr/DaemonServer.cc
       mgr/ClusterState.cc
       mgr/ActivePyModules.cc
+      mgr/OSDHealthMetricCollector.cc
       mgr/StandbyPyModules.cc
       mgr/PyModuleRegistry.cc
       mgr/PyModuleRunner.cc
@@ -819,14 +835,15 @@ if (NOT WITH_SYSTEM_ROCKSDB)
     list(APPEND ROCKSDB_CMAKE_ARGS -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER})
   endif(WITH_CCACHE AND CCACHE_FOUND)
 
+  list(APPEND ROCKSDB_CMAKE_ARGS -DWITH_SNAPPY=${SNAPPY_FOUND})
+  list(APPEND ROCKSDB_CMAKE_ARGS -DWITH_LZ4=${LZ4_FOUND})
+  list(APPEND ROCKSDB_CMAKE_ARGS -DWITH_ZLIB=${ZLIB_FOUND})
+
   # SSE 4.2 is enabled by default in rocksdb's crc32c. For details refer to
   # rocksdb/util/crc32c.cc.
   list(APPEND ROCKSDB_CMAKE_ARGS -DCMAKE_AR=${CMAKE_AR})
   list(APPEND ROCKSDB_CMAKE_ARGS -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})
-
-  if (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
-    list(APPEND ROCKSDB_CMAKE_ARGS -DFAIL_ON_WARNINGS=OFF)
-  endif()
+  list(APPEND ROCKSDB_CMAKE_ARGS -DFAIL_ON_WARNINGS=OFF)
 
   # we use an external project and copy the sources to bin directory to ensure
   # that object files are built outside of the source tree.
@@ -1143,7 +1160,3 @@ if (IS_DIRECTORY "${PROJECT_SOURCE_DIR}/.git")
 endif()
 
 add_subdirectory(script)
-
-if(WITH_EMBEDDED)
-  add_subdirectory(libcephd)
-endif()

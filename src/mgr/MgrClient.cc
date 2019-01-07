@@ -216,7 +216,20 @@ bool MgrClient::ms_handle_refused(Connection *con)
   return false;
 }
 
-void MgrClient::send_report()
+void MgrClient::_send_stats()
+{
+  _send_report();
+  _send_pgstats();
+  if (stats_period != 0) {
+    report_callback = timer.add_event_after(
+      stats_period,
+      new FunctionContext([this](int) {
+	  _send_stats();
+	}));
+  }
+}
+
+void MgrClient::_send_report()
 {
   assert(lock.is_locked_by_me());
   assert(session);
@@ -279,7 +292,8 @@ void MgrClient::send_report()
 	  type.nick = data.nick;
 	}
 	type.type = data.type;
-        type.priority = perf_counters.get_adjusted_priority(data.prio);
+       type.priority = perf_counters.get_adjusted_priority(data.prio);
+	type.unit = data.unit;
 	report->declare_types.push_back(std::move(type));
 	session->declared.insert(path);
       }
@@ -313,17 +327,17 @@ void MgrClient::send_report()
     daemon_dirty_status = false;
   }
 
+  report->osd_health_metrics = std::move(osd_health_metrics);
   session->con->send_message(report);
-
-  if (stats_period != 0) {
-    report_callback = new FunctionContext([this](int r){send_report();});
-    timer.add_event_after(stats_period, report_callback);
-  }
-
-  send_pgstats();
 }
 
 void MgrClient::send_pgstats()
+{
+  Mutex::Locker l(lock);
+  _send_pgstats();
+}
+
+void MgrClient::_send_pgstats()
 {
   if (pgstats_cb && session) {
     session->con->send_message(pgstats_cb());
@@ -352,7 +366,7 @@ bool MgrClient::handle_mgr_configure(MMgrConfigure *m)
   bool starting = (stats_period == 0) && (m->stats_period != 0);
   stats_period = m->stats_period;
   if (starting) {
-    send_report();
+    _send_stats();
   }
 
   m->put();
@@ -460,4 +474,10 @@ int MgrClient::service_daemon_update_status(
   daemon_status = status;
   daemon_dirty_status = true;
   return 0;
+}
+
+void MgrClient::update_osd_health(std::vector<OSDHealthMetric>&& metrics)
+{
+  Mutex::Locker l(lock);
+  osd_health_metrics = std::move(metrics);
 }

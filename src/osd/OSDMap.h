@@ -19,8 +19,6 @@
 #ifndef CEPH_OSDMAP_H
 #define CEPH_OSDMAP_H
 
-#include "include/cpp-btree/btree_map.h"
-
 /*
  * describe properties of the OSD cluster.
  *   disks, disk groups, total # osds,
@@ -36,6 +34,7 @@
 #include <set>
 #include <map>
 #include "include/memory.h"
+#include "include/btree_map.h"
 using namespace std;
 
 // forward declaration
@@ -432,7 +431,6 @@ public:
       encode_features(0),
       epoch(e), new_pool_max(-1), new_flags(-1), new_max_osd(-1),
       have_crc(false), full_crc(0), inc_crc(0) {
-      memset(&fsid, 0, sizeof(fsid));
     }
     explicit Incremental(bufferlist &bl) {
       bufferlist::iterator p = bl.begin();
@@ -508,6 +506,20 @@ private:
   int32_t max_osd;
   vector<uint32_t> osd_state;
 
+  // These features affect OSDMap[::Incremental] encoding, or the
+  // encoding of some type embedded therein (CrushWrapper, something
+  // from osd_types, etc.).
+  static constexpr uint64_t SIGNIFICANT_FEATURES =
+    CEPH_FEATUREMASK_PGID64 |
+    CEPH_FEATUREMASK_PGPOOL3 |
+    CEPH_FEATUREMASK_OSDENC |
+    CEPH_FEATUREMASK_OSDMAP_ENC |
+    CEPH_FEATUREMASK_OSD_POOLRESEND |
+    CEPH_FEATUREMASK_NEW_OSDOP_ENCODING |
+    CEPH_FEATUREMASK_MSG_ADDR2 |
+    CEPH_FEATUREMASK_CRUSH_TUNABLES5 |
+    CEPH_FEATUREMASK_CRUSH_CHOOSE_ARGS |
+    CEPH_FEATUREMASK_SERVER_LUMINOUS ;
   struct addrs_s {
     mempool::osdmap::vector<ceph::shared_ptr<entity_addr_t> > client_addr;
     mempool::osdmap::vector<ceph::shared_ptr<entity_addr_t> > cluster_addr;
@@ -583,7 +595,6 @@ private:
 	     cached_up_osd_features(0),
 	     crc_defined(false), crc(0),
 	     crush(std::make_shared<CrushWrapper>()) {
-    memset(&fsid, 0, sizeof(fsid));
   }
 
   // no copying
@@ -591,6 +602,13 @@ private:
   OSDMap(const OSDMap& other) = default;
   OSDMap& operator=(const OSDMap& other) = default;
 public:
+
+  /// return feature mask subset that is relevant to OSDMap encoding
+  static uint64_t get_significant_features(uint64_t features) {
+    return SIGNIFICANT_FEATURES & features;
+  }
+
+  uint64_t get_encoding_features() const;
 
   void deepish_copy_from(const OSDMap& o) {
     *this = o;
@@ -979,6 +997,10 @@ public:
    */
   uint64_t get_up_osd_features() const;
 
+  void maybe_remove_pg_upmaps(CephContext *cct,
+                              const OSDMap& osdmap,
+                              Incremental *pending_inc);
+
   int apply_incremental(const Incremental &inc);
 
   /// try to re-use/reference addrs in oldmap from newmap
@@ -1057,6 +1079,15 @@ public:
     const pg_pool_t *p = get_pg_pool(pgid.pool());
     assert(p);
     return p->get_size();
+  }
+
+  int get_pg_pool_crush_rule(pg_t pgid) const {
+    if (!pg_exists(pgid)) {
+      return -ENOENT;
+    }
+    const pg_pool_t *p = get_pg_pool(pgid.pool());
+    assert(p);
+    return p->get_crush_rule();
   }
 
 private:

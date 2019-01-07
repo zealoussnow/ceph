@@ -192,11 +192,12 @@ struct MDRequestImpl : public MutationImpl {
   inodeno_t alloc_ino, used_prealloc_ino;  
   interval_set<inodeno_t> prealloc_inos;
 
-  int snap_caps;
-  int getattr_caps;       ///< caps requested by getattr
-  bool did_early_reply;
-  bool o_trunc;           ///< request is an O_TRUNC mutation
-  bool has_completed;     ///< request has already completed
+  int snap_caps = 0;
+  int getattr_caps = 0;		///< caps requested by getattr
+  bool no_early_reply = false;
+  bool did_early_reply = false;
+  bool o_trunc = false;		///< request is an O_TRUNC mutation
+  bool has_completed = false;	///< request has already completed
 
   bufferlist reply_extra_bl;
 
@@ -220,7 +221,7 @@ struct MDRequestImpl : public MutationImpl {
   // break rarely-used fields into a separately allocated structure 
   // to save memory for most ops
   struct More {
-    int slave_error;
+    int slave_error = 0;
     set<mds_rank_t> slaves;           // mds nodes that have slave requests to me (implies client_request)
     set<mds_rank_t> waiting_on_slave; // peers i'm waiting for slavereq replies from. 
 
@@ -228,54 +229,46 @@ struct MDRequestImpl : public MutationImpl {
     set<mds_rank_t> witnessed;       // nodes who have journaled a RenamePrepare
     map<MDSCacheObject*,version_t> pvmap;
 
-    bool has_journaled_slaves;
-    bool slave_update_journaled;
-    bool slave_rolling_back;
+    bool has_journaled_slaves = false;
+    bool slave_update_journaled = false;
+    bool slave_rolling_back = false;
     
     // for rename
     set<mds_rank_t> extra_witnesses; // replica list from srcdn auth (rename)
-    mds_rank_t srcdn_auth_mds;
+    mds_rank_t srcdn_auth_mds = MDS_RANK_NONE;
     bufferlist inode_import;
-    version_t inode_import_v;
-    CInode* rename_inode;
-    bool is_freeze_authpin;
-    bool is_ambiguous_auth;
-    bool is_remote_frozen_authpin;
-    bool is_inode_exporter;
+    version_t inode_import_v = 0;
+    CInode* rename_inode = nullptr;
+    bool is_freeze_authpin = false;
+    bool is_ambiguous_auth = false;
+    bool is_remote_frozen_authpin = false;
+    bool is_inode_exporter = false;
 
-    map<client_t,entity_inst_t> imported_client_map;
-    map<client_t,uint64_t> sseq_map;
+    map<client_t, pair<Session*, uint64_t> > imported_session_map;
     map<CInode*, map<client_t,Capability::Export> > cap_imports;
     
     // for lock/flock
-    bool flock_was_waiting;
+    bool flock_was_waiting = false;
 
     // for snaps
-    version_t stid;
+    version_t stid = 0;
     bufferlist snapidbl;
 
     // called when slave commits or aborts
-    Context *slave_commit;
+    Context *slave_commit = nullptr;
     bufferlist rollback_bl;
 
     list<MDSInternalContextBase*> waiting_for_finish;
 
     // export & fragment
-    CDir* export_dir;
+    CDir* export_dir = nullptr;
     dirfrag_t fragment_base;
 
     // for internal ops doing lookup
     filepath filepath1;
     filepath filepath2;
 
-    More() : 
-      slave_error(0),
-      has_journaled_slaves(false), slave_update_journaled(false),
-      slave_rolling_back(false),
-      srcdn_auth_mds(-1), inode_import_v(0), rename_inode(0),
-      is_freeze_authpin(false), is_ambiguous_auth(false),
-      is_remote_frozen_authpin(false), is_inode_exporter(false),
-      flock_was_waiting(false), stid(0), slave_commit(0), export_dir(NULL)  { }
+    More() {}
   } *_more;
 
 
@@ -299,8 +292,6 @@ struct MDRequestImpl : public MutationImpl {
     session(NULL), item_session_request(this),
     client_request(params.client_req), straydn(NULL), snapid(CEPH_NOSNAP),
     tracei(NULL), tracedn(NULL), alloc_ino(0), used_prealloc_ino(0),
-    snap_caps(0), getattr_caps(0),
-    did_early_reply(false), o_trunc(false), has_completed(false),
     slave_request(NULL), internal_op(params.internal_op), internal_op_finish(NULL),
     internal_op_private(NULL),
     retry(0),
@@ -332,16 +323,31 @@ struct MDRequestImpl : public MutationImpl {
   const filepath& get_filepath2();
   void set_filepath(const filepath& fp);
   void set_filepath2(const filepath& fp);
-  bool is_replay() const;
+  bool is_queued_for_replay() const;
 
   void print(ostream &out) const override;
   void dump(Formatter *f) const override;
+
+  MClientRequest* release_client_request();
+  void reset_slave_request(MMDSSlaveRequest *req=nullptr);
 
   // TrackedOp stuff
   typedef boost::intrusive_ptr<MDRequestImpl> Ref;
 protected:
   void _dump(Formatter *f) const override;
   void _dump_op_descriptor_unlocked(ostream& stream) const override;
+private:
+  class {
+    std::atomic_flag _lock = ATOMIC_FLAG_INIT;
+  public:
+    void lock() {
+      while(_lock.test_and_set(std::memory_order_acquire))
+	;
+    }
+    void unlock() {
+      _lock.clear(std::memory_order_release);
+    }
+  } mutable msg_lock;
 };
 
 typedef boost::intrusive_ptr<MDRequestImpl> MDRequestRef;

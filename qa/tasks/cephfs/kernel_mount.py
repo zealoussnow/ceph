@@ -99,7 +99,7 @@ class KernelMount(CephFSMount):
             cmd.append('-f')
 
         try:
-            self.client_remote.run(args=cmd)
+            self.client_remote.run(args=cmd, timeout=(5*60))
         except Exception as e:
             self.client_remote.run(args=[
                 'sudo',
@@ -124,7 +124,7 @@ class KernelMount(CephFSMount):
     def cleanup(self):
         pass
 
-    def umount_wait(self, force=False, require_clean=False):
+    def umount_wait(self, force=False, require_clean=False, timeout=900):
         """
         Unlike the fuse client, the kernel client's umount is immediate
         """

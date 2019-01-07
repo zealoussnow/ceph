@@ -228,6 +228,8 @@ public:
     bool blocking;              ///< whether we are blocking updates
     bool removal;               ///< we are removing the backend object
     boost::optional<std::function<void()>> on_flush; ///< callback, may be null
+    // for chunked object
+    map<uint64_t, ceph_tid_t> io_tids;
 
     FlushOp()
       : flushed_version(0), objecter_tid(0), rval(0),
@@ -273,6 +275,7 @@ public:
     const hobject_t &soid,
     const object_stat_sum_t &delta_stats) override;
   void on_primary_error(const hobject_t &oid, eversion_t v) override;
+  void backfill_add_missing(const hobject_t &oid, eversion_t v) override;
   void remove_missing_object(const hobject_t &oid,
 			     eversion_t v,
 			     Context *on_complete) override;
@@ -527,7 +530,10 @@ public:
     eversion_t at_version;       // pg's current version pointer
     version_t user_at_version;   // pg's current user version pointer
 
+    /// index of the current subop - only valid inside of do_osd_ops()
     int current_osd_subop_num;
+    /// total number of subops processed in this context for cls_cxx_subop_version()
+    int processed_subop_count = 0;
 
     PGTransactionUPtr op_t;
     vector<pg_log_entry_t> log;
@@ -823,7 +829,10 @@ protected:
     if (!to_req.empty()) {
       // requeue at front of scrub blocking queue if we are blocked by scrub
       for (auto &&p: to_req) {
-	if (scrubber.write_blocked_by_scrub(p.first.get_head())) {
+	if (write_blocked_by_scrub(p.first.get_head())) {
+          for (auto& op : p.second) {
+            op->mark_delayed("waiting for scrub");
+          }
 	  waiting_for_scrub.splice(
 	    waiting_for_scrub.begin(),
 	    p.second,
@@ -1115,6 +1124,7 @@ protected:
     BLOCKED_PROMOTE,
     HANDLED_PROXY,
     HANDLED_REDIRECT,
+    REPLIED_WITH_EAGAIN,
   };
   cache_result_t maybe_handle_cache_detail(OpRequestRef op,
 					   bool write_ordered,
@@ -1283,8 +1293,8 @@ protected:
   void _copy_some(ObjectContextRef obc, CopyOpRef cop);
   void finish_copyfrom(CopyFromCallback *cb);
   void finish_promote(int r, CopyResults *results, ObjectContextRef obc);
-  void cancel_copy(CopyOpRef cop, bool requeue);
-  void cancel_copy_ops(bool requeue);
+  void cancel_copy(CopyOpRef cop, bool requeue, vector<ceph_tid_t> *tids);
+  void cancel_copy_ops(bool requeue, vector<ceph_tid_t> *tids);
 
   friend struct C_Copyfrom;
 
@@ -1298,8 +1308,8 @@ protected:
     boost::optional<std::function<void()>> &&on_flush);
   void finish_flush(hobject_t oid, ceph_tid_t tid, int r);
   int try_flush_mark_clean(FlushOpRef fop);
-  void cancel_flush(FlushOpRef fop, bool requeue);
-  void cancel_flush_ops(bool requeue);
+  void cancel_flush(FlushOpRef fop, bool requeue, vector<ceph_tid_t> *tids);
+  void cancel_flush_ops(bool requeue, vector<ceph_tid_t> *tids);
 
   /// @return false if clone is has been evicted
   bool is_present_clone(hobject_t coid);
@@ -1311,7 +1321,9 @@ protected:
     const hobject_t &begin, const hobject_t &end) override;
   void scrub_snapshot_metadata(
     ScrubMap &map,
-    const std::map<hobject_t, pair<uint32_t, uint32_t>> &missing_digest) override;
+    const std::map<hobject_t,
+                   pair<boost::optional<uint32_t>,
+                        boost::optional<uint32_t>>> &missing_digest) override;
   void _scrub_clear_state() override;
   void _scrub_finish() override;
   object_stat_collection_t scrub_cstat;
@@ -1346,14 +1358,14 @@ protected:
 
   map<hobject_t, list<OpRequestRef>> in_progress_proxy_ops;
   void kick_proxy_ops_blocked(hobject_t& soid);
-  void cancel_proxy_ops(bool requeue);
+  void cancel_proxy_ops(bool requeue, vector<ceph_tid_t> *tids);
 
   // -- proxyread --
   map<ceph_tid_t, ProxyReadOpRef> proxyread_ops;
 
   void do_proxy_read(OpRequestRef op, ObjectContextRef obc = NULL);
   void finish_proxy_read(hobject_t oid, ceph_tid_t tid, int r);
-  void cancel_proxy_read(ProxyReadOpRef prdop);
+  void cancel_proxy_read(ProxyReadOpRef prdop, vector<ceph_tid_t> *tids);
 
   friend struct C_ProxyRead;
 
@@ -1361,8 +1373,9 @@ protected:
   map<ceph_tid_t, ProxyWriteOpRef> proxywrite_ops;
 
   void do_proxy_write(OpRequestRef op, const hobject_t& missing_oid, ObjectContextRef obc = NULL);
+  void cancel_and_requeue_proxy_ops(hobject_t oid);
   void finish_proxy_write(hobject_t oid, ceph_tid_t tid, int r);
-  void cancel_proxy_write(ProxyWriteOpRef pwop);
+  void cancel_proxy_write(ProxyWriteOpRef pwop, vector<ceph_tid_t> *tids);
 
   friend struct C_ProxyWrite_Commit;
 
@@ -1777,6 +1790,9 @@ public:
   void on_shutdown() override;
   bool check_failsafe_full(ostream &ss) override;
   bool check_osdmap_full(const set<pg_shard_t> &missing_on) override;
+  bool maybe_preempt_replica_scrub(const hobject_t& oid) override {
+    return write_blocked_by_scrub(oid);
+  }
   int rep_repair_primary_object(const hobject_t& soid, OpRequestRef op);
 
   // attr cache handling
@@ -1802,8 +1818,7 @@ public:
     bufferlist *val);
   int getattrs_maybe_cache(
     ObjectContextRef obc,
-    map<string, bufferlist> *out,
-    bool user_only = false);
+    map<string, bufferlist> *out);
 };
 
 inline ostream& operator<<(ostream& out, const PrimaryLogPG::RepGather& repop)

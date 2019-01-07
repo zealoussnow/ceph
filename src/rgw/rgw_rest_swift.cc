@@ -293,14 +293,18 @@ int RGWListBucket_ObjStore_SWIFT::get_params()
   marker = s->info.args.get("marker");
   end_marker = s->info.args.get("end_marker");
   max_keys = s->info.args.get("limit");
+
+  // non-standard
+  s->info.args.get_bool("allow_unordered", &allow_unordered, false);
+
+  delimiter = s->info.args.get("delimiter");
+
   op_ret = parse_max_keys();
   if (op_ret < 0) {
     return op_ret;
   }
   if (max > default_max)
     return -ERR_PRECONDITION_FAILED;
-
-  delimiter = s->info.args.get("delimiter");
 
   string path_args;
   if (s->info.args.exists("path")) { // should handle empty path
@@ -341,7 +345,10 @@ void RGWListBucket_ObjStore_SWIFT::send_response()
   dump_container_metadata(s, bucket, bucket_quota,
                           s->bucket_info.website_conf);
 
-  s->formatter->open_array_section_with_attrs("container", FormatterAttrs("name", s->bucket.name.c_str(), NULL));
+  s->formatter->open_array_section_with_attrs("container",
+					      FormatterAttrs("name",
+							     s->bucket.name.c_str(),
+							     NULL));
 
   while (iter != objs.end() || pref_iter != common_prefixes.end()) {
     bool do_pref = false;
@@ -362,7 +369,7 @@ void RGWListBucket_ObjStore_SWIFT::send_response()
     else
       do_pref = true;
 
-    if (do_objs && (marker.empty() || marker < key)) {
+    if (do_objs && (allow_unordered || marker.empty() || marker < key)) {
       if (key.name.compare(path) == 0)
         goto next;
 
@@ -432,7 +439,7 @@ next:
   }
 
   rgw_flush_formatter_and_reset(s, s->formatter);
-}
+} // RGWListBucket_ObjStore_SWIFT::send_response
 
 static void dump_container_metadata(struct req_state *s,
                                     const RGWBucketEnt& bucket,
@@ -571,20 +578,12 @@ static int get_swift_container_settings(req_state * const s,
                                         RGWCORSConfiguration * const cors_config,
                                         bool * const has_cors)
 {
-  string read_list, write_list;
-
-  const char * const read_attr = s->info.env->get("HTTP_X_CONTAINER_READ");
-  if (read_attr) {
-    read_list = read_attr;
-  }
-  const char * const write_attr = s->info.env->get("HTTP_X_CONTAINER_WRITE");
-  if (write_attr) {
-    write_list = write_attr;
-  }
+  const char * const read_list = s->info.env->get("HTTP_X_CONTAINER_READ");
+  const char * const write_list = s->info.env->get("HTTP_X_CONTAINER_WRITE");
 
   *has_policy = false;
 
-  if (read_attr || write_attr) {
+  if (read_list || write_list) {
     RGWAccessControlPolicy_SWIFT swift_policy(s->cct);
     const auto r = swift_policy.create(store,
                                        s->user->user_id,
@@ -2907,8 +2906,9 @@ int RGWHandler_REST_SWIFT::init(RGWRados* store, struct req_state* s,
 
   s->dialect = "swift";
 
-  const char *copy_source = s->info.env->get("HTTP_X_COPY_FROM");
-  if (copy_source) {
+  std::string copy_source =
+    url_decode(s->info.env->get("HTTP_X_COPY_FROM", ""));
+  if (! copy_source.empty()) {
     bool result = RGWCopyObj::parse_copy_location(copy_source, t->src_bucket,
 						  s->src_object);
     if (!result)
@@ -2916,11 +2916,12 @@ int RGWHandler_REST_SWIFT::init(RGWRados* store, struct req_state* s,
   }
 
   if (s->op == OP_COPY) {
-    const char *req_dest = s->info.env->get("HTTP_DESTINATION");
-    if (!req_dest)
+    std::string req_dest =
+      url_decode(s->info.env->get("HTTP_DESTINATION", ""));
+    if (req_dest.empty())
       return -ERR_BAD_URL;
 
-    string dest_bucket_name;
+    std::string dest_bucket_name;
     rgw_obj_key dest_obj_key;
     bool result =
       RGWCopyObj::parse_copy_location(req_dest, dest_bucket_name,
@@ -2928,7 +2929,7 @@ int RGWHandler_REST_SWIFT::init(RGWRados* store, struct req_state* s,
     if (!result)
        return -ERR_BAD_URL;
 
-    string dest_object = dest_obj_key.name;
+    std::string dest_object = dest_obj_key.name;
 
     /* convert COPY operation into PUT */
     t->src_bucket = t->url_bucket;

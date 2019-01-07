@@ -371,9 +371,9 @@ int CacheDevice::open(const string& p, const string& c_path)
   dout(1) << __func__
           << " size " << size
           << " (0x" << std::hex << size << std::dec << ", "
-          << pretty_si_t(size) << "B)"
+          << byte_u_t(size) << ")"
           << " block_size " << block_size
-          << " (" << pretty_si_t(block_size) << "B)"
+          << " (" << byte_u_t(block_size) << ")"
           << " " << (rotational ? "rotational" : "non-rotational")
           << dendl;
 
@@ -486,9 +486,9 @@ int CacheDevice::open(const string& p)
   dout(1) << __func__
           << " size " << size
           << " (0x" << std::hex << size << std::dec << ", "
-          << pretty_si_t(size) << "B)"
+          << byte_u_t(size) << ")"
           << " block_size " << block_size
-          << " (" << pretty_si_t(block_size) << "B)"
+          << " (" << byte_u_t(block_size) << ")"
           << " " << (rotational ? "rotational" : "non-rotational")
           << dendl;
   return 0;

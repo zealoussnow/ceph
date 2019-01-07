@@ -52,8 +52,8 @@ namespace librbd {
   namespace io {
   class AioCompletion;
   class AsyncOperation;
+  template <typename> class CopyupRequest;
   template <typename> class ImageRequestWQ;
-  class CopyupRequest;
   }
   namespace journal { struct Policy; }
 
@@ -125,6 +125,7 @@ namespace librbd {
     std::string id; // only used for new-format images
     ParentInfo parent_md;
     ImageCtx *parent;
+    ImageCtx *child = nullptr;
     cls::rbd::GroupSpec group_spec;
     uint64_t stripe_unit, stripe_count;
     uint64_t flags;
@@ -140,7 +141,7 @@ namespace librbd {
     Readahead readahead;
     uint64_t total_bytes_read;
 
-    std::map<uint64_t, io::CopyupRequest*> copyup_list;
+    std::map<uint64_t, io::CopyupRequest<ImageCtx>*> copyup_list;
 
     xlist<io::AsyncOperation*> async_ops;
     xlist<AsyncRequest<>*> async_requests;
@@ -176,6 +177,7 @@ namespace librbd {
     bool localize_snap_reads;
     bool balance_parent_reads;
     bool localize_parent_reads;
+    uint64_t sparse_read_threshold_bytes;
     uint32_t readahead_trigger_requests;
     uint64_t readahead_max_bytes;
     uint64_t readahead_disable_after_bytes;
@@ -272,8 +274,10 @@ namespace librbd {
     bool test_features(uint64_t test_features,
                        const RWLock &in_snap_lock) const;
     int get_flags(librados::snap_t in_snap_id, uint64_t *flags) const;
-    int test_flags(uint64_t test_flags, bool *flags_set) const;
-    int test_flags(uint64_t test_flags, const RWLock &in_snap_lock,
+    int test_flags(librados::snap_t in_snap_id,
+                   uint64_t test_flags, bool *flags_set) const;
+    int test_flags(librados::snap_t in_snap_id,
+                   uint64_t test_flags, const RWLock &in_snap_lock,
                    bool *flags_set) const;
     int update_flags(librados::snap_t in_snap_id, uint64_t flag, bool enabled);
 
@@ -309,7 +313,8 @@ namespace librbd {
     void cancel_async_requests();
     void cancel_async_requests(Context *on_finish);
 
-    void apply_metadata(const std::map<std::string, bufferlist> &meta);
+    void apply_metadata(const std::map<std::string, bufferlist> &meta,
+                        bool thread_safe);
 
     ExclusiveLock<ImageCtx> *create_exclusive_lock();
     ObjectMap<ImageCtx> *create_object_map(uint64_t snap_id);
@@ -327,6 +332,8 @@ namespace librbd {
 
     journal::Policy *get_journal_policy() const;
     void set_journal_policy(journal::Policy *policy);
+
+    bool is_writeback_cache_enabled() const;
 
     static void get_thread_pool_instance(CephContext *cct,
                                          ThreadPool **thread_pool,

@@ -41,8 +41,8 @@ public:
 
     bufferlist bl;
     string oid = image_ctx.get_object_name(m_object_no);
-    auto req = new io::ObjectWriteRequest(&image_ctx, oid, m_object_no, 0,
-                                          bl, m_snapc, 0, {}, this);
+    auto req = new io::ObjectWriteRequest<I>(&image_ctx, oid, m_object_no, 0,
+                                             bl, m_snapc, 0, {}, this);
     if (!req->has_parent()) {
       // stop early if the parent went away - it just means
       // another flatten finished first or the image was resized
@@ -130,7 +130,7 @@ bool FlattenRequest<I>::send_update_header() {
     RWLock::RLocker parent_locker(image_ctx.parent_lock);
     // stop early if the parent went away - it just means
     // another flatten finished first, so this one is useless.
-    if (!image_ctx.parent) {
+    if (image_ctx.parent_md.spec.pool_id == -1) {
       ldout(cct, 5) << "image already flattened" << dendl;
       return true;
     }

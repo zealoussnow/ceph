@@ -24,6 +24,7 @@
 #include <boost/statechart/event_base.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/circular_buffer.hpp>
+#include <boost/container/flat_set.hpp>
 #include "include/memory.h"
 #include "include/mempool.h"
 
@@ -374,17 +375,94 @@ public:
   }
   ghobject_t    pgmeta_oid;
 
+  // ------------------
+  // MissingLoc
+  
   class MissingLoc {
+  public:
+    // a loc_count indicates how many locations we know in each of
+    // these distinct sets
+    struct loc_count_t {
+      int up = 0;        //< up
+      int other = 0;    //< other
+
+      friend bool operator<(const loc_count_t& l,
+			    const loc_count_t& r) {
+	return (l.up < r.up ||
+		(l.up == r.up &&
+		   (l.other < r.other)));
+      }
+      friend ostream& operator<<(ostream& out, const loc_count_t& l) {
+	assert(l.up >= 0);
+	assert(l.other >= 0);
+	return out << "(" << l.up << "+" << l.other << ")";
+      }
+    };
+
+
+  private:
+
+    loc_count_t _get_count(const set<pg_shard_t>& shards) {
+      loc_count_t r;
+      for (auto s : shards) {
+        if (pg->upset.count(s)) {
+	  r.up++;
+	} else {
+	  r.other++;
+	}
+      }
+      return r;
+    }
+
     map<hobject_t, pg_missing_item> needs_recovery_map;
     map<hobject_t, set<pg_shard_t> > missing_loc;
     set<pg_shard_t> missing_loc_sources;
+
+    // for every entry in missing_loc, we count how many of each type of shard we have,
+    // and maintain totals here.  The sum of the values for this map will always equal
+    // missing_loc.size().
+    map < shard_id_t, map<loc_count_t,int> > missing_by_count;
+
+   void pgs_by_shard_id(const set<pg_shard_t>& s, map< shard_id_t, set<pg_shard_t> >& pgsbs) {
+      if (pg->get_osdmap()->pg_is_ec(pg->info.pgid.pgid)) {
+        int num_shards = pg->get_osdmap()->get_pg_size(pg->info.pgid.pgid);
+        // For completely missing shards initialize with empty set<pg_shard_t>
+	for (int i = 0 ; i < num_shards ; ++i) {
+	  shard_id_t shard(i);
+	  pgsbs[shard];
+	}
+	for (auto pgs: s)
+	  pgsbs[pgs.shard].insert(pgs);
+      } else {
+        pgsbs[shard_id_t::NO_SHARD] = s;
+      }
+    }
+
+    void _inc_count(const set<pg_shard_t>& s) {
+      map< shard_id_t, set<pg_shard_t> > pgsbs;
+      pgs_by_shard_id(s, pgsbs);
+      for (auto shard: pgsbs)
+        ++missing_by_count[shard.first][_get_count(shard.second)];
+    }
+    void _dec_count(const set<pg_shard_t>& s) {
+      map< shard_id_t, set<pg_shard_t> > pgsbs;
+      pgs_by_shard_id(s, pgsbs);
+      for (auto shard: pgsbs) {
+        auto p = missing_by_count[shard.first].find(_get_count(shard.second));
+        assert(p != missing_by_count[shard.first].end());
+        if (--p->second == 0) {
+	  missing_by_count[shard.first].erase(p);
+        }
+      }
+    }
+
     PG *pg;
     set<pg_shard_t> empty_set;
   public:
     boost::scoped_ptr<IsPGReadablePredicate> is_readable;
     boost::scoped_ptr<IsPGRecoverablePredicate> is_recoverable;
     explicit MissingLoc(PG *pg)
-      : pg(pg) {}
+      : pg(pg) { }
     void set_backend_predicates(
       IsPGReadablePredicate *_is_readable,
       IsPGRecoverablePredicate *_is_recoverable) {
@@ -443,13 +521,26 @@ public:
       needs_recovery_map.clear();
       missing_loc.clear();
       missing_loc_sources.clear();
+      missing_by_count.clear();
     }
 
     void add_location(const hobject_t &hoid, pg_shard_t location) {
-      missing_loc[hoid].insert(location);
+      auto p = missing_loc.find(hoid);
+      if (p == missing_loc.end()) {
+	p = missing_loc.emplace(hoid, set<pg_shard_t>()).first;
+      } else {
+	_dec_count(p->second);
+      }
+      p->second.insert(location);
+      _inc_count(p->second);
     }
     void remove_location(const hobject_t &hoid, pg_shard_t location) {
-      missing_loc[hoid].erase(location);
+      auto p = missing_loc.find(hoid);
+      if (p != missing_loc.end()) {
+	_dec_count(p->second);
+	p->second.erase(location);
+	_inc_count(p->second);
+      }
     }
     void add_active_missing(const pg_missing_t &missing) {
       for (map<hobject_t, pg_missing_item>::const_iterator i =
@@ -497,7 +588,11 @@ public:
     /// Call when hoid is no longer missing in acting set
     void recovered(const hobject_t &hoid) {
       needs_recovery_map.erase(hoid);
-      missing_loc.erase(hoid);
+      auto p = missing_loc.find(hoid);
+      if (p != missing_loc.end()) {
+	_dec_count(p->second);
+	missing_loc.erase(p);
+      }
     }
 
     /// Call to update structures for hoid after a change
@@ -547,6 +642,7 @@ public:
 	    !i.second.is_missing(hoid))
 	  mliter->second.insert(i.first);
       }
+      _inc_count(mliter->second);
     }
 
     const set<pg_shard_t> &get_locations(const hobject_t &hoid) const {
@@ -558,6 +654,9 @@ public:
     }
     const map<hobject_t, pg_missing_item> &get_needs_recovery() const {
       return needs_recovery_map;
+    }
+    const map < shard_id_t, map<loc_count_t,int> > &get_missing_by_count() const {
+      return missing_by_count;
     }
   } missing_loc;
   
@@ -629,6 +728,8 @@ public:
     map<int, vector<pair<pg_notify_t, PastIntervals> > > notify_list;
   };
 
+public:
+  bool dne() { return info.dne(); }
   struct RecoveryCtx {
     utime_t start_time;
     map<int, map<spg_t, pg_query_t> > *query_map;
@@ -695,6 +796,12 @@ public:
 	ovec.reserve(ovec.size() + i->second.size());
 	ovec.insert(ovec.end(), i->second.begin(), i->second.end());
       }
+    }
+
+    void send_notify(pg_shard_t to,
+		     const pg_notify_t &info, const PastIntervals &pi) {
+      assert(notify_list);
+      (*notify_list)[to.osd].push_back(make_pair(info, pi));
     }
   };
 
@@ -871,6 +978,9 @@ protected:
    *  - waiting_for_active
    *    - !is_active()
    *    - only starts blocking on interval change; never restarts
+   *  - waiting_for_flush
+   *    - is_active() and flushes_in_progress
+   *    - waiting for final flush during activate
    *  - waiting_for_scrub
    *    - starts and stops blocking for varying intervals during scrub
    *  - waiting_for_unreadable_object
@@ -913,6 +1023,7 @@ protected:
 
   // ops waiting on active (require peered as well)
   list<OpRequestRef>            waiting_for_active;
+  list<OpRequestRef>            waiting_for_flush;
   list<OpRequestRef>            waiting_for_scrub;
 
   list<OpRequestRef>            waiting_for_cache_not_full;
@@ -1205,12 +1316,16 @@ public:
 
     // common to both scrubs
     bool active;
-    int waiting_on;
     set<pg_shard_t> waiting_on_whom;
     int shallow_errors;
     int deep_errors;
+    int large_omap_objects = 0;
     int fixed;
     ScrubMap primary_scrubmap;
+    ScrubMapBuilder primary_scrubmap_pos;
+    epoch_t replica_scrub_start = 0;
+    ScrubMap replica_scrubmap;
+    ScrubMapBuilder replica_scrubmap_pos;
     map<pg_shard_t, ScrubMap> received_maps;
     OpRequestRef active_rep_scrub;
     utime_t scrub_reg_stamp;  // stamp we registered for
@@ -1239,11 +1354,36 @@ public:
     // Cleaned map pending snap metadata scrub
     ScrubMap cleaned_meta_map;
 
+    void clean_meta_map(ScrubMap &for_meta_scrub) {
+      if (end.is_max() ||
+          cleaned_meta_map.objects.empty()) {
+         cleaned_meta_map.swap(for_meta_scrub);
+      } else {
+        auto iter = cleaned_meta_map.objects.end();
+        --iter; // not empty, see if clause
+        auto begin = cleaned_meta_map.objects.begin();
+        if (iter->first.has_snapset()) {
+          ++iter;
+        } else {
+          while (iter != begin) {
+            auto next = iter--;
+            if (next->first.get_head() != iter->first.get_head()) {
+	      ++iter;
+	      break;
+            }
+          }
+        }
+        for_meta_scrub.objects.insert(begin, iter);
+        cleaned_meta_map.objects.erase(begin, iter);
+      }
+    }
+
     // digest updates which we are waiting on
     int num_digest_updates_pending;
 
     // chunky scrub
-    hobject_t start, end;
+    hobject_t start, end;    // [start,end)
+    hobject_t max_end;       // Largest end that may have been sent to replicas
     eversion_t subset_last_update;
 
     // chunky scrub state
@@ -1253,16 +1393,19 @@ public:
       WAIT_PUSHES,
       WAIT_LAST_UPDATE,
       BUILD_MAP,
+      BUILD_MAP_DONE,
       WAIT_REPLICAS,
       COMPARE_MAPS,
       WAIT_DIGEST_UPDATES,
       FINISH,
+      BUILD_MAP_REPLICA,
     } state;
 
     std::unique_ptr<Scrub::Store> store;
     // deep scrub
     bool deep;
-    uint32_t seed;
+    int preempt_left;
+    int preempt_divisor;
 
     list<Context*> callbacks;
     void add_callback(Context *context) {
@@ -1287,26 +1430,21 @@ public:
         case WAIT_PUSHES: ret = "WAIT_PUSHES"; break;
         case WAIT_LAST_UPDATE: ret = "WAIT_LAST_UPDATE"; break;
         case BUILD_MAP: ret = "BUILD_MAP"; break;
+        case BUILD_MAP_DONE: ret = "BUILD_MAP_DONE"; break;
         case WAIT_REPLICAS: ret = "WAIT_REPLICAS"; break;
         case COMPARE_MAPS: ret = "COMPARE_MAPS"; break;
         case WAIT_DIGEST_UPDATES: ret = "WAIT_DIGEST_UPDATES"; break;
         case FINISH: ret = "FINISH"; break;
+        case BUILD_MAP_REPLICA: ret = "BUILD_MAP_REPLICA"; break;
       }
       return ret;
     }
 
     bool is_chunky_scrub_active() const { return state != INACTIVE; }
 
-    // classic (non chunk) scrubs block all writes
-    // chunky scrubs only block writes to a range
-    bool write_blocked_by_scrub(const hobject_t &soid) {
-      return (soid >= start && soid < end);
-    }
-
     // clear all state
     void reset() {
       active = false;
-      waiting_on = 0;
       waiting_on_whom.clear();
       if (active_rep_scrub) {
         active_rep_scrub = OpRequestRef();
@@ -1321,17 +1459,22 @@ public:
       state = PG::Scrubber::INACTIVE;
       start = hobject_t();
       end = hobject_t();
+      max_end = hobject_t();
       subset_last_update = eversion_t();
       shallow_errors = 0;
       deep_errors = 0;
+      large_omap_objects = 0;
       fixed = 0;
       deep = false;
-      seed = 0;
       run_callbacks();
       inconsistent.clear();
       missing.clear();
       authoritative.clear();
       num_digest_updates_pending = 0;
+      primary_scrubmap = ScrubMap();
+      primary_scrubmap_pos.reset();
+      replica_scrubmap = ScrubMap();
+      replica_scrubmap_pos.reset();
       cleaned_meta_map = ScrubMap();
       sleeping = false;
       needs_sleep = true;
@@ -1345,6 +1488,17 @@ public:
   bool scrub_after_recovery;
 
   int active_pushes;
+
+  bool scrub_can_preempt = false;
+  bool scrub_preempted = false;
+
+  // we allow some number of preemptions of the scrub, which mean we do
+  // not block.  then we start to block.  once we start blocking, we do
+  // not stop until the scrub range is completed.
+  bool write_blocked_by_scrub(const hobject_t &soid);
+
+  /// true if the given range intersects the scrub interval in any way
+  bool range_intersects_scrub(const hobject_t &start, const hobject_t& end);
 
   void repair_object(
     const hobject_t& soid, list<pair<ScrubMap::object, pg_shard_t> > *ok_peers,
@@ -1367,10 +1521,11 @@ public:
     ThreadPool::TPHandle &handle);
   void _request_scrub_map(pg_shard_t replica, eversion_t version,
                           hobject_t start, hobject_t end, bool deep,
-			  uint32_t seed);
+			  bool allow_preemption);
   int build_scrub_map_chunk(
     ScrubMap &map,
-    hobject_t start, hobject_t end, bool deep, uint32_t seed,
+    ScrubMapBuilder &pos,
+    hobject_t start, hobject_t end, bool deep,
     ThreadPool::TPHandle &handle);
   /**
    * returns true if [begin, end) is good to scrub at this time
@@ -1381,7 +1536,9 @@ public:
     const hobject_t &begin, const hobject_t &end) = 0;
   virtual void scrub_snapshot_metadata(
     ScrubMap &map,
-    const std::map<hobject_t, pair<uint32_t, uint32_t>> &missing_digest) { }
+    const std::map<hobject_t,
+                   pair<boost::optional<uint32_t>,
+                        boost::optional<uint32_t>>> &missing_digest) { }
   virtual void _scrub_clear_state() { }
   virtual void _scrub_finish() { }
   virtual void split_colls(
@@ -1577,7 +1734,19 @@ public:
       *out << "DeferRecovery: delay " << delay;
     }
   };
-
+  struct UnfoundBackfill : boost::statechart::event<UnfoundBackfill> {
+    explicit UnfoundBackfill() {}
+    void print(std::ostream *out) const {
+      *out << "UnfoundBackfill";
+    }
+  };
+  struct UnfoundRecovery : boost::statechart::event<UnfoundRecovery> {
+    explicit UnfoundRecovery() {}
+    void print(std::ostream *out) const {
+      *out << "UnfoundRecovery";
+    }
+  };
+protected:
   TrivialEvent(Initialize)
   TrivialEvent(Load)
   TrivialEvent(GotInfo)
@@ -1687,13 +1856,42 @@ public:
       void send_notify(pg_shard_t to,
 		       const pg_notify_t &info, const PastIntervals &pi) {
 	assert(state->rctx);
-	assert(state->rctx->notify_list);
-	(*state->rctx->notify_list)[to.osd].push_back(make_pair(info, pi));
+	state->rctx->send_notify(to, info, pi);
       }
     };
     friend class RecoveryMachine;
 
     /* States */
+    // Initial
+    // Reset
+    // Start
+    //   Started
+    //     Primary
+    //       WaitActingChange
+    //       Peering
+    //         GetInfo
+    //         GetLog
+    //         GetMissing
+    //         WaitUpThru
+    //         Incomplete
+    //       Active
+    //         Activating
+    //         Clean
+    //         Recovered
+    //         Backfilling
+    //         WaitRemoteBackfillReserved
+    //         WaitLocalBackfillReserved
+    //         NotBackfilling
+    //         NotRecovering
+    //         Recovering
+    //         WaitRemoteRecoveryReserved
+    //         WaitLocalRecoveryReserved
+    //     ReplicaActive
+    //       RepNotRecovering
+    //       RepRecovering
+    //       RepWaitBackfillReserved
+    //       RepWaitRecoveryReserved
+    //     Stray
 
     struct Crashed : boost::statechart::state< Crashed, RecoveryMachine >, NamedState {
       explicit Crashed(my_context ctx);
@@ -1855,7 +2053,10 @@ public:
 	boost::statechart::custom_reaction< Backfilled >,
 	boost::statechart::custom_reaction< AllReplicasActivated >,
 	boost::statechart::custom_reaction< DeferRecovery >,
-	boost::statechart::custom_reaction< DeferBackfill >
+	boost::statechart::custom_reaction< DeferBackfill >,
+  boost::statechart::custom_reaction< UnfoundRecovery >,
+	boost::statechart::custom_reaction< UnfoundBackfill >,
+	boost::statechart::custom_reaction< DoRecovery>
 	> reactions;
       boost::statechart::result react(const QueryState& q);
       boost::statechart::result react(const ActMap&);
@@ -1871,6 +2072,15 @@ public:
 	return discard_event();
       }
       boost::statechart::result react(const DeferBackfill& evt) {
+	return discard_event();
+      }
+      boost::statechart::result react(const UnfoundRecovery& evt) {
+  return discard_event();
+      }
+      boost::statechart::result react(const UnfoundBackfill& evt) {
+  return discard_event();
+      }
+      boost::statechart::result react(const DoRecovery&) {
 	return discard_event();
       }
     };
@@ -1901,11 +2111,13 @@ public:
       typedef boost::mpl::list<
 	boost::statechart::transition< Backfilled, Recovered >,
 	boost::statechart::custom_reaction< DeferBackfill >,
+	boost::statechart::custom_reaction< UnfoundBackfill >,
 	boost::statechart::custom_reaction< RemoteReservationRejected >
 	> reactions;
       explicit Backfilling(my_context ctx);
       boost::statechart::result react(const RemoteReservationRejected& evt);
       boost::statechart::result react(const DeferBackfill& evt);
+      boost::statechart::result react(const UnfoundBackfill& evt);
       void exit();
     };
 
@@ -1945,10 +2157,15 @@ public:
     struct NotRecovering : boost::statechart::state< NotRecovering, Active>, NamedState {
       typedef boost::mpl::list<
 	boost::statechart::transition< DoRecovery, WaitLocalRecoveryReserved >,
-	boost::statechart::custom_reaction< DeferRecovery >
+	boost::statechart::custom_reaction< DeferRecovery >,
+	boost::statechart::custom_reaction< UnfoundRecovery >
 	> reactions;
       explicit NotRecovering(my_context ctx);
       boost::statechart::result react(const DeferRecovery& evt) {
+	/* no-op */
+	return discard_event();
+      }
+      boost::statechart::result react(const UnfoundRecovery& evt) {
 	/* no-op */
 	return discard_event();
       }
@@ -1968,7 +2185,9 @@ public:
 	boost::statechart::custom_reaction< MLogRec >,
 	boost::statechart::custom_reaction< Activate >,
 	boost::statechart::custom_reaction< DeferRecovery >,
-	boost::statechart::custom_reaction< DeferBackfill >
+	boost::statechart::custom_reaction< DeferBackfill >,
+	boost::statechart::custom_reaction< UnfoundRecovery >,
+	boost::statechart::custom_reaction< UnfoundBackfill >
 	> reactions;
       boost::statechart::result react(const QueryState& q);
       boost::statechart::result react(const MInfoRec& infoevt);
@@ -1980,6 +2199,12 @@ public:
 	return discard_event();
       }
       boost::statechart::result react(const DeferBackfill& evt) {
+	return discard_event();
+      }
+      boost::statechart::result react(const UnfoundRecovery& evt) {
+	return discard_event();
+      }
+      boost::statechart::result react(const UnfoundBackfill& evt) {
 	return discard_event();
       }
     };
@@ -2049,6 +2274,7 @@ public:
       typedef boost::mpl::list <
 	boost::statechart::custom_reaction< AllReplicasRecovered >,
 	boost::statechart::custom_reaction< DeferRecovery >,
+	boost::statechart::custom_reaction< UnfoundRecovery >,
 	boost::statechart::custom_reaction< RequestBackfill >
 	> reactions;
       explicit Recovering(my_context ctx);
@@ -2056,6 +2282,7 @@ public:
       void release_reservations(bool cancel = false);
       boost::statechart::result react(const AllReplicasRecovered &evt);
       boost::statechart::result react(const DeferRecovery& evt);
+      boost::statechart::result react(const UnfoundRecovery& evt);
       boost::statechart::result react(const RequestBackfill &evt);
     };
 
@@ -2347,15 +2574,19 @@ public:
   bool       is_activating() const { return state_test(PG_STATE_ACTIVATING); }
   bool       is_peering() const { return state_test(PG_STATE_PEERING); }
   bool       is_down() const { return state_test(PG_STATE_DOWN); }
+  bool       is_recovery_unfound() const { return state_test(PG_STATE_RECOVERY_UNFOUND); }
+  bool       is_backfill_unfound() const { return state_test(PG_STATE_BACKFILL_UNFOUND); }
   bool       is_incomplete() const { return state_test(PG_STATE_INCOMPLETE); }
   bool       is_clean() const { return state_test(PG_STATE_CLEAN); }
   bool       is_degraded() const { return state_test(PG_STATE_DEGRADED); }
   bool       is_undersized() const { return state_test(PG_STATE_UNDERSIZED); }
 
   bool       is_scrubbing() const { return state_test(PG_STATE_SCRUBBING); }
+  bool       is_remapped() const { return state_test(PG_STATE_REMAPPED); }
   bool       is_peered() const {
     return state_test(PG_STATE_ACTIVE) || state_test(PG_STATE_PEERED);
   }
+  bool is_recovering() const { return state_test(PG_STATE_RECOVERING); }
 
   bool  is_empty() const { return info.last_update == eversion_t(0,0); }
 
@@ -2454,7 +2685,9 @@ public:
 
   bool append_log_entries_update_missing(
     const mempool::osd_pglog::list<pg_log_entry_t> &entries,
-    ObjectStore::Transaction &t);
+    ObjectStore::Transaction &t,
+    boost::optional<eversion_t> trim_to,
+    boost::optional<eversion_t> roll_forward_to);
 
   /**
    * Merge entries updating missing as necessary on all
@@ -2462,7 +2695,9 @@ public:
    */
   void merge_new_log_entries(
     const mempool::osd_pglog::list<pg_log_entry_t> &entries,
-    ObjectStore::Transaction &t);
+    ObjectStore::Transaction &t,
+    boost::optional<eversion_t> trim_to,
+    boost::optional<eversion_t> roll_forward_to);
 
   void reset_interval_flush();
   void start_peering_interval(
@@ -2485,7 +2720,7 @@ public:
   void fulfill_info(pg_shard_t from, const pg_query_t &query,
 		    pair<pg_shard_t, pg_info_t> &notify_info);
   void fulfill_log(pg_shard_t from, const pg_query_t &query, epoch_t query_epoch);
-
+  void fulfill_query(const MQuery& q, RecoveryCtx *rctx);
   void check_full_transition(OSDMapRef lastmap, OSDMapRef osdmap);
 
   bool should_restart_peering(

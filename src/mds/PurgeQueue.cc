@@ -97,12 +97,14 @@ PurgeQueue::~PurgeQueue()
 
 void PurgeQueue::create_logger()
 {
-  PerfCountersBuilder pcb(g_ceph_context,
-          "purge_queue", l_pq_first, l_pq_last);
+  PerfCountersBuilder pcb(g_ceph_context, "purge_queue", l_pq_first, l_pq_last);
+
+  pcb.add_u64_counter(l_pq_executed, "pq_executed", "Purge queue tasks executed",
+                      "purg", PerfCountersBuilder::PRIO_INTERESTING);
+
+  pcb.set_prio_default(PerfCountersBuilder::PRIO_USEFUL);
   pcb.add_u64(l_pq_executing_ops, "pq_executing_ops", "Purge queue ops in flight");
   pcb.add_u64(l_pq_executing, "pq_executing", "Purge queue tasks in flight");
-  pcb.add_u64_counter(l_pq_executed, "pq_executed", "Purge queue tasks executed", "purg",
-      PerfCountersBuilder::PRIO_INTERESTING);
 
   logger.reset(pcb.create_perf_counters());
   g_ceph_context->get_perfcounters_collection()->add(logger.get());
@@ -350,7 +352,6 @@ bool PurgeQueue::_consume()
 
   bool could_consume = false;
   while(can_consume()) {
-    could_consume = true;
 
     if (delayed_flush) {
       // We are now going to read from the journal, so any proactive
@@ -358,6 +359,12 @@ bool PurgeQueue::_consume()
       // but it can avoid generating extra fragmented flush IOs.
       timer.cancel_event(delayed_flush);
       delayed_flush = nullptr;
+    }
+
+    if (int r = journaler.get_error()) {
+      derr << "Error " << r << " recovering write_pos" << dendl;
+      on_error->complete(r);
+      return could_consume;
     }
 
     if (!journaler.is_readable()) {
@@ -369,6 +376,8 @@ bool PurgeQueue::_consume()
           Mutex::Locker l(lock);
           if (r == 0) {
             _consume();
+          } else if (r != -EAGAIN) {
+            on_error->complete(r);
           }
         }));
       }
@@ -376,6 +385,7 @@ bool PurgeQueue::_consume()
       return could_consume;
     }
 
+    could_consume = true;
     // The journaler is readable: consume an entry
     bufferlist bl;
     bool readable = journaler.try_read_entry(bl);

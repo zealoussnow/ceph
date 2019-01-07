@@ -874,7 +874,7 @@ int NVMEDevice::open(const string& p)
   dout(1) << __func__ << " path " << p << dendl;
 
   string serial_number;
-  int fd = ::open(p.c_str(), O_RDONLY);
+  int fd = ::open(p.c_str(), O_RDONLY | O_CLOEXEC);
   if (fd < 0) {
     r = -errno;
     derr << __func__ << " unable to open " << p << ": " << cpp_strerror(r)
@@ -917,9 +917,9 @@ int NVMEDevice::open(const string& p)
   // round size down to an even block
   size &= ~(block_size - 1);
 
-  dout(1) << __func__ << " size " << size << " (" << pretty_si_t(size) << "B)"
-          << " block_size " << block_size << " (" << pretty_si_t(block_size)
-          << "B)" << dendl;
+  dout(1) << __func__ << " size " << size << " (" << byte_u_t(size) << ")"
+          << " block_size " << block_size << " (" << byte_u_t(block_size)
+          << ")" << dendl;
 
   return 0;
 }
@@ -928,6 +928,8 @@ void NVMEDevice::close()
 {
   dout(1) << __func__ << dendl;
 
+  delete queue_t;
+  queue_t = nullptr;
   name.clear();
   driver->remove_device(this);
 

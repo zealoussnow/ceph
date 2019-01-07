@@ -157,9 +157,6 @@ ObjectCacher::BufferHead *ObjectCacher::Object::split(BufferHead *left,
 void ObjectCacher::Object::merge_left(BufferHead *left, BufferHead *right)
 {
   assert(oc->lock.is_locked());
-  assert(left->end() == right->start());
-  assert(left->get_state() == right->get_state());
-  assert(left->can_merge_journal(right));
 
   ldout(oc->cct, 10) << "merge_left " << *left << " + " << *right << dendl;
   if (left->get_journal_tid() == 0) {
@@ -196,6 +193,17 @@ void ObjectCacher::Object::merge_left(BufferHead *left, BufferHead *right)
   ldout(oc->cct, 10) << "merge_left result " << *left << dendl;
 }
 
+bool ObjectCacher::Object::can_merge_bh(BufferHead *left, BufferHead *right)
+{
+  if (left->end() != right->start() ||
+      left->get_state() != right->get_state() ||
+      !left->can_merge_journal(right))
+    return false;
+  if (left->is_tx() && left->last_write_tid != right->last_write_tid)
+    return false;
+  return true;
+}
+
 void ObjectCacher::Object::try_merge_bh(BufferHead *bh)
 {
   assert(oc->lock.is_locked());
@@ -210,9 +218,7 @@ void ObjectCacher::Object::try_merge_bh(BufferHead *bh)
   assert(p->second == bh);
   if (p != data.begin()) {
     --p;
-    if (p->second->end() == bh->start() &&
-	p->second->get_state() == bh->get_state() &&
-	p->second->can_merge_journal(bh)) {
+    if (can_merge_bh(p->second, bh)) {
       merge_left(p->second, bh);
       bh = p->second;
     } else {
@@ -222,10 +228,7 @@ void ObjectCacher::Object::try_merge_bh(BufferHead *bh)
   // to the right?
   assert(p->second == bh);
   ++p;
-  if (p != data.end() &&
-      p->second->start() == bh->end() &&
-      p->second->get_state() == bh->get_state() &&
-      p->second->can_merge_journal(bh))
+  if (p != data.end() && can_merge_bh(bh, p->second))
     merge_left(bh, p->second);
 }
 
@@ -558,7 +561,8 @@ void ObjectCacher::Object::truncate(loff_t s)
   }
 }
 
-void ObjectCacher::Object::discard(loff_t off, loff_t len)
+void ObjectCacher::Object::discard(loff_t off, loff_t len,
+                                   C_GatherBuilder* commit_gather)
 {
   assert(oc->lock.is_locked());
   ldout(oc->cct, 10) << "discard " << *this << " " << off << "~" << len
@@ -593,8 +597,24 @@ void ObjectCacher::Object::discard(loff_t off, loff_t len)
 
     ++p;
     ldout(oc->cct, 10) << "discard " << *this << " bh " << *bh << dendl;
-    assert(bh->waitfor_read.empty());
     replace_journal_tid(bh, 0);
+
+    if (bh->is_tx() && commit_gather != nullptr) {
+      // wait for the writeback to commit
+      waitfor_commit[bh->last_write_tid].emplace_back(commit_gather->new_sub());
+    } else if (bh->is_rx()) {
+      // cannot remove bh with in-flight read, but we can ensure the
+      // read won't overwrite the discard
+      bh->last_read_tid = ++oc->last_read_tid;
+      bh->bl.clear();
+      bh->set_nocache(true);
+      oc->mark_zero(bh);
+      // we should mark all Rx bh to zero
+      continue;
+    } else {
+      assert(bh->waitfor_read.empty());
+    }
+
     oc->bh_remove(this, bh);
     delete bh;
   }
@@ -660,9 +680,9 @@ void ObjectCacher::perf_start()
   plb.add_u64_counter(l_objectcacher_cache_ops_miss,
 		      "cache_ops_miss", "Miss operations");
   plb.add_u64_counter(l_objectcacher_cache_bytes_hit,
-		      "cache_bytes_hit", "Hit data");
+		      "cache_bytes_hit", "Hit data", NULL, 0, unit_t(BYTES));
   plb.add_u64_counter(l_objectcacher_cache_bytes_miss,
-		      "cache_bytes_miss", "Miss data");
+		      "cache_bytes_miss", "Miss data", NULL, 0, unit_t(BYTES));
   plb.add_u64_counter(l_objectcacher_data_read,
 		      "data_read", "Read data");
   plb.add_u64_counter(l_objectcacher_data_written,
@@ -676,7 +696,7 @@ void ObjectCacher::perf_start()
 		      "Write operations, delayed due to dirty limits");
   plb.add_u64_counter(l_objectcacher_write_bytes_blocked,
 		      "write_bytes_blocked",
-		      "Write data blocked on dirty limit");
+		      "Write data blocked on dirty limit", NULL, 0, unit_t(BYTES));
   plb.add_time(l_objectcacher_write_time_blocked, "write_time_blocked",
 	       "Time spent blocking a write due to dirty limits");
 
@@ -1149,14 +1169,8 @@ void ObjectCacher::bh_write_commit(int64_t poolid, sobject_t oid,
 	 ++p) {
       BufferHead *bh = p->second;
 
-      if (bh->start() > start+(loff_t)length)
+      if (bh->start() >= start+(loff_t)length)
 	break;
-
-      if (bh->start() < start &&
-	  bh->end() > start+(loff_t)length) {
-	ldout(cct, 20) << "bh_write_commit skipping " << *bh << dendl;
-	continue;
-      }
 
       // make sure bh is tx
       if (!bh->is_tx()) {
@@ -1170,6 +1184,10 @@ void ObjectCacher::bh_write_commit(int64_t poolid, sobject_t oid,
 	ldout(cct, 10) << "bh_write_commit newer tid on " << *bh << dendl;
 	continue;
       }
+
+      // we don't merge tx buffers. tx buffer should be within the range
+      assert(bh->start() >= start);
+      assert(bh->end() <= start+(loff_t)length);
 
       if (r >= 0) {
 	// ok!  mark bh clean and error-free
@@ -1711,7 +1729,7 @@ int ObjectCacher::writex(OSDWrite *wr, ObjectSet *oset, Context *onfreespace,
       ldout(cct, 10) << "writex writing " << f_it->first << "~"
 		     << f_it->second << " into " << *bh << " at " << opos
 		     << dendl;
-      uint64_t bhoff = bh->start() - opos;
+      uint64_t bhoff = opos - bh->start();
       assert(f_it->second <= bh->length() - bhoff);
 
       // get the frag we're mapping in
@@ -2449,32 +2467,79 @@ void ObjectCacher::clear_nonexistence(ObjectSet *oset)
 void ObjectCacher::discard_set(ObjectSet *oset, const vector<ObjectExtent>& exls)
 {
   assert(lock.is_locked());
-  if (oset->objects.empty()) {
-    ldout(cct, 10) << "discard_set on " << oset << " dne" << dendl;
+  bool was_dirty = oset->dirty_or_tx > 0;
+
+  _discard(oset, exls, nullptr);
+  _discard_finish(oset, was_dirty, nullptr);
+}
+
+/**
+ * discard object extents from an ObjectSet by removing the objects in
+ * exls from the in-memory oset. If the bh is in TX state, the discard
+ * will wait for the write to commit prior to invoking on_finish.
+ */
+void ObjectCacher::discard_writeback(ObjectSet *oset,
+                                     const vector<ObjectExtent>& exls,
+                                     Context* on_finish)
+{
+  assert(lock.is_locked());
+  bool was_dirty = oset->dirty_or_tx > 0;
+
+  C_GatherBuilder gather(cct);
+  _discard(oset, exls, &gather);
+
+  if (gather.has_subs()) {
+    bool flushed = was_dirty && oset->dirty_or_tx == 0;
+    gather.set_finisher(new FunctionContext(
+      [this, oset, flushed, on_finish](int) {
+	assert(lock.is_locked());
+	if (flushed && flush_set_callback)
+	  flush_set_callback(flush_set_callback_arg, oset);
+	if (on_finish)
+	  on_finish->complete(0);
+      }));
+    gather.activate();
     return;
   }
 
-  ldout(cct, 10) << "discard_set " << oset << dendl;
+  _discard_finish(oset, was_dirty, on_finish);
+}
 
-  bool were_dirty = oset->dirty_or_tx > 0;
+void ObjectCacher::_discard(ObjectSet *oset, const vector<ObjectExtent>& exls,
+                            C_GatherBuilder* gather)
+{
+  if (oset->objects.empty()) {
+    ldout(cct, 10) << __func__ << " on " << oset << " dne" << dendl;
+    return;
+  }
 
-  for (vector<ObjectExtent>::const_iterator p = exls.begin();
-       p != exls.end();
-       ++p) {
-    ldout(cct, 10) << "discard_set " << oset << " ex " << *p << dendl;
-    const ObjectExtent &ex = *p;
+  ldout(cct, 10) << __func__ << " " << oset << dendl;
+
+  for (auto& ex : exls) {
+    ldout(cct, 10) << __func__ << " " << oset << " ex " << ex << dendl;
     sobject_t soid(ex.oid, CEPH_NOSNAP);
     if (objects[oset->poolid].count(soid) == 0)
       continue;
     Object *ob = objects[oset->poolid][soid];
 
-    ob->discard(ex.offset, ex.length);
+    ob->discard(ex.offset, ex.length, gather);
   }
+}
+
+void ObjectCacher::_discard_finish(ObjectSet *oset, bool was_dirty,
+                                   Context* on_finish)
+{
+  assert(lock.is_locked());
 
   // did we truncate off dirty data?
-  if (flush_set_callback &&
-      were_dirty && oset->dirty_or_tx == 0)
+  if (flush_set_callback && was_dirty && oset->dirty_or_tx == 0) {
     flush_set_callback(flush_set_callback_arg, oset);
+  }
+
+  // notify that in-flight writeback has completed
+  if (on_finish != nullptr) {
+    on_finish->complete(0);
+  }
 }
 
 void ObjectCacher::verify_stats() const

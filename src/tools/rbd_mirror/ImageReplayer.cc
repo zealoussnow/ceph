@@ -149,13 +149,7 @@ public:
   }
 
   bool call(Formatter *f, stringstream *ss) override {
-    C_SaferCond cond;
-    this->replayer->flush(&cond);
-    int r = cond.wait();
-    if (r < 0) {
-      *ss << "flush: " << cpp_strerror(r);
-      return false;
-    }
+    this->replayer->flush();
     return true;
   }
 };
@@ -270,7 +264,7 @@ ImageReplayer<I>::ImageReplayer(Threads<I> *threads,
   m_local(local),
   m_local_mirror_uuid(local_mirror_uuid),
   m_local_pool_id(local_pool_id),
-  m_global_image_id(global_image_id),
+  m_global_image_id(global_image_id), m_local_image_name(global_image_id),
   m_lock("rbd::mirror::ImageReplayer " + stringify(local_pool_id) + " " +
 	 global_image_id),
   m_progress_cxt(this),
@@ -426,7 +420,7 @@ void ImageReplayer<I>::prepare_local_image() {
   Context *ctx = create_context_callback<
     ImageReplayer, &ImageReplayer<I>::handle_prepare_local_image>(this);
   auto req = PrepareLocalImageRequest<I>::create(
-    m_local_ioctx, m_global_image_id, &m_local_image_id,
+    m_local_ioctx, m_global_image_id, &m_local_image_id, &m_local_image_name,
     &m_local_image_tag_owner, m_threads->work_queue, ctx);
   req->send();
 }
@@ -440,10 +434,8 @@ void ImageReplayer<I>::handle_prepare_local_image(int r) {
   } else if (r < 0) {
     on_start_fail(r, "error preparing local image for replay");
     return;
-  } else if (m_local_image_tag_owner == librbd::Journal<>::LOCAL_MIRROR_UUID) {
-    dout(5) << "local image is primary" << dendl;
-    on_start_fail(0, "local image is primary");
-    return;
+  } else {
+    reregister_admin_socket_hook();
   }
 
   // local image doesn't exist or is non-primary
@@ -453,6 +445,11 @@ void ImageReplayer<I>::handle_prepare_local_image(int r) {
 template <typename I>
 void ImageReplayer<I>::prepare_remote_image() {
   dout(20) << dendl;
+  if (m_peers.empty()) {
+    // technically nothing to bootstrap, but it handles the status update
+    bootstrap();
+    return;
+  }
 
   // TODO need to support multiple remote images
   assert(!m_peers.empty());
@@ -461,8 +458,9 @@ void ImageReplayer<I>::prepare_remote_image() {
   Context *ctx = create_context_callback<
     ImageReplayer, &ImageReplayer<I>::handle_prepare_remote_image>(this);
   auto req = PrepareRemoteImageRequest<I>::create(
-    m_remote_image.io_ctx, m_global_image_id, &m_remote_image.mirror_uuid,
-    &m_remote_image.image_id, ctx);
+    m_threads, m_remote_image.io_ctx, m_global_image_id, m_local_mirror_uuid,
+    m_local_image_id, &m_remote_image.mirror_uuid, &m_remote_image.image_id,
+    &m_remote_journaler, &m_client_state, &m_client_meta, ctx);
   req->send();
 }
 
@@ -470,7 +468,11 @@ template <typename I>
 void ImageReplayer<I>::handle_prepare_remote_image(int r) {
   dout(20) << "r=" << r << dendl;
 
-  if (r == -ENOENT) {
+  assert(r < 0 ? m_remote_journaler == nullptr : m_remote_journaler != nullptr);
+  if (r < 0 && !m_local_image_id.empty() &&
+      m_local_image_tag_owner == librbd::Journal<>::LOCAL_MIRROR_UUID) {
+    // local image is primary -- fall-through
+  } else if (r == -ENOENT) {
     dout(20) << "remote image does not exist" << dendl;
 
     // TODO need to support multiple remote images
@@ -497,19 +499,16 @@ template <typename I>
 void ImageReplayer<I>::bootstrap() {
   dout(20) << dendl;
 
-  CephContext *cct = static_cast<CephContext *>(m_local->cct());
-  journal::Settings settings;
-  settings.commit_interval = cct->_conf->get_val<double>(
-    "rbd_mirror_journal_commit_age");
-  settings.max_fetch_bytes = cct->_conf->get_val<uint64_t>(
-    "rbd_mirror_journal_max_fetch_bytes");
-
-  m_remote_journaler = new Journaler(m_threads->work_queue,
-                                     m_threads->timer,
-                                     &m_threads->timer_lock,
-                                     m_remote_image.io_ctx,
-                                     m_remote_image.image_id,
-                                     m_local_mirror_uuid, settings);
+  if (!m_local_image_id.empty() &&
+      m_local_image_tag_owner == librbd::Journal<>::LOCAL_MIRROR_UUID) {
+    dout(5) << "local image is primary" << dendl;
+    on_start_fail(0, "local image is primary");
+    return;
+  } else if (m_peers.empty()) {
+    dout(5) << "no peer clusters" << dendl;
+    on_start_fail(-ENOENT, "no peer clusters");
+    return;
+  }
 
   Context *ctx = create_context_callback<
     ImageReplayer, &ImageReplayer<I>::handle_bootstrap>(this);
@@ -519,8 +518,8 @@ void ImageReplayer<I>::bootstrap() {
     &m_local_image_ctx, m_local_image_id, m_remote_image.image_id,
     m_global_image_id, m_threads->work_queue, m_threads->timer,
     &m_threads->timer_lock, m_local_mirror_uuid, m_remote_image.mirror_uuid,
-    m_remote_journaler, &m_client_meta, ctx, &m_resync_requested,
-    &m_progress_cxt);
+    m_remote_journaler, &m_client_state, &m_client_meta, ctx,
+    &m_resync_requested, &m_progress_cxt);
 
   {
     Mutex::Locker locker(m_lock);
@@ -579,8 +578,6 @@ void ImageReplayer<I>::handle_bootstrap(int r) {
     return;
   }
 
-  on_name_changed();
-
   update_mirror_image_status(false, boost::none);
   init_remote_journaler();
 }
@@ -617,9 +614,9 @@ void ImageReplayer<I>::handle_init_remote_journaler(int r) {
     return;
   }
 
-  derr << "image_id=" << m_local_image_id << ", "
-       << "m_client_meta.image_id=" << m_client_meta.image_id << ", "
-       << "client.state=" << client.state << dendl;
+  dout(5) << "image_id=" << m_local_image_id << ", "
+          << "client_meta.image_id=" << m_client_meta.image_id << ", "
+          << "client.state=" << client.state << dendl;
   if (m_client_meta.image_id == m_local_image_id &&
       client.state != cls::journal::CLIENT_STATE_CONNECTED) {
     dout(5) << "client flagged disconnected, stopping image replay" << dendl;
@@ -656,6 +653,9 @@ void ImageReplayer<I>::handle_start_replay(int r) {
     return;
   }
 
+  m_replay_status_formatter =
+    ReplayStatusFormatter<I>::create(m_remote_journaler, m_local_mirror_uuid);
+
   Context *on_finish(nullptr);
   {
     Mutex::Locker locker(m_lock);
@@ -667,8 +667,6 @@ void ImageReplayer<I>::handle_start_replay(int r) {
   m_event_preprocessor = EventPreprocessor<I>::create(
     *m_local_image_ctx, *m_remote_journaler, m_local_mirror_uuid,
     &m_client_meta, m_threads->work_queue);
-  m_replay_status_formatter =
-    ReplayStatusFormatter<I>::create(m_remote_journaler, m_local_mirror_uuid);
 
   update_mirror_image_status(true, boost::none);
   reschedule_update_status_task(30);
@@ -1085,16 +1083,30 @@ void ImageReplayer<I>::handle_get_remote_tag(int r) {
 
 template <typename I>
 void ImageReplayer<I>::allocate_local_tag() {
-  dout(20) << dendl;
+  dout(15) << dendl;
 
   std::string mirror_uuid = m_replay_tag_data.mirror_uuid;
-  if (mirror_uuid == librbd::Journal<>::LOCAL_MIRROR_UUID ||
-      mirror_uuid == m_local_mirror_uuid) {
+  if (mirror_uuid == librbd::Journal<>::LOCAL_MIRROR_UUID) {
     mirror_uuid = m_remote_image.mirror_uuid;
+  } else if (mirror_uuid == m_local_mirror_uuid) {
+    mirror_uuid = librbd::Journal<>::LOCAL_MIRROR_UUID;
   } else if (mirror_uuid == librbd::Journal<>::ORPHAN_MIRROR_UUID) {
-    dout(5) << "encountered image demotion: stopping" << dendl;
-    Mutex::Locker locker(m_lock);
-    m_stop_requested = true;
+    // handle possible edge condition where daemon can failover and
+    // the local image has already been promoted/demoted
+    auto local_tag_data = m_local_journal->get_tag_data();
+    if (local_tag_data.mirror_uuid == librbd::Journal<>::ORPHAN_MIRROR_UUID &&
+        (local_tag_data.predecessor.commit_valid &&
+         local_tag_data.predecessor.mirror_uuid ==
+           librbd::Journal<>::LOCAL_MIRROR_UUID)) {
+      dout(15) << "skipping stale demotion event" << dendl;
+      handle_process_entry_safe(m_replay_entry, 0);
+      handle_replay_ready();
+      return;
+    } else {
+      dout(5) << "encountered image demotion: stopping" << dendl;
+      Mutex::Locker locker(m_lock);
+      m_stop_requested = true;
+    }
   }
 
   librbd::journal::TagPredecessor predecessor(m_replay_tag_data.predecessor);
@@ -1104,10 +1116,9 @@ void ImageReplayer<I>::allocate_local_tag() {
     predecessor.mirror_uuid = librbd::Journal<>::LOCAL_MIRROR_UUID;
   }
 
-  dout(20) << "mirror_uuid=" << mirror_uuid << ", "
-           << "predecessor_mirror_uuid=" << predecessor.mirror_uuid << ", "
-           << "replay_tag_tid=" << m_replay_tag_tid << ", "
-           << "replay_tag_data=" << m_replay_tag_data << dendl;
+  dout(15) << "mirror_uuid=" << mirror_uuid << ", "
+           << "predecessor=" << predecessor << ", "
+           << "replay_tag_tid=" << m_replay_tag_tid << dendl;
   Context *ctx = create_context_callback<
     ImageReplayer, &ImageReplayer<I>::handle_allocate_local_tag>(this);
   m_local_journal->allocate_tag(mirror_uuid, predecessor, ctx);
@@ -1115,7 +1126,8 @@ void ImageReplayer<I>::allocate_local_tag() {
 
 template <typename I>
 void ImageReplayer<I>::handle_allocate_local_tag(int r) {
-  dout(20) << "r=" << r << dendl;
+  dout(15) << "r=" << r << ", "
+           << "tag_tid=" << m_local_journal->get_tag_tid() << dendl;
 
   if (r < 0) {
     derr << "failed to allocate journal tag: " << cpp_strerror(r) << dendl;
@@ -1221,7 +1233,18 @@ void ImageReplayer<I>::handle_process_entry_ready(int r) {
   dout(20) << dendl;
   assert(r == 0);
 
-  on_name_changed();
+  bool update_status = false;
+  {
+    RWLock::RLocker snap_locker(m_local_image_ctx->snap_lock);
+    if (m_local_image_name != m_local_image_ctx->name) {
+      m_local_image_name = m_local_image_ctx->name;
+      update_status = true;
+    }
+  }
+
+  if (update_status) {
+    reschedule_update_status_task(0);
+  }
 
   // attempt to process the next event
   handle_replay_ready();
@@ -1281,6 +1304,8 @@ bool ImageReplayer<I>::start_mirror_image_status_update(bool force,
 
 template <typename I>
 void ImageReplayer<I>::finish_mirror_image_status_update() {
+  reregister_admin_socket_hook();
+
   Context *on_finish = nullptr;
   {
     Mutex::Locker locker(m_lock);
@@ -1765,7 +1790,7 @@ void ImageReplayer<I>::register_admin_socket_hook() {
       return;
     }
 
-    dout(20) << "registered asok hook: " << m_name << dendl;
+    dout(15) << "registered asok hook: " << m_name << dendl;
     asok_hook = new ImageReplayerAdminSocketHook<I>(g_ceph_context, m_name,
                                                     this);
     int r = asok_hook->register_commands();
@@ -1780,7 +1805,7 @@ void ImageReplayer<I>::register_admin_socket_hook() {
 
 template <typename I>
 void ImageReplayer<I>::unregister_admin_socket_hook() {
-  dout(20) << dendl;
+  dout(15) << dendl;
 
   AdminSocketHook *asok_hook = nullptr;
   {
@@ -1791,11 +1816,10 @@ void ImageReplayer<I>::unregister_admin_socket_hook() {
 }
 
 template <typename I>
-void ImageReplayer<I>::on_name_changed() {
+void ImageReplayer<I>::reregister_admin_socket_hook() {
   {
     Mutex::Locker locker(m_lock);
-    std::string name = m_local_ioctx.get_pool_name() + "/" +
-      m_local_image_ctx->name;
+    auto name = m_local_ioctx.get_pool_name() + "/" + m_local_image_name;
     if (m_name == name) {
       return;
     }

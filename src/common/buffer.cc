@@ -1760,9 +1760,15 @@ static std::atomic_flag buffer_debug_lock = ATOMIC_FLAG_INIT;
   }
   
   bool buffer::list::rebuild_aligned_size_and_memory(unsigned align_size,
-  						   unsigned align_memory)
+						    unsigned align_memory,
+						    unsigned max_buffers)
   {
     unsigned old_memcopy_count = _memcopy_count;
+
+    if (max_buffers && _buffers.size() > max_buffers
+	&& _len > (max_buffers * align_size)) {
+      align_size = ROUND_UP_TO(ROUND_UP_TO(_len, max_buffers) / max_buffers, align_size);
+    }
     std::list<ptr>::iterator p = _buffers.begin();
     while (p != _buffers.end()) {
       // keep anything that's already align and sized aligned
@@ -2249,7 +2255,7 @@ void buffer::list::decode_base64(buffer::list& e)
 
 int buffer::list::read_file(const char *fn, std::string *error)
 {
-  int fd = TEMP_FAILURE_RETRY(::open(fn, O_RDONLY));
+  int fd = TEMP_FAILURE_RETRY(::open(fn, O_RDONLY|O_CLOEXEC));
   if (fd < 0) {
     int err = errno;
     std::ostringstream oss;
@@ -2326,7 +2332,7 @@ int buffer::list::read_fd_zero_copy(int fd, size_t len)
 
 int buffer::list::write_file(const char *fn, int mode)
 {
-  int fd = TEMP_FAILURE_RETRY(::open(fn, O_WRONLY|O_CREAT|O_TRUNC, mode));
+  int fd = TEMP_FAILURE_RETRY(::open(fn, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, mode));
   if (fd < 0) {
     int err = errno;
     cerr << "bufferlist::write_file(" << fn << "): failed to open file: "

@@ -67,13 +67,13 @@ int KernelDevice::open(const string& p)
   int r = 0;
   dout(1) << __func__ << " path " << path << dendl;
 
-  fd_direct = ::open(path.c_str(), O_RDWR | O_DIRECT);
+  fd_direct = ::open(path.c_str(), O_RDWR | O_DIRECT | O_CLOEXEC);
   if (fd_direct < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
     return r;
   }
-  fd_buffered = ::open(path.c_str(), O_RDWR);
+  fd_buffered = ::open(path.c_str(), O_RDWR | O_CLOEXEC);
   if (fd_buffered < 0) {
     r = -errno;
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
@@ -163,9 +163,9 @@ int KernelDevice::open(const string& p)
   dout(1) << __func__
 	  << " size " << size
 	  << " (0x" << std::hex << size << std::dec << ", "
-	  << pretty_si_t(size) << "B)"
+	  << byte_u_t(size) << ")"
 	  << " block_size " << block_size
-	  << " (" << pretty_si_t(block_size) << "B)"
+	  << " (" << byte_u_t(block_size) << ")"
 	  << " " << (rotational ? "rotational" : "non-rotational")
 	  << dendl;
   return 0;
@@ -338,6 +338,15 @@ void KernelDevice::_aio_stop()
   }
 }
 
+static bool is_expected_ioerr(const int r)
+{
+  // https://lxr.missinglinkelectronics.com/linux+v4.15/block/blk-core.c#L135
+  return (r == -EOPNOTSUPP || r == -ETIMEDOUT || r == -ENOSPC ||
+	  r == -ENOLINK || r == -EREMOTEIO || r == -EBADE ||
+	  r == -ENODATA || r == -EILSEQ || r == -ENOMEM ||
+	  r == -EAGAIN || r == -EREMCHG || r == -EIO);
+}
+
 void KernelDevice::_aio_thread()
 {
   dout(10) << __func__ << " start" << dendl;
@@ -350,6 +359,7 @@ void KernelDevice::_aio_thread()
 					 aio, max);
     if (r < 0) {
       derr << __func__ << " got " << cpp_strerror(r) << dendl;
+      assert(0 == "got unexpected error from io_getevents");
     }
     if (r > 0) {
       dout(30) << __func__ << " got " << r << " completed aios" << dendl;
@@ -369,12 +379,28 @@ void KernelDevice::_aio_thread()
 	// later flush() occurs.
 	io_since_flush.store(true);
 
-	int r = aio[i]->get_return_value();
-	dout(10) << __func__ << " finished aio " << aio[i] << " r " << r
-		 << " ioc " << ioc
-		 << " with " << (ioc->num_running.load() - 1)
-		 << " aios left" << dendl;
-	assert(r >= 0);
+	long r = aio[i]->get_return_value();
+        if (r < 0) {
+          derr << __func__ << " got r=" << r << " (" << cpp_strerror(r) << ")"
+	       << dendl;
+          if (ioc->allow_eio && is_expected_ioerr(r)) {
+            derr << __func__ << " translating the error to EIO for upper layer"
+		 << dendl;
+            ioc->set_return_value(-EIO);
+          } else {
+            assert(0 == "got unexpected error from aio_t::get_return_value. "
+			"This may suggest HW issue. Please check your dmesg!");
+          }
+        } else if (aio[i]->length != (uint64_t)r) {
+          derr << "aio to " << aio[i]->offset << "~" << aio[i]->length
+               << " but returned: " << r << dendl;
+          assert(0 == "unexpected aio error");
+        }
+
+        dout(10) << __func__ << " finished aio " << aio[i] << " r " << r
+                 << " ioc " << ioc
+                 << " with " << (ioc->num_running.load() - 1)
+                 << " aios left" << dendl;
 
 	// NOTE: once num_running and we either call the callback or
 	// call aio_wake we cannot touch ioc or aio[] as the caller
@@ -580,7 +606,7 @@ int KernelDevice::write(
   assert(off + len <= size);
 
   if ((!buffered || bl.get_num_buffers() >= IOV_MAX) &&
-      bl.rebuild_aligned_size_and_memory(block_size, block_size)) {
+      bl.rebuild_aligned_size_and_memory(block_size, block_size, IOV_MAX)) {
     dout(20) << __func__ << " rebuilding buffer to be aligned" << dendl;
   }
   dout(40) << "data: ";
@@ -607,7 +633,7 @@ int KernelDevice::aio_write(
   assert(off + len <= size);
 
   if ((!buffered || bl.get_num_buffers() >= IOV_MAX) &&
-      bl.rebuild_aligned_size_and_memory(block_size, block_size)) {
+      bl.rebuild_aligned_size_and_memory(block_size, block_size, IOV_MAX)) {
     dout(20) << __func__ << " rebuilding buffer to be aligned" << dendl;
   }
   dout(40) << "data: ";

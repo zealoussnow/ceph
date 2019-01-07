@@ -2,6 +2,7 @@
 // vim: ts=8 sw=2 smarttab
 
 #include "include/compat.h"
+#include "common/errno.h"
 
 #include <boost/utility/string_ref.hpp>
 
@@ -78,6 +79,135 @@ struct rgw_http_req_data : public RefCountedObject {
     return mgr;
   }
 };
+
+struct RGWCurlHandle {
+  int uses;
+  mono_time lastuse;
+  CURL* h;
+
+  RGWCurlHandle(CURL* h) : uses(0), h(h) {};
+  CURL* operator*() {
+    return this->h;
+  }
+};
+
+#define MAXIDLE 5
+class RGWCurlHandles : public Thread {
+public:
+  Mutex cleaner_lock;
+  std::vector<RGWCurlHandle*>saved_curl;
+  int cleaner_shutdown;
+  Cond cleaner_cond;
+
+  RGWCurlHandles() :
+    cleaner_lock{"RGWCurlHandles::cleaner_lock"},
+    cleaner_shutdown{0} {
+  }
+
+  RGWCurlHandle* get_curl_handle();
+  void release_curl_handle_now(RGWCurlHandle* curl);
+  void release_curl_handle(RGWCurlHandle* curl);
+  void flush_curl_handles();
+  void* entry();
+  void stop();
+};
+
+RGWCurlHandle* RGWCurlHandles::get_curl_handle() {
+  RGWCurlHandle* curl = 0;
+  CURL* h;
+  {
+    Mutex::Locker lock(cleaner_lock);
+    if (!saved_curl.empty()) {
+      curl = *saved_curl.begin();
+      saved_curl.erase(saved_curl.begin());
+    }
+  }
+  if (curl) {
+  } else if ((h = curl_easy_init())) {
+    curl = new RGWCurlHandle{h};
+  } else {
+    // curl = 0;
+  }
+  return curl;
+}
+
+void RGWCurlHandles::release_curl_handle_now(RGWCurlHandle* curl)
+{
+  curl_easy_cleanup(**curl);
+  delete curl;
+}
+
+void RGWCurlHandles::release_curl_handle(RGWCurlHandle* curl)
+{
+  if (cleaner_shutdown) {
+    release_curl_handle_now(curl);
+  } else {
+    curl_easy_reset(**curl);
+    Mutex::Locker lock(cleaner_lock);
+    curl->lastuse = mono_clock::now();
+    saved_curl.insert(saved_curl.begin(), 1, curl);
+  }
+}
+
+void* RGWCurlHandles::entry()
+{
+  RGWCurlHandle* curl;
+  Mutex::Locker lock(cleaner_lock);
+
+  for (;;) {
+    if (cleaner_shutdown) {
+      if (saved_curl.empty())
+        break;
+    } else {
+      utime_t release = ceph_clock_now() + utime_t(MAXIDLE,0);
+      cleaner_cond.WaitUntil(cleaner_lock, release);
+    }
+    mono_time now = mono_clock::now();
+    while (!saved_curl.empty()) {
+      auto cend = saved_curl.end();
+      --cend;
+      curl = *cend;
+      if (!cleaner_shutdown && now - curl->lastuse < std::chrono::seconds(MAXIDLE))
+        break;
+      saved_curl.erase(cend);
+      release_curl_handle_now(curl);
+    }
+  }
+  return nullptr;
+}
+
+void RGWCurlHandles::stop()
+{
+  Mutex::Locker lock(cleaner_lock);
+  cleaner_shutdown = 1;
+  cleaner_cond.Signal();
+}
+
+void RGWCurlHandles::flush_curl_handles()
+{
+  stop();
+  join();
+  if (!saved_curl.empty()) {
+    dout(0) << "ERROR: " << __func__ << " failed final cleanup" << dendl;
+  }
+  saved_curl.shrink_to_fit();
+}
+
+static RGWCurlHandles *handles;
+// XXX make this part of the token cache?  (but that's swift-only;
+//	and this especially needs to integrates with s3...)
+
+void rgw_setup_saved_curl_handles()
+{
+  handles = new RGWCurlHandles();
+  handles->create("rgw_curl");
+}
+
+void rgw_release_all_curl_handles()
+{
+  handles->flush_curl_handles();
+  delete handles;
+}
 
 /*
  * the simple set of callbacks will be called on RGWHTTPClient::process()
@@ -221,8 +351,13 @@ static curl_slist *headers_to_slist(param_vec_t& headers)
       }
     }
 
-    val.append(": ");
-    val.append(p.second);
+    // curl won't send headers with empty values unless it ends with a ; instead
+    if (p.second.empty()) {
+      val.append(1, ';');
+    } else {
+      val.append(": ");
+      val.append(p.second);
+    }
     h = curl_slist_append(h, val.c_str());
   }
 
@@ -251,7 +386,8 @@ int RGWHTTPClient::process(const char *method, const char *url)
   last_method = (method ? method : "");
   last_url = (url ? url : "");
 
-  curl_handle = curl_easy_init();
+  auto ca = handles->get_curl_handle();
+  curl_handle = **ca;
 
   dout(20) << "sending request to " << url << dendl;
 
@@ -266,6 +402,8 @@ int RGWHTTPClient::process(const char *method, const char *url)
   curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, simple_receive_http_data);
   curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)this);
   curl_easy_setopt(curl_handle, CURLOPT_ERRORBUFFER, (void *)error_buf);
+  curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_TIME, cct->_conf->rgw_curl_low_speed_time);
+  curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_LIMIT, cct->_conf->rgw_curl_low_speed_limit);
   if (h) {
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, (void *)h);
   }
@@ -289,7 +427,7 @@ int RGWHTTPClient::process(const char *method, const char *url)
     ret = -EINVAL;
   }
   curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_status);
-  curl_easy_cleanup(curl_handle);
+  handles->release_curl_handle(ca);
   curl_slist_free_all(h);
 
   return ret;
@@ -344,6 +482,8 @@ int RGWHTTPClient::init_request(const char *method, const char *url, rgw_http_re
   curl_easy_setopt(easy_handle, CURLOPT_WRITEFUNCTION, receive_http_data);
   curl_easy_setopt(easy_handle, CURLOPT_WRITEDATA, (void *)req_data);
   curl_easy_setopt(easy_handle, CURLOPT_ERRORBUFFER, (void *)req_data->error_buf);
+  curl_easy_setopt(easy_handle, CURLOPT_LOW_SPEED_TIME, cct->_conf->rgw_curl_low_speed_time);
+  curl_easy_setopt(easy_handle, CURLOPT_LOW_SPEED_LIMIT, cct->_conf->rgw_curl_low_speed_limit);
   if (h) {
     curl_easy_setopt(easy_handle, CURLOPT_HTTPHEADER, (void *)h);
   }
@@ -874,21 +1014,19 @@ int RGWHTTPManager::complete_requests()
 
 int RGWHTTPManager::set_threaded()
 {
-  int r = pipe(thread_pipe);
-  if (r < 0) {
-    r = -errno;
-    ldout(cct, 0) << "ERROR: pipe() returned errno=" << r << dendl;
-    return r;
+  if (pipe_cloexec(thread_pipe) < 0) {
+    int e = errno;
+    ldout(cct, 0) << "ERROR: pipe(): " << cpp_strerror(e) << dendl;
+    return -e;
   }
 
   // enable non-blocking reads
-  r = ::fcntl(thread_pipe[0], F_SETFL, O_NONBLOCK);
-  if (r < 0) {
-    r = -errno;
-    ldout(cct, 0) << "ERROR: fcntl() returned errno=" << r << dendl;
+  if (::fcntl(thread_pipe[0], F_SETFL, O_NONBLOCK) < 0) {
+    int e = errno;
+    ldout(cct, 0) << "ERROR: fcntl(): " << cpp_strerror(e) << dendl;
     TEMP_FAILURE_RETRY(::close(thread_pipe[0]));
     TEMP_FAILURE_RETRY(::close(thread_pipe[1]));
-    return r;
+    return -e;
   }
 
 #ifdef HAVE_CURL_MULTI_WAIT
@@ -982,6 +1120,9 @@ void *RGWHTTPManager::reqs_thread_entry()
         switch (result) {
           case CURLE_OK:
             break;
+          case CURLE_OPERATION_TIMEDOUT:
+            dout(0) << "WARNING: curl operation timed out, network average transfer speed less than " 
+              << cct->_conf->rgw_curl_low_speed_limit << " Bytes per second during " << cct->_conf->rgw_curl_low_speed_time << " seconds." << dendl;
           default:
             dout(20) << "ERROR: msg->data.result=" << result << " req_data->id=" << id << " http_status=" << http_status << dendl;
 	    break;
@@ -993,14 +1134,14 @@ void *RGWHTTPManager::reqs_thread_entry()
 
   RWLock::WLocker rl(reqs_lock);
   for (auto r : unregistered_reqs) {
-    _finish_request(r, -ECANCELED);
+    _unlink_request(r);
   }
 
   unregistered_reqs.clear();
 
   auto all_reqs = std::move(reqs);
   for (auto iter : all_reqs) {
-    _finish_request(iter.second, -ECANCELED);
+    _unlink_request(iter.second);
   }
 
   reqs.clear();

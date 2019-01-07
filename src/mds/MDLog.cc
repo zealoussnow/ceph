@@ -52,29 +52,30 @@ void MDLog::create_logger()
 {
   PerfCountersBuilder plb(g_ceph_context, "mds_log", l_mdl_first, l_mdl_last);
 
-  plb.add_u64_counter(l_mdl_evadd, "evadd",
-      "Events submitted", "subm", PerfCountersBuilder::PRIO_INTERESTING);
-  plb.add_u64_counter(l_mdl_evex, "evex", "Total expired events");
-  plb.add_u64_counter(l_mdl_evtrm, "evtrm", "Trimmed events");
-  plb.add_u64(l_mdl_ev, "ev",
-      "Events", "evts", PerfCountersBuilder::PRIO_INTERESTING);
+  plb.add_u64_counter(l_mdl_evadd, "evadd", "Events submitted", "subm",
+                      PerfCountersBuilder::PRIO_INTERESTING);
+  plb.add_u64(l_mdl_ev, "ev", "Events", "evts",
+              PerfCountersBuilder::PRIO_INTERESTING);
+  plb.add_u64(l_mdl_seg, "seg", "Segments", "segs",
+              PerfCountersBuilder::PRIO_INTERESTING);
+
+  plb.set_prio_default(PerfCountersBuilder::PRIO_USEFUL);
   plb.add_u64(l_mdl_evexg, "evexg", "Expiring events");
   plb.add_u64(l_mdl_evexd, "evexd", "Current expired events");
-
+  plb.add_u64(l_mdl_segexg, "segexg", "Expiring segments");
+  plb.add_u64(l_mdl_segexd, "segexd", "Current expired segments");
+  plb.add_u64_counter(l_mdl_replayed, "replayed", "Events replayed");
+  plb.add_time_avg(l_mdl_jlat, "jlat", "Journaler flush latency");
+  plb.add_u64_counter(l_mdl_evex, "evex", "Total expired events");
+  plb.add_u64_counter(l_mdl_evtrm, "evtrm", "Trimmed events");
   plb.add_u64_counter(l_mdl_segadd, "segadd", "Segments added");
   plb.add_u64_counter(l_mdl_segex, "segex", "Total expired segments");
   plb.add_u64_counter(l_mdl_segtrm, "segtrm", "Trimmed segments");
-  plb.add_u64(l_mdl_seg, "seg",
-      "Segments", "segs", PerfCountersBuilder::PRIO_INTERESTING);
-  plb.add_u64(l_mdl_segexg, "segexg", "Expiring segments");
-  plb.add_u64(l_mdl_segexd, "segexd", "Current expired segments");
 
+  plb.set_prio_default(PerfCountersBuilder::PRIO_DEBUGONLY);
   plb.add_u64(l_mdl_expos, "expos", "Journaler xpire position");
   plb.add_u64(l_mdl_wrpos, "wrpos", "Journaler  write position");
   plb.add_u64(l_mdl_rdpos, "rdpos", "Journaler  read position");
-  plb.add_time_avg(l_mdl_jlat, "jlat", "Journaler flush latency");
-
-  plb.add_u64_counter(l_mdl_replayed, "replayed", "Events replayed");
 
   // logger
   logger = plb.create_perf_counters();
@@ -111,7 +112,11 @@ class C_MDL_WriteError : public MDSIOContextBase {
   }
 
   public:
-  explicit C_MDL_WriteError(MDLog *m) : mdlog(m) {}
+  explicit C_MDL_WriteError(MDLog *m) :
+    MDSIOContextBase(false), mdlog(m) {}
+  void print(ostream& out) const override {
+    out << "mdlog_write_error";
+  }
 };
 
 
@@ -602,22 +607,28 @@ void MDLog::trim(int m)
   utime_t stop = ceph_clock_now();
   stop += 2.0;
 
+  int op_prio = CEPH_MSG_PRIO_LOW +
+		(CEPH_MSG_PRIO_HIGH - CEPH_MSG_PRIO_LOW) *
+		expiring_segments.size() / max_segments;
+  if (op_prio > CEPH_MSG_PRIO_HIGH)
+    op_prio = CEPH_MSG_PRIO_HIGH;
+
+  unsigned new_expiring_segments = 0;
+
   map<uint64_t,LogSegment*>::iterator p = segments.begin();
-  while (p != segments.end() &&
-	 ((max_events >= 0 &&
-	   num_events - expiring_events - expired_events > max_events) ||
-	  (segments.size() - expiring_segments.size() - expired_segments.size() > max_segments))) {
-    
+  while (p != segments.end()) {
     if (stop < ceph_clock_now())
       break;
 
-    int num_expiring_segments = (int)expiring_segments.size();
-    if (num_expiring_segments >= g_conf->mds_log_max_expiring)
+    unsigned num_remaining_segments = (segments.size() - expired_segments.size() - expiring_segments.size());
+    if ((num_remaining_segments <= max_segments) &&
+	(max_events < 0 || num_events - expiring_events - expired_events <= max_events))
       break;
 
-    int op_prio = CEPH_MSG_PRIO_LOW +
-		  (CEPH_MSG_PRIO_HIGH - CEPH_MSG_PRIO_LOW) *
-		  num_expiring_segments / g_conf->mds_log_max_expiring;
+    // Do not trim too many segments at once for peak workload. If mds keeps creating N segments each tick,
+    // the upper bound of 'num_remaining_segments - max_segments' is '2 * N'
+    if (new_expiring_segments * 2 > num_remaining_segments)
+      break;
 
     // look at first segment
     LogSegment *ls = p->second;
@@ -638,6 +649,7 @@ void MDLog::trim(int m)
 	      << ", " << ls->num_events << " events" << dendl;
     } else {
       assert(expiring_segments.count(ls) == 0);
+      new_expiring_segments++;
       expiring_segments.insert(ls);
       expiring_events += ls->num_events;
       submit_mutex.Unlock();

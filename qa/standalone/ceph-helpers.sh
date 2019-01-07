@@ -150,6 +150,7 @@ function test_setup() {
 # subvolumes that relate to it.
 #
 # @param dir path name of the environment
+# @param dumplogs pass "1" to dump logs otherwise it will only if cores found
 # @return 0 on success, 1 on error
 #
 function teardown() {
@@ -169,7 +170,7 @@ function teardown() {
       pattern=""
     fi
     # Local we start with core and teuthology ends with core
-    if ls $(dirname $pattern) | grep -q '^core\|core$' ; then
+    if ls $(dirname "$pattern") | grep -q '^core\|core$' ; then
         cores="yes"
         if [ -n "$LOCALRUN" ]; then
 	    mkdir /tmp/cores.$$ 2> /dev/null || true
@@ -179,7 +180,13 @@ function teardown() {
         fi
     fi
     if [ "$cores" = "yes" -o "$dumplogs" = "1" ]; then
-        display_logs $dir
+	if [ -n "$LOCALRUN" ]; then
+	    display_logs $dir
+        else
+	    # Move logs to where Teuthology will archive it
+	    mkdir -p $TESTDIR/archive/log
+	    mv $dir/*.log $TESTDIR/archive/log
+	fi
     fi
     rm -fr $dir
     rm -rf $(get_asok_dir)
@@ -512,6 +519,11 @@ function create_rbd_pool() {
 function create_pool() {
     ceph osd pool create "$@"
     sleep 1
+}
+
+function delete_pool() {
+    local poolname=$1
+    ceph osd pool delete $poolname $poolname --yes-i-really-really-mean-it
 }
 
 #######################################################################
@@ -1338,6 +1350,8 @@ function test_is_clean() {
 
 #######################################################################
 
+calc() { awk "BEGIN{print $*}"; }
+
 ##
 # Return a list of numbers that are increasingly larger and whose
 # total is **timeout** seconds. It can be used to have short sleep
@@ -1357,29 +1371,29 @@ function get_timeout_delays() {
     local i
     local total="0"
     i=$first_step
-    while test "$(echo $total + $i \<= $timeout | bc -l)" = "1"; do
-        echo -n "$i "
-        total=$(echo $total + $i | bc -l)
-        i=$(echo $i \* 2 | bc -l)
+    while test "$(calc $total + $i \<= $timeout)" = "1"; do
+        echo -n "$(calc $i) "
+        total=$(calc $total + $i)
+        i=$(calc $i \* 2)
     done
-    if test "$(echo $total \< $timeout | bc -l)" = "1"; then
-        echo -n $(echo $timeout - $total | bc -l)
+    if test "$(calc $total \< $timeout)" = "1"; then
+        echo -n "$(calc $timeout - $total) "
     fi
     $trace && shopt -s -o xtrace
 }
 
 function test_get_timeout_delays() {
     test "$(get_timeout_delays 1)" = "1 " || return 1
-    test "$(get_timeout_delays 5)" = "1 2 2" || return 1
-    test "$(get_timeout_delays 6)" = "1 2 3" || return 1
+    test "$(get_timeout_delays 5)" = "1 2 2 " || return 1
+    test "$(get_timeout_delays 6)" = "1 2 3 " || return 1
     test "$(get_timeout_delays 7)" = "1 2 4 " || return 1
-    test "$(get_timeout_delays 8)" = "1 2 4 1" || return 1
-    test "$(get_timeout_delays 1 .1)" = ".1 .2 .4 .3" || return 1
-    test "$(get_timeout_delays 1.5 .1)" = ".1 .2 .4 .8 " || return 1
-    test "$(get_timeout_delays 5 .1)" = ".1 .2 .4 .8 1.6 1.9" || return 1
-    test "$(get_timeout_delays 6 .1)" = ".1 .2 .4 .8 1.6 2.9" || return 1
-    test "$(get_timeout_delays 6.3 .1)" = ".1 .2 .4 .8 1.6 3.2 " || return 1
-    test "$(get_timeout_delays 20 .1)" = ".1 .2 .4 .8 1.6 3.2 6.4 7.3" || return 1
+    test "$(get_timeout_delays 8)" = "1 2 4 1 " || return 1
+    test "$(get_timeout_delays 1 .1)" = "0.1 0.2 0.4 0.3 " || return 1
+    test "$(get_timeout_delays 1.5 .1)" = "0.1 0.2 0.4 0.8 " || return 1
+    test "$(get_timeout_delays 5 .1)" = "0.1 0.2 0.4 0.8 1.6 1.9 " || return 1
+    test "$(get_timeout_delays 6 .1)" = "0.1 0.2 0.4 0.8 1.6 2.9 " || return 1
+    test "$(get_timeout_delays 6.3 .1)" = "0.1 0.2 0.4 0.8 1.6 3.2 " || return 1
+    test "$(get_timeout_delays 20 .1)" = "0.1 0.2 0.4 0.8 1.6 3.2 6.4 7.3 " || return 1
 }
 
 #######################################################################
@@ -1398,6 +1412,7 @@ function wait_for_clean() {
     local -a delays=($(get_timeout_delays $TIMEOUT .1))
     local -i loop=0
 
+    flush_pg_stats || return 1
     while test $(get_num_pgs) == 0 ; do
 	sleep 1
     done
@@ -1439,10 +1454,11 @@ function test_wait_for_clean() {
 #######################################################################
 
 ##
-# Wait until the cluster becomes HEALTH_OK again or if it does not make progress
-# for $TIMEOUT seconds.
+# Wait until the cluster has health condition passed as arg
+# again for $TIMEOUT seconds.
 #
-# @return 0 if the cluster is HEALTHY, 1 otherwise
+# @param string to grep for in health detail
+# @return 0 if the cluster health matches request, 1 otherwise
 #
 function wait_for_health() {
     local grepstr=$1
@@ -1459,6 +1475,12 @@ function wait_for_health() {
     done
 }
 
+##
+# Wait until the cluster becomes HEALTH_OK again or if it does not make progress
+# for $TIMEOUT seconds.
+#
+# @return 0 if the cluster is HEALTHY, 1 otherwise
+#
 function wait_for_health_ok() {
      wait_for_health "HEALTH_OK" || return 1
 }
@@ -1733,11 +1755,17 @@ function test_display_logs() {
 #
 function run_in_background() {
     local pid_variable=$1
-    shift;
+    shift
     # Execute the command and prepend the output with its pid
     # We enforce to return the exit status of the command and not the awk one.
-    ("$@" |& awk '{ a[i++] = $0 }END{for (i = 0; i in a; ++i) { print "'$$': " a[i]} }'; return ${PIPESTATUS[0]}) >&2 &
+    ("$@" |& sed 's/^/'$$': /'; return "${PIPESTATUS[0]}") >&2 &
     eval "$pid_variable+=\" $!\""
+}
+
+function save_stdout {
+    local out="$1"
+    shift
+    "$@" > "$out"
 }
 
 function test_run_in_background() {
@@ -1828,7 +1856,7 @@ function test_flush_pg_stats()
     run_osd $dir 0 || return 1
     create_rbd_pool || return 1
     rados -p rbd put obj /etc/group
-    flush_pg_stats
+    flush_pg_stats || return 1
     local jq_filter='.pools | .[] | select(.name == "rbd") | .stats'
     raw_bytes_used=`ceph df detail --format=json | jq "$jq_filter.raw_bytes_used"`
     bytes_used=`ceph df detail --format=json | jq "$jq_filter.bytes_used"`
@@ -1986,6 +2014,15 @@ function inject_eio() {
         fi
         sleep 1
     done
+}
+
+function multidiff() {
+    if ! diff $@ ; then
+        if [ "$DIFFCOLOPTS" = "" ]; then
+            return 1
+        fi
+        diff $DIFFCOLOPTS $@
+    fi
 }
 
 # Local Variables:

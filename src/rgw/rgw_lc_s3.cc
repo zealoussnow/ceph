@@ -60,9 +60,16 @@ bool LCMPExpiration_S3::xml_end(const char *el) {
 bool RGWLifecycleConfiguration_S3::xml_end(const char *el) {
   XMLObjIter iter = find("Rule");
   LCRule_S3 *rule = static_cast<LCRule_S3 *>(iter.get_next());
+  if (!rule)
+    return false;
   while (rule) {
     add_rule(rule);
     rule = static_cast<LCRule_S3 *>(iter.get_next());
+  }
+  if (cct->_conf->rgw_lc_max_rules < rule_map.size()) {
+    ldout(cct, 5) << "Warn: The lifecycle config has too many rules, rule number is:" 
+                  << rule_map.size() << ", max number is:" << cct->_conf->rgw_lc_max_rules << dendl;
+    return false;
   }
   return true;
 }
@@ -87,7 +94,7 @@ bool LCRule_S3::xml_end(const char *el) {
   if (lc_id){
     id = lc_id->get_data();
   } else {
-    gen_rand_alphanumeric_lower(nullptr, &id, LC_ID_LENGTH);
+    gen_rand_alphanumeric_lower(cct, &id, LC_ID_LENGTH);
   }
 
 
@@ -149,7 +156,7 @@ bool LCRule_S3::xml_end(const char *el) {
   return true;
 }
 
-void LCRule_S3::to_xml(CephContext *cct, ostream& out) {
+void LCRule_S3::to_xml(ostream& out) {
   out << "<Rule>" ;
   out << "<ID>" << id << "</ID>";
   if (!filter.empty()) {
@@ -208,7 +215,7 @@ XMLObj *RGWLCXMLParser_S3::alloc_obj(const char *el)
   if (strcmp(el, "LifecycleConfiguration") == 0) {
     obj = new RGWLifecycleConfiguration_S3(cct);
   } else if (strcmp(el, "Rule") == 0) {
-    obj = new LCRule_S3();
+    obj = new LCRule_S3(cct);
   } else if (strcmp(el, "ID") == 0) {
     obj = new LCID_S3();
   } else if (strcmp(el, "Prefix") == 0) {

@@ -6,6 +6,7 @@ import ceph_module  # noqa
 
 import json
 import logging
+import six
 import threading
 from collections import defaultdict
 
@@ -126,6 +127,8 @@ class OSDMapIncremental(ceph_module.BasePyOSDMapIncremental):
         return self._set_crush_compat_weight_set_weights(weightmap)
 
 class CRUSHMap(ceph_module.BasePyCRUSH):
+    ITEM_NONE = 0x7fffffff
+
     def dump(self):
         return self._dump()
 
@@ -140,7 +143,7 @@ class CRUSHMap(ceph_module.BasePyCRUSH):
 
     def get_take_weight_osd_map(self, root):
         uglymap = self._get_take_weight_osd_map(root)
-        return { int(k): v for k, v in uglymap.get('weights', {}).iteritems() }
+        return { int(k): v for k, v in six.iteritems(uglymap.get('weights', {})) }
 
 class MgrStandbyModule(ceph_module.BaseMgrStandbyModule):
     """
@@ -148,7 +151,7 @@ class MgrStandbyModule(ceph_module.BaseMgrStandbyModule):
     are not permitted to implement commands and they do not receive
     any notifications.
 
-    They only have access to the mgrmap (for acecssing service URI info
+    They only have access to the mgrmap (for accessing service URI info
     from their active peer), and to configuration settings (read only).
     """
 
@@ -174,8 +177,20 @@ class MgrStandbyModule(ceph_module.BaseMgrStandbyModule):
     def get_mgr_id(self):
         return self._ceph_get_mgr_id()
 
-    def get_config(self, key):
-        return self._ceph_get_config(key)
+    def get_config(self, key, default=None):
+        """
+        Retrieve the value of a persistent configuration setting
+
+        :param str key:
+        :param default: the default value of the config if it is not found
+        :return: str
+        """
+        r = self._ceph_get_config(key)
+        if r is None:
+            return default
+        else:
+            return r
+
 
     def get_active_uri(self):
         return self._ceph_get_active_uri()
@@ -207,8 +222,12 @@ class MgrModule(ceph_module.BaseMgrModule):
     PERFCOUNTER_LONGRUNAVG = 4
     PERFCOUNTER_COUNTER = 8
     PERFCOUNTER_HISTOGRAM = 0x10
-    PERFCOUNTER_TYPE_MASK = ~2
+    PERFCOUNTER_TYPE_MASK = ~3
 
+    # units supported
+    BYTES = 0
+    NONE = 1
+    
     def __init__(self, module_name, py_modules_ptr, this_ptr):
         self.module_name = module_name
 
@@ -284,6 +303,34 @@ class MgrModule(ceph_module.BaseMgrModule):
         """
         return self._ceph_get(data_name)
 
+    def _stattype_to_str(self, stattype):
+        
+        typeonly = stattype & self.PERFCOUNTER_TYPE_MASK
+        if typeonly == 0:
+            return 'gauge'
+        if typeonly == self.PERFCOUNTER_LONGRUNAVG:
+            # this lie matches the DaemonState decoding: only val, no counts
+            return 'counter'
+        if typeonly == self.PERFCOUNTER_COUNTER:
+            return 'counter'
+        if typeonly == self.PERFCOUNTER_HISTOGRAM:
+            return 'histogram'
+        
+        return ''
+
+    def _perfvalue_to_value(self, stattype, value):
+        if stattype & self.PERFCOUNTER_TIME:
+            # Convert from ns to seconds
+            return value / 1000000000.0
+        else:
+            return value
+
+    def _unit_to_str(self, unit):
+        if unit == self.NONE:
+            return "/s"
+        elif unit == self.BYTES:
+            return "B/s"  
+    
     def get_server(self, hostname):
         """
         Called by the plugin to load information about a particular
@@ -518,9 +565,16 @@ class MgrModule(ceph_module.BaseMgrModule):
             else:
                 return 0
 
+        def get_latest_avg(daemon_type, daemon_name, counter):
+            data = self.get_counter(daemon_type, daemon_name, counter)[counter]
+            if data:
+                return (data[-1][1], data[-1][2])
+            else:
+                return (0, 0)
+
         for server in self.list_servers():
             for service in server['services']:
-                if service['type'] not in ("mds", "osd", "mon"):
+                if service['type'] not in ("rgw", "mds", "osd", "mon"):
                     continue
 
                 schema = self.get_perf_schema(service['type'], service['id'])
@@ -543,8 +597,24 @@ class MgrModule(ceph_module.BaseMgrModule):
                     if counter_schema['priority'] < prio_limit:
                         continue
 
-                    counter_info = counter_schema
-                    counter_info['value'] = get_latest(service['type'], service['id'], counter_path)
+                    counter_info = dict(counter_schema)
+
+                    # Also populate count for the long running avgs
+                    if counter_schema['type'] & self.PERFCOUNTER_LONGRUNAVG:
+                        v, c = get_latest_avg(
+                            service['type'],
+                            service['id'],
+                            counter_path
+                        )
+                        counter_info['value'], counter_info['count'] = v, c
+                        result[svc_full_name][counter_path] = counter_info
+                    else:
+                        counter_info['value'] = get_latest(
+                            service['type'],
+                            service['id'],
+                            counter_path
+                        )
+
                     result[svc_full_name][counter_path] = counter_info
 
         self.log.debug("returning {0} counter".format(len(result)))
@@ -559,3 +629,13 @@ class MgrModule(ceph_module.BaseMgrModule):
         :return: a string
         """
         return self._ceph_set_uri(uri)
+
+    def have_mon_connection(self):
+        """
+        Check whether this ceph-mgr daemon has an open connection
+        to a monitor.  If it doesn't, then it's likely that the
+        information we have about the cluster is out of date,
+        and/or the monitor cluster is down.
+        """
+
+        return self._ceph_have_mon_connection()

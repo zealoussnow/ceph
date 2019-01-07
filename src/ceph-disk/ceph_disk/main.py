@@ -42,22 +42,11 @@ import pwd
 import grp
 import textwrap
 import glob
-import warnings
 
 CEPH_OSD_ONDISK_MAGIC = 'ceph osd volume v026'
 CEPH_LOCKBOX_ONDISK_MAGIC = 'ceph lockbox volume v001'
 
 KEY_MANAGEMENT_MODE_V1 = 'ceph-mon v1'
-
-DEPRECATION_WARNING = """
-*******************************************************************************
-This tool is now deprecated in favor of ceph-volume.
-It is recommended to use ceph-volume for OSD deployments. For details see:
-
-    http://docs.ceph.com/docs/master/ceph-volume/#migrating
-
-*******************************************************************************
-"""
 
 PTYPE = {
     'regular': {
@@ -177,6 +166,13 @@ PTYPE = {
         },
     },
 }
+
+try:
+    # see https://bugs.python.org/issue23098
+    os.major(0x80002b00)
+except OverflowError:
+    os.major = lambda devid: ((devid >> 8) & 0xfff) | ((devid >> 32) & ~0xfff)
+    os.minor = lambda devid: (devid & 0xff) | ((devid >> 12) & ~0xff)
 
 
 class Ptype(object):
@@ -918,8 +914,8 @@ def is_mounted(dev):
     """
     Check if the given device is mounted.
     """
-    dev = os.path.realpath(dev)
-    with open(PROCDIR + '/mounts', 'rb') as proc_mounts:
+    dev = os.path.realpath(_bytes2str(dev))
+    with open(PROCDIR + '/mounts', 'r') as proc_mounts:
         for line in proc_mounts:
             fields = line.split()
             if len(fields) < 3:
@@ -1276,7 +1272,8 @@ def get_fsid(cluster):
     :return: The fsid or raises Error.
     """
     fsid = get_conf_with_default(cluster=cluster, variable='fsid')
-    if fsid is None:
+    # uuids from boost always default to 'the empty uuid'
+    if fsid == '00000000-0000-0000-0000-000000000000':
         raise Error('getting cluster uuid from configuration failed')
     return fsid.lower()
 
@@ -1549,10 +1546,11 @@ def get_free_partition_index(dev):
 
 
 def check_journal_reqs(args):
+    log_file = "/var/log/ceph/$cluster-osd-check.log"
     _, _, allows_journal = command([
         'ceph-osd', '--check-allows-journal',
         '-i', '0',
-        '--log-file', '$run_dir/$cluster-osd-check.log',
+        '--log-file', log_file,
         '--cluster', args.cluster,
         '--setuser', get_ceph_user(),
         '--setgroup', get_ceph_group(),
@@ -1560,7 +1558,7 @@ def check_journal_reqs(args):
     _, _, wants_journal = command([
         'ceph-osd', '--check-wants-journal',
         '-i', '0',
-        '--log-file', '$run_dir/$cluster-osd-check.log',
+        '--log-file', log_file,
         '--cluster', args.cluster,
         '--setuser', get_ceph_user(),
         '--setgroup', get_ceph_group(),
@@ -1568,7 +1566,7 @@ def check_journal_reqs(args):
     _, _, needs_journal = command([
         'ceph-osd', '--check-needs-journal',
         '-i', '0',
-        '--log-file', '$run_dir/$cluster-osd-check.log',
+        '--log-file', log_file,
         '--cluster', args.cluster,
         '--setuser', get_ceph_user(),
         '--setgroup', get_ceph_group(),
@@ -1616,8 +1614,9 @@ def zap_linux(dev):
         # Thoroughly wipe all partitions of any traces of
         # Filesystems or OSD Journals
         #
-        # In addition we need to write 10M of data to each partition
-        # to make sure that after re-creating the same partition
+        # In addition we need to write 110M (read following comment for more
+        # details on the context of this magic number) of data to each
+        # partition to make sure that after re-creating the same partition
         # there is no trace left of any previous Filesystem or OSD
         # Journal
 
@@ -1633,13 +1632,29 @@ def zap_linux(dev):
                 ],
             )
 
+            # for an typical bluestore device, it has
+            # 1. a 100M xfs data partition
+            # 2. a bluestore_block_size block partition
+            # 3. a bluestore_block_db_size block.db partition
+            # 4. a bluestore_block_wal_size block.wal partition
+            # so we need to wipe out the bits storing the bits storing
+            # bluestore's collections' meta information in that case to
+            # prevent OSD from comparing the meta data, like OSD id and fsid,
+            # stored on the device to be zapped with the oness passed in. here,
+            # we assume that the allocator of bluestore puts these meta data
+            # at the beginning of the block partition. without knowning the
+            # actual layout of the bluefs, we add extra 10M to be on the safe
+            # side. if this partition was formatted for a filesystem, 10MB
+            # would be more than enough to nuke its superblock.
+            count = min(PrepareBluestoreData.SPACE_SIZE + 10,
+                        get_dev_size(partition))
             command_check_call(
                 [
                     'dd',
                     'if=/dev/zero',
                     'of={path}'.format(path=partition),
                     'bs=1M',
-                    'count=10',
+                    'count={count}'.format(count=count),
                 ],
             )
 
@@ -3166,9 +3181,10 @@ class PrepareFilestoreData(PrepareData):
 
 
 class PrepareBluestoreData(PrepareData):
+    SPACE_SIZE = 100
 
     def get_space_size(self):
-        return 100  # MB
+        return self.SPACE_SIZE  # MB
 
     def prepare_device(self, *to_prepare_list):
         super(PrepareBluestoreData, self).prepare_device(*to_prepare_list)
@@ -5713,8 +5729,6 @@ def make_zap_parser(subparsers):
 
 
 def main(argv):
-    # Deprecate from the very beginning
-    warnings.warn(DEPRECATION_WARNING)
     args = parse_args(argv)
 
     setup_logging(args.verbose, args.log_stdout)
@@ -5734,19 +5748,9 @@ def main(argv):
     CEPH_PREF_GROUP = args.setgroup
 
     if args.verbose:
-        try:
-            args.func(args)
-        except Exception:
-            # warn on any exception when running with verbosity
-            warnings.warn(DEPRECATION_WARNING)
-            # but still raise the original issue
-            raise
-
+        args.func(args)
     else:
         main_catch(args.func, args)
-
-    # if there aren't any errors, still log again at the very bottom
-    warnings.warn(DEPRECATION_WARNING)
 
 
 def setup_logging(verbose, log_stdout):
@@ -5774,8 +5778,6 @@ def main_catch(func, args):
         func(args)
 
     except Error as e:
-        # warn on generic 'error' exceptions
-        warnings.warn(DEPRECATION_WARNING)
         raise SystemExit(
             '{prog}: {msg}'.format(
                 prog=args.prog,
@@ -5784,8 +5786,6 @@ def main_catch(func, args):
         )
 
     except CephDiskException as error:
-        # warn on ceph-disk exceptions
-        warnings.warn(DEPRECATION_WARNING)
         exc_name = error.__class__.__name__
         raise SystemExit(
             '{prog} {exc_name}: {msg}'.format(

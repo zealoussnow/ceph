@@ -62,7 +62,10 @@ protected:
   PyModuleRegistry &py_modules;
   LogChannelRef clog, audit_clog;
 
-  AuthAuthorizeHandlerRegistry auth_registry;
+  // Authentication methods for cluster peers
+  AuthAuthorizeHandlerRegistry auth_cluster_registry;
+  // Authentication methods for clients
+  AuthAuthorizeHandlerRegistry auth_service_registry;
 
   // Connections for daemons, and clients with service names set
   // (i.e. those MgrClients that are allowed to send MMgrReports)
@@ -120,13 +123,15 @@ public:
   bool ms_handle_refused(Connection *con) override;
   bool ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer,
                          bool force_new) override;
-  bool ms_verify_authorizer(Connection *con,
-      int peer_type,
-      int protocol,
-      ceph::bufferlist& authorizer,
-      ceph::bufferlist& authorizer_reply,
-      bool& isvalid,
-      CryptoKey& session_key) override;
+  bool ms_verify_authorizer(
+    Connection *con,
+    int peer_type,
+    int protocol,
+    ceph::bufferlist& authorizer,
+    ceph::bufferlist& authorizer_reply,
+    bool& isvalid,
+    CryptoKey& session_key,
+    std::unique_ptr<AuthAuthorizerChallenge> *challenge) override;
 
   bool handle_open(MMgrOpen *m);
   bool handle_report(MMgrReport *m);

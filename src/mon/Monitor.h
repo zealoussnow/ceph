@@ -650,8 +650,8 @@ public:
     return (class MgrStatMonitor*) paxos_service[PAXOS_MGRSTAT];
   }
 
-  class MgrStatMonitor *healthmon() {
-    return (class MgrStatMonitor*) paxos_service[PAXOS_MGRSTAT];
+  class HealthMonitor *healthmon() {
+    return (class HealthMonitor*) paxos_service[PAXOS_HEALTH];
   }
 
   friend class Paxos;
@@ -906,7 +906,8 @@ public:
   bool ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer, bool force_new) override;
   bool ms_verify_authorizer(Connection *con, int peer_type,
 			    int protocol, bufferlist& authorizer_data, bufferlist& authorizer_reply,
-			    bool& isvalid, CryptoKey& session_key) override;
+			    bool& isvalid, CryptoKey& session_key,
+			    std::unique_ptr<AuthAuthorizerChallenge> *challenge) override;
   bool ms_handle_reset(Connection *con) override;
   void ms_handle_remote_reset(Connection *con) override {}
   bool ms_handle_refused(Connection *con) override;

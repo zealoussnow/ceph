@@ -84,14 +84,13 @@ static int chown_path(const std::string &pathname, const uid_t owner, const gid_
 void global_pre_init(std::vector < const char * > *alt_def_args,
 		     std::vector < const char* >& args,
 		     uint32_t module_type, code_environment_t code_env,
-		     int flags,
-		     const char *data_dir_option)
+		     int flags)
 {
   std::string conf_file_list;
   std::string cluster = "";
   CephInitParameters iparams = ceph_argparse_early_args(args, module_type,
 							&cluster, &conf_file_list);
-  CephContext *cct = common_preinit(iparams, code_env, flags, data_dir_option);
+  CephContext *cct = common_preinit(iparams, code_env, flags);
   cct->_conf->cluster = cluster;
   global_init_set_globals(cct);
   md_config_t *conf = cct->_conf;
@@ -394,6 +393,30 @@ void global_init_daemonize(CephContext *cct)
 #endif
 }
 
+int reopen_as_null(CephContext *cct, int fd)
+{
+  int newfd = open("/dev/null", O_RDONLY|O_CLOEXEC);
+  if (newfd < 0) {
+    int err = errno;
+    lderr(cct) << __func__ << " failed to open /dev/null: " << cpp_strerror(err)
+	       << dendl;
+    return -1;
+  }
+  // atomically dup newfd to target fd.  target fd is implicitly closed if
+  // open and atomically replaced; see man dup2
+  int r = dup2(newfd, fd);
+  if (r < 0) {
+    int err = errno;
+    lderr(cct) << __func__ << " failed to dup2 " << fd << ": "
+	       << cpp_strerror(err) << dendl;
+    return -1;
+  }
+  // close newfd (we cloned it to target fd)
+  VOID_TEMP_FAILURE_RETRY(close(newfd));
+  // N.B. FD_CLOEXEC is cleared on fd (see dup2(2))
+  return 0;
+}
+
 void global_init_postfork_start(CephContext *cct)
 {
   // restart log thread
@@ -408,20 +431,7 @@ void global_init_postfork_start(CephContext *cct)
    * guarantee that nobody ever writes to stdout, even though they're not
    * supposed to.
    */
-  VOID_TEMP_FAILURE_RETRY(close(STDIN_FILENO));
-  if (open("/dev/null", O_RDONLY) < 0) {
-    int err = errno;
-    derr << "global_init_daemonize: open(/dev/null) failed: error "
-	 << err << dendl;
-    exit(1);
-  }
-  VOID_TEMP_FAILURE_RETRY(close(STDOUT_FILENO));
-  if (open("/dev/null", O_RDONLY) < 0) {
-    int err = errno;
-    derr << "global_init_daemonize: open(/dev/null) failed: error "
-	 << err << dendl;
-    exit(1);
-  }
+  reopen_as_null(cct, STDIN_FILENO);
 
   const md_config_t *conf = cct->_conf;
   if (pidfile_write(conf) < 0)
@@ -436,8 +446,8 @@ void global_init_postfork_start(CephContext *cct)
 
 void global_init_postfork_finish(CephContext *cct)
 {
-  /* We only close stderr once the caller decides the daemonization
-   * process is finished.  This way we can allow error messages to be
+  /* We only close stdout+stderr once the caller decides the daemonization
+   * process is finished.  This way we can allow error or other messages to be
    * propagated in a manner that the user is able to see.
    */
   if (!(cct->get_init_flags() & CINIT_FLAG_NO_CLOSE_STDERR)) {
@@ -448,6 +458,9 @@ void global_init_postfork_finish(CephContext *cct)
       exit(1);
     }
   }
+
+  reopen_as_null(cct, STDOUT_FILENO);
+
   ldout(cct, 1) << "finished global_init_daemonize" << dendl;
 }
 
@@ -470,13 +483,7 @@ void global_init_chdir(const CephContext *cct)
  */
 int global_init_shutdown_stderr(CephContext *cct)
 {
-  VOID_TEMP_FAILURE_RETRY(close(STDERR_FILENO));
-  if (open("/dev/null", O_RDONLY) < 0) {
-    int err = errno;
-    derr << "global_init_shutdown_stderr: open(/dev/null) failed: error "
-	 << err << dendl;
-    return 1;
-  }
+  reopen_as_null(cct, STDERR_FILENO);
   cct->_log->set_stderr_level(-1, -1);
   return 0;
 }

@@ -120,6 +120,7 @@ protected:
   int do_aws4_auth_completion();
 
   virtual int init_quota();
+
 public:
   RGWOp()
     : s(nullptr),
@@ -203,6 +204,7 @@ protected:
   map<string, bufferlist> attrs;
   bool get_data;
   bool partial_content;
+  bool ignore_invalid_range;
   bool range_parsed;
   bool skip_manifest;
   bool skip_decrypt{false};
@@ -256,9 +258,11 @@ public:
   void set_get_data(bool get_data) {
     this->get_data = get_data;
   }
+
   int verify_permission() override;
   void pre_exec() override;
   void execute() override;
+  int parse_range();
   int read_user_manifest_part(
     rgw_bucket& bucket,
     const rgw_bucket_dir_entry& ent,
@@ -640,7 +644,7 @@ public:
   const string name() override { return "list_buckets"; }
   RGWOpType get_type() override { return RGW_OP_LIST_BUCKETS; }
   uint32_t op_mask() override { return RGW_OP_TYPE_READ; }
-};
+}; // class RGWListBuckets
 
 class RGWGetUsage : public RGWOp {
 protected:
@@ -704,6 +708,7 @@ protected:
 
   int default_max;
   bool is_truncated;
+  bool allow_unordered;
 
   int shard_id;
 
@@ -711,7 +716,8 @@ protected:
 
 public:
   RGWListBucket() : list_versions(false), max(0),
-                    default_max(0), is_truncated(false), shard_id(-1) {}
+                    default_max(0), is_truncated(false),
+		    allow_unordered(false), shard_id(-1) {}
   int verify_permission() override;
   void pre_exec() override;
   void execute() override;
@@ -972,7 +978,7 @@ protected:
   const char *supplied_etag;
   const char *if_match;
   const char *if_nomatch;
-  const char *copy_source;
+  std::string copy_source;
   const char *copy_source_range;
   RGWBucketInfo copy_source_bucket_info;
   string copy_source_tenant_name;
@@ -1003,7 +1009,6 @@ public:
                 supplied_etag(NULL),
                 if_match(NULL),
                 if_nomatch(NULL),
-                copy_source(NULL),
                 copy_source_range(NULL),
                 copy_source_range_fst(0),
                 copy_source_range_lst(0),
@@ -1315,7 +1320,7 @@ public:
     copy_if_newer = false;
   }
 
-  static bool parse_copy_location(const string& src,
+  static bool parse_copy_location(const boost::string_view& src,
                                   string& bucket_name,
                                   rgw_obj_key& object);
 
@@ -1406,12 +1411,14 @@ class RGWPutLC : public RGWOp {
 protected:
   int len;
   char *data;
+  const char *content_md5;
   string cookie;
 
 public:
   RGWPutLC() {
     len = 0;
-    data = NULL;
+    data = nullptr;
+    content_md5 = nullptr;
   }
   ~RGWPutLC() override {
     free(data);
@@ -2190,5 +2197,23 @@ public:
   virtual RGWOpType delete_type() { return RGW_OP_DEL_BUCKET_META_SEARCH; }
   virtual uint32_t op_mask() { return RGW_OP_TYPE_WRITE; }
 };
+
+class RGWGetClusterStat : public RGWOp {
+protected:
+  struct rados_cluster_stat_t stats_op;
+public:
+  RGWGetClusterStat() {}
+
+  void init(RGWRados *store, struct req_state *s, RGWHandler *h) override {
+    RGWOp::init(store, s, h);
+  }
+  int verify_permission() override {return 0;}
+  virtual void send_response() = 0;
+  virtual int get_params() = 0;
+  void execute() override;
+  virtual const string name() { return "get_cluster_stat"; }
+};
+
+
 
 #endif /* CEPH_RGW_OP_H */

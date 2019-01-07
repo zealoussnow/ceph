@@ -33,6 +33,8 @@ pool_name = None
 IMG_SIZE = 8 << 20 # 8 MiB
 IMG_ORDER = 22 # 4 MiB objects
 
+os.environ["RBD_FORCE_ALLOW_V1"] = "1"
+
 def setup_module():
     global rados
     rados = Rados(conffile='')
@@ -828,6 +830,7 @@ class TestImage(object):
     def test_metadata(self):
         metadata = list(self.image.metadata_list())
         eq(len(metadata), 0)
+        assert_raises(KeyError, self.image.metadata_get, "key1")
         self.image.metadata_set("key1", "value1")
         self.image.metadata_set("key2", "value2")
         value = self.image.metadata_get("key1")
@@ -841,6 +844,7 @@ class TestImage(object):
         eq(len(metadata), 1)
         eq(metadata[0], ("key2", "value2"))
         self.image.metadata_remove("key2")
+        assert_raises(KeyError, self.image.metadata_remove, "key2")
         metadata = list(self.image.metadata_list())
         eq(len(metadata), 0)
 

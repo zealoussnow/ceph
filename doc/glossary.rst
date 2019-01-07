@@ -69,7 +69,9 @@ reflect either technical terms or legacy ways of referring to Ceph systems.
 	Ceph Filesystem
 	CephFS
 	Ceph FS
-		The POSIX filesystem components of Ceph.
+		The POSIX filesystem components of Ceph. Refer
+		:ref:`CephFS Architecture <arch-cephfs>` and :ref:`ceph-filesystem` for
+		more details.
 
 	Cloud Platforms
 	Cloud Stacks
@@ -167,8 +169,8 @@ reflect either technical terms or legacy ways of referring to Ceph systems.
 		Controlled Replication Under Scalable Hashing. It is the algorithm
 		Ceph uses to compute object storage locations.
 
-	ruleset
-		A set of CRUSH data placement rules that applies to a particular pool(s).
+	CRUSH rule
+		The CRUSH data placement rule that applies to a particular pool(s).
 
 	Pool
 	Pools

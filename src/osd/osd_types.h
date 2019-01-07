@@ -138,6 +138,7 @@ WRITE_CLASS_DENC(osd_reqid_t)
 
 
 struct pg_shard_t {
+  static const int32_t NO_OSD = 0x7fffffff;
   int32_t osd;
   shard_id_t shard;
   pg_shard_t() : osd(-1), shard(shard_id_t::NO_SHARD) {}
@@ -146,6 +147,7 @@ struct pg_shard_t {
   bool is_undefined() const {
     return osd == -1;
   }
+  string get_osd() const { return (osd == NO_OSD ? "NONE" : to_string(osd)); }
   void encode(bufferlist &bl) const;
   void decode(bufferlist::iterator &bl);
   void dump(Formatter *f) const {
@@ -955,9 +957,9 @@ inline bool operator!=(const osd_stat_t& l, const osd_stat_t& r) {
 
 
 inline ostream& operator<<(ostream& out, const osd_stat_t& s) {
-  return out << "osd_stat(" << kb_t(s.kb_used) << " used, "
-	     << kb_t(s.kb_avail) << " avail, "
-	     << kb_t(s.kb) << " total, "
+  return out << "osd_stat(" << byte_u_t(s.kb_used << 10) << " used, "
+	     << byte_u_t(s.kb_avail << 10) << " avail, "
+	     << byte_u_t(s.kb << 10) << " total, "
 	     << "peers " << s.hb_peers
 	     << " op hist " << s.op_queue_age_hist.h
 	     << ")";
@@ -971,8 +973,8 @@ inline ostream& operator<<(ostream& out, const osd_stat_t& s) {
 #define PG_STATE_ACTIVE       (1<<1)  // i am active.  (primary: replicas too)
 #define PG_STATE_CLEAN        (1<<2)  // peers are complete, clean of stray replicas.
 #define PG_STATE_DOWN         (1<<4)  // a needed replica is down, PG offline
-//#define PG_STATE_REPLAY       (1<<5)  // crashed, waiting for replay
-//#define PG_STATE_STRAY      (1<<6)  // i must notify the primary i exist.
+#define PG_STATE_RECOVERY_UNFOUND   (1<<5)  // recovery stopped due to unfound
+#define PG_STATE_BACKFILL_UNFOUND   (1<<6)  // backfill stopped due to unfound
 //#define PG_STATE_SPLITTING    (1<<7)  // i am splitting
 #define PG_STATE_SCRUBBING    (1<<8)  // scrubbing
 //#define PG_STATE_SCRUBQ       (1<<9)  // queued for scrub
@@ -1565,6 +1567,7 @@ public:
    * explicit removed_snaps set.
    */
   void build_removed_snaps(interval_set<snapid_t>& rs) const;
+  bool maybe_updated_removed_snaps(const interval_set<snapid_t>& cached) const;
   snapid_t snap_exists(const char *s) const;
   void add_snap(const char *n, utime_t stamp);
   void add_unmanaged_snap(uint64_t& snapid);
@@ -1654,6 +1657,7 @@ struct object_stat_sum_t {
   int64_t num_objects_pinned;
   int64_t num_objects_missing;
   int64_t num_legacy_snapsets; ///< upper bound on pre-luminous-style SnapSets
+  int64_t num_large_omap_objects = 0;
 
   object_stat_sum_t()
     : num_bytes(0),
@@ -1700,9 +1704,10 @@ struct object_stat_sum_t {
     FLOOR(num_rd_kb);
     FLOOR(num_wr);
     FLOOR(num_wr_kb);
-    FLOOR(num_scrub_errors);
+    FLOOR(num_large_omap_objects);
     FLOOR(num_shallow_scrub_errors);
     FLOOR(num_deep_scrub_errors);
+    num_scrub_errors = num_shallow_scrub_errors + num_deep_scrub_errors;
     FLOOR(num_objects_recovered);
     FLOOR(num_bytes_recovered);
     FLOOR(num_keys_recovered);
@@ -1754,9 +1759,13 @@ struct object_stat_sum_t {
     SPLIT(num_rd_kb);
     SPLIT(num_wr);
     SPLIT(num_wr_kb);
-    SPLIT(num_scrub_errors);
-    SPLIT(num_shallow_scrub_errors);
-    SPLIT(num_deep_scrub_errors);
+    SPLIT_PRESERVE_NONZERO(num_shallow_scrub_errors);
+    SPLIT_PRESERVE_NONZERO(num_deep_scrub_errors);
+    for (unsigned i = 0; i < out.size(); ++i) {
+      out[i].num_scrub_errors = out[i].num_shallow_scrub_errors +
+				out[i].num_deep_scrub_errors;
+    }
+    SPLIT(num_large_omap_objects);
     SPLIT(num_objects_recovered);
     SPLIT(num_bytes_recovered);
     SPLIT(num_keys_recovered);
@@ -1811,6 +1820,7 @@ struct object_stat_sum_t {
         sizeof(num_wr) +
         sizeof(num_wr_kb) +
         sizeof(num_scrub_errors) +
+        sizeof(num_large_omap_objects) +
         sizeof(num_objects_recovered) +
         sizeof(num_bytes_recovered) +
         sizeof(num_keys_recovered) +
@@ -1947,6 +1957,10 @@ struct pg_stat_t {
   int32_t up_primary;
   int32_t acting_primary;
 
+  // snaptrimq.size() is 64bit, but let's be serious - anything over 50k is
+  // absurd already, so cap it to 2^32 and save 4 bytes at  the same time
+  uint32_t snaptrimq_len;
+
   bool stats_invalid:1;
   /// true if num_objects_dirty is not accurate (because it was not
   /// maintained starting from pool creation)
@@ -1966,6 +1980,7 @@ struct pg_stat_t {
       mapping_epoch(0),
       up_primary(-1),
       acting_primary(-1),
+      snaptrimq_len(0),
       stats_invalid(false),
       dirty_stats_invalid(false),
       omap_stats_invalid(false),
@@ -1994,17 +2009,29 @@ struct pg_stat_t {
       log_size = f;
     if (ondisk_log_size < f)
       ondisk_log_size = f;
+    if (snaptrimq_len < f)
+      snaptrimq_len = f;
   }
 
   void add(const pg_stat_t& o) {
     stats.add(o.stats);
     log_size += o.log_size;
     ondisk_log_size += o.ondisk_log_size;
+    if (((uint64_t)snaptrimq_len + (uint64_t)o.snaptrimq_len) > (uint64_t)(1 << 31)) {
+      snaptrimq_len = 1 << 31;
+    } else {
+      snaptrimq_len += o.snaptrimq_len;
+    }
   }
   void sub(const pg_stat_t& o) {
     stats.sub(o.stats);
     log_size -= o.log_size;
     ondisk_log_size -= o.ondisk_log_size;
+    if (o.snaptrimq_len < snaptrimq_len) {
+      snaptrimq_len -= o.snaptrimq_len;
+    } else {
+      snaptrimq_len = 0;
+    }
   }
 
   bool is_acting_osd(int32_t osd, bool primary) const;
@@ -4649,27 +4676,35 @@ struct object_info_t {
 
   static string get_flag_string(flag_t flags) {
     string s;
-    if (flags & FLAG_LOST)
-      s += "|lost";
-    if (flags & FLAG_WHITEOUT)
-      s += "|whiteout";
-    if (flags & FLAG_DIRTY)
-      s += "|dirty";
-    if (flags & FLAG_USES_TMAP)
-      s += "|uses_tmap";
-    if (flags & FLAG_OMAP)
-      s += "|omap";
-    if (flags & FLAG_DATA_DIGEST)
-      s += "|data_digest";
-    if (flags & FLAG_OMAP_DIGEST)
-      s += "|omap_digest";
-    if (flags & FLAG_CACHE_PIN)
-      s += "|cache_pin";
-    if (flags & FLAG_MANIFEST)
-      s += "|manifest";
+    vector<string> sv = get_flag_vector(flags);
+    for (auto ss : sv) {
+      s += string("|") + ss;
+    }
     if (s.length())
       return s.substr(1);
     return s;
+  }
+  static vector<string> get_flag_vector(flag_t flags) {
+    vector<string> sv;
+    if (flags & FLAG_LOST)
+      sv.insert(sv.end(), "lost");
+    if (flags & FLAG_WHITEOUT)
+      sv.insert(sv.end(), "whiteout");
+    if (flags & FLAG_DIRTY)
+      sv.insert(sv.end(), "dirty");
+    if (flags & FLAG_USES_TMAP)
+      sv.insert(sv.end(), "uses_tmap");
+    if (flags & FLAG_OMAP)
+      sv.insert(sv.end(), "omap");
+    if (flags & FLAG_DATA_DIGEST)
+      sv.insert(sv.end(), "data_digest");
+    if (flags & FLAG_OMAP_DIGEST)
+      sv.insert(sv.end(), "omap_digest");
+    if (flags & FLAG_CACHE_PIN)
+      sv.insert(sv.end(), "cache_pin");
+    if (flags & FLAG_MANIFEST)
+      sv.insert(sv.end(), "manifest");
+    return sv;
   }
   string get_flag_string() const {
     return get_flag_string(flags);
@@ -4748,8 +4783,8 @@ struct object_info_t {
     omap_digest = -1;
   }
   void new_object() {
-    set_data_digest(-1);
-    set_omap_digest(-1);
+    clear_data_digest();
+    clear_omap_digest();
   }
 
   void encode(bufferlist& bl, uint64_t features) const;
@@ -4910,12 +4945,16 @@ struct ScrubMap {
     bool stat_error:1;
     bool ec_hash_mismatch:1;
     bool ec_size_mismatch:1;
+    bool large_omap_object_found:1;
+    uint64_t large_omap_object_key_count = 0;
+    uint64_t large_omap_object_value_size = 0;
 
     object() :
       // Init invalid size so it won't match if we get a stat EIO error
       size(-1), omap_digest(0), digest(0),
-      negative(false), digest_present(false), omap_digest_present(false), 
-      read_error(false), stat_error(false), ec_hash_mismatch(false), ec_size_mismatch(false) {}
+      negative(false), digest_present(false), omap_digest_present(false),
+      read_error(false), stat_error(false), ec_hash_mismatch(false),
+      ec_size_mismatch(false), large_omap_object_found(false) {}
 
     void encode(bufferlist& bl) const;
     void decode(bufferlist::iterator& bl);
@@ -4927,8 +4966,13 @@ struct ScrubMap {
   map<hobject_t,object> objects;
   eversion_t valid_through;
   eversion_t incr_since;
+  bool has_large_omap_object_errors:1;
+  boost::optional<bool> has_builtin_csum;
 
   void merge_incr(const ScrubMap &l);
+  void clear_from(const hobject_t& start) {
+    objects.erase(objects.lower_bound(start), objects.end());
+  }
   void insert(const ScrubMap &r) {
     objects.insert(r.objects.begin(), r.objects.end());
   }
@@ -4946,6 +4990,60 @@ struct ScrubMap {
 };
 WRITE_CLASS_ENCODER(ScrubMap::object)
 WRITE_CLASS_ENCODER(ScrubMap)
+
+struct ScrubMapBuilder {
+  bool deep = false;
+  vector<hobject_t> ls;
+  size_t pos = 0;
+  int64_t data_pos = 0;
+  string omap_pos;
+  int ret = 0;
+  bufferhash data_hash, omap_hash;  ///< accumulatinng hash value
+  uint64_t omap_keys = 0;
+  uint64_t omap_bytes = 0;
+
+  bool empty() {
+    return ls.empty();
+  }
+  bool done() {
+    return pos >= ls.size();
+  }
+  void reset() {
+    *this = ScrubMapBuilder();
+  }
+
+  bool data_done() {
+    return data_pos < 0;
+  }
+
+  void next_object() {
+    ++pos;
+    data_pos = 0;
+    omap_pos.clear();
+    omap_keys = 0;
+    omap_bytes = 0;
+  }
+
+  friend ostream& operator<<(ostream& out, const ScrubMapBuilder& pos) {
+    out << "(" << pos.pos << "/" << pos.ls.size();
+    if (pos.pos < pos.ls.size()) {
+      out << " " << pos.ls[pos.pos];
+    }
+    if (pos.data_pos < 0) {
+      out << " byte " << pos.data_pos;
+    }
+    if (!pos.omap_pos.empty()) {
+      out << " key " << pos.omap_pos;
+    }
+    if (pos.deep) {
+      out << " deep";
+    }
+    if (pos.ret) {
+      out << " ret " << pos.ret;
+    }
+    return out << ")";
+  }
+};
 
 struct OSDOp {
   ceph_osd_op op;

@@ -76,7 +76,6 @@ bool SnapshotCreateRequest::should_complete(int r) {
 
 void SnapshotCreateRequest::send_read_map() {
   assert(m_image_ctx.snap_lock.is_locked());
-  assert(m_image_ctx.get_snap_info(m_snap_id) != NULL);
 
   CephContext *cct = m_image_ctx.cct;
   std::string oid(ObjectMap<>::object_map_name(m_image_ctx.id, CEPH_NOSNAP));
@@ -136,9 +135,11 @@ void SnapshotCreateRequest::update_object_map() {
   RWLock::WLocker snap_locker(m_image_ctx.snap_lock);
   RWLock::WLocker object_map_locker(m_image_ctx.object_map_lock);
 
-  for (uint64_t i = 0; i < m_object_map.size(); ++i) {
-    if (m_object_map[i] == OBJECT_EXISTS) {
-      m_object_map[i] = OBJECT_EXISTS_CLEAN;
+  auto it = m_object_map.begin();
+  auto end_it = m_object_map.end();
+  for (; it != end_it; ++it) {
+    if (*it == OBJECT_EXISTS) {
+      *it = OBJECT_EXISTS_CLEAN;
     }
   }
 }

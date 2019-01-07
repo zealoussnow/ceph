@@ -30,8 +30,6 @@
 #include "rgw_auth.h"
 #include "rgw_auth_filters.h"
 
-#define RGW_AUTH_GRACE_MINS 15
-
 struct rgw_http_error {
   int http_ret;
   const char *s3_code;
@@ -767,9 +765,6 @@ public:
 class AWSGeneralAbstractor : public AWSEngine::VersionAbstractor {
   CephContext* const cct;
 
-  bool is_time_skew_ok(const utime_t& header_time,
-                       const bool qsr) const;
-
   virtual boost::optional<std::string>
   get_v4_canonical_headers(const req_info& info,
                            const boost::string_view& signedheaders,
@@ -896,14 +891,18 @@ public:
 };
 
 
+#if 0
 class S3AuthFactory : public rgw::auth::RemoteApplier::Factory,
                       public rgw::auth::LocalApplier::Factory {
   typedef rgw::auth::IdentityApplier::aplptr_t aplptr_t;
   RGWRados* const store;
+  ImplicitTenants& implicit_tenant_context;
 
 public:
-  S3AuthFactory(RGWRados* const store)
-    : store(store) {
+  S3AuthFactory(RGWRados* const store,
+		ImplicitTenants& implicit_tenant_context)
+    : store(store),
+      implicit_tenant_context(implicit_tenant_context) {
   }
 
   aplptr_t create_apl_remote(CephContext* const cct,
@@ -913,7 +912,8 @@ public:
                             ) const override {
     return aplptr_t(
       new rgw::auth::RemoteApplier(cct, store, std::move(acl_alg), info,
-                                   cct->_conf->rgw_keystone_implicit_tenants));
+                                   implicit_tenant_context,
+                                   rgw::auth::ImplicitTenants::IMPLICIT_TENANTS_S3));
   }
 
   aplptr_t create_apl_local(CephContext* const cct,
@@ -924,6 +924,7 @@ public:
         new rgw::auth::LocalApplier(cct, user_info, subuser));
   }
 };
+#endif
 
 
 } /* namespace s3 */

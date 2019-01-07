@@ -151,7 +151,10 @@ int SnapMapper::get_snaps(
     bufferlist::iterator bp = got.begin()->second.begin();
     ::decode(*out, bp);
     dout(20) << __func__ << " " << oid << " " << out->snaps << dendl;
-    assert(!out->snaps.empty());
+    if (out->snaps.empty()) {
+      dout(1) << __func__ << " " << oid << " empty snapset" << dendl;
+      assert(!cct->_conf->osd_debug_verify_snaps);
+    }
   } else {
     dout(20) << __func__ << " " << oid << " (out == NULL)" << dendl;
   }
@@ -239,11 +242,17 @@ void SnapMapper::add_oid(
   MapCacher::Transaction<std::string, bufferlist> *t)
 {
   dout(20) << __func__ << " " << oid << " " << snaps << dendl;
+  assert(!snaps.empty());
   assert(check(oid));
   {
     object_snaps out;
     int r = get_snaps(oid, &out);
-    assert(r == -ENOENT);
+    if (r != -ENOENT) {
+      derr << __func__ << " found existing snaps mapped on " << oid
+	   << ", removing" << dendl;
+      assert(!cct->_conf->osd_debug_verify_snaps);
+      remove_oid(oid, t);
+    }
   }
 
   object_snaps _snaps(oid, snaps);

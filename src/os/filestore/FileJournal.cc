@@ -71,7 +71,7 @@ int FileJournal::_open(bool forwrite, bool create)
 	   << cpp_strerror(err) << dendl;
     }
   }
-  fd = TEMP_FAILURE_RETRY(::open(fn.c_str(), flags, 0644));
+  fd = TEMP_FAILURE_RETRY(::open(fn.c_str(), flags|O_CLOEXEC, 0644));
   if (fd < 0) {
     int err = errno;
     dout(2) << "FileJournal::_open unable to open journal "
@@ -198,32 +198,13 @@ int FileJournal::_open_file(int64_t oldsize, blksize_t blksize,
 	   << newsize << " bytes: " << cpp_strerror(err) << dendl;
       return -err;
     }
-#ifdef HAVE_POSIX_FALLOCATE
-    ret = ::posix_fallocate(fd, 0, newsize);
+    ret = ceph_posix_fallocate(fd, 0, newsize);
     if (ret) {
       derr << "FileJournal::_open_file : unable to preallocation journal to "
 	   << newsize << " bytes: " << cpp_strerror(ret) << dendl;
       return -ret;
     }
     max_size = newsize;
-#elif defined(__APPLE__)
-    fstore_t store;
-    store.fst_flags = F_ALLOCATECONTIG;
-    store.fst_posmode = F_PEOFPOSMODE;
-    store.fst_offset = 0;
-    store.fst_length = newsize;
-
-    ret = ::fcntl(fd, F_PREALLOCATE, &store);
-    if (ret == -1) {
-      ret = -errno;
-      derr << "FileJournal::_open_file : unable to preallocation journal to "
-	   << newsize << " bytes: " << cpp_strerror(ret) << dendl;
-      return ret;
-    }
-    max_size = newsize;
-#else
-# error "Journal pre-allocation not supported on platform."
-#endif
   }
   else {
     max_size = oldsize;
@@ -1451,20 +1432,20 @@ int FileJournal::write_aio_bl(off64_t& pos, bufferlist& bl, uint64_t seq)
 void FileJournal::write_finish_thread_entry()
 {
 #ifdef HAVE_LIBAIO
-  dout(10) << "write_finish_thread_entry enter" << dendl;
+  dout(10) << __func__ << " enter" << dendl;
   while (true) {
     {
       Mutex::Locker locker(aio_lock);
       if (aio_queue.empty()) {
 	if (aio_stop)
 	  break;
-	dout(20) << "write_finish_thread_entry sleeping" << dendl;
+	dout(20) << __func__ << " sleeping" << dendl;
 	write_finish_cond.Wait(aio_lock);
 	continue;
       }
     }
 
-    dout(20) << "write_finish_thread_entry waiting for aio(s)" << dendl;
+    dout(20) << __func__ << " waiting for aio(s)" << dendl;
     io_event event[16];
     int r = io_getevents(aio_ctx, 1, 16, event, NULL);
     if (r < 0) {
@@ -1485,14 +1466,14 @@ void FileJournal::write_finish_thread_entry()
 	       << " returned: " << (int)event[i].res << dendl;
 	  assert(0 == "unexpected aio error");
 	}
-	dout(10) << "write_finish_thread_entry aio " << ai->off
+	dout(10) << __func__ << " aio " << ai->off
 		 << "~" << ai->len << " done" << dendl;
 	ai->done = true;
       }
       check_aio_completion();
     }
   }
-  dout(10) << "write_finish_thread_entry exit" << dendl;
+  dout(10) << __func__ << " exit" << dendl;
 #endif
 }
 
