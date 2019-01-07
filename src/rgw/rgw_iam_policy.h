@@ -60,7 +60,7 @@ static constexpr std::uint64_t s3DeleteBucket = 1ULL << 15;
 static constexpr std::uint64_t s3ListBucket = 1ULL << 16;
 static constexpr std::uint64_t s3ListBucketVersions = 1ULL << 17;
 static constexpr std::uint64_t s3ListAllMyBuckets = 1ULL << 18;
-static constexpr std::uint64_t s3ListBucketMultiPartUploads = 1ULL << 19;
+static constexpr std::uint64_t s3ListBucketMultipartUploads = 1ULL << 19;
 static constexpr std::uint64_t s3GetAccelerateConfiguration = 1ULL << 20;
 static constexpr std::uint64_t s3PutAccelerateConfiguration = 1ULL << 21;
 static constexpr std::uint64_t s3GetBucketAcl = 1ULL << 22;
@@ -109,7 +109,7 @@ inline int op_to_perm(std::uint64_t op) {
   case s3GetObjectVersionTagging:
   case s3ListAllMyBuckets:
   case s3ListBucket:
-  case s3ListBucketMultiPartUploads:
+  case s3ListBucketMultipartUploads:
   case s3ListBucketVersions:
   case s3ListMultipartUploadParts:
     return RGW_PERM_READ;
@@ -250,8 +250,9 @@ std::ostream& operator <<(std::ostream& m, const MaskedIP& ip);
 string to_string(const MaskedIP& m);
 
 inline bool operator ==(const MaskedIP& l, const MaskedIP& r) {
-  auto shift = std::max((l.v6 ? 128 : 32) - l.prefix,
-			(r.v6 ? 128 : 32) - r.prefix);
+  auto shift = std::max((l.v6 ? 128 : 32) - ((int) l.prefix),
+			(r.v6 ? 128 : 32) - ((int) r.prefix));
+  ceph_assert(shift >= 0);
   return (l.addr >> shift) == (r.addr >> shift);
 }
 

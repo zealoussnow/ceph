@@ -212,7 +212,8 @@ void RGWOp_User_Modify::execute()
   bool gen_key;
   bool suspended;
   bool system;
-
+  bool email_set;
+  bool quota_set;
   int32_t max_buckets;
 
   RGWUserAdminOpState op_state;
@@ -221,13 +222,13 @@ void RGWOp_User_Modify::execute()
   rgw_user uid(uid_str);
 
   RESTArgs::get_string(s, "display-name", display_name, &display_name);
-  RESTArgs::get_string(s, "email", email, &email);
+  RESTArgs::get_string(s, "email", email, &email, &email_set);
   RESTArgs::get_string(s, "access-key", access_key, &access_key);
   RESTArgs::get_string(s, "secret-key", secret_key, &secret_key);
   RESTArgs::get_string(s, "user-caps", caps, &caps);
   RESTArgs::get_bool(s, "generate-key", false, &gen_key);
   RESTArgs::get_bool(s, "suspended", false, &suspended);
-  RESTArgs::get_int32(s, "max-buckets", RGW_DEFAULT_MAX_BUCKETS, &max_buckets);
+  RESTArgs::get_int32(s, "max-buckets", RGW_DEFAULT_MAX_BUCKETS, &max_buckets, &quota_set);
   RESTArgs::get_string(s, "key-type", key_type_str, &key_type_str);
 
   RESTArgs::get_bool(s, "system", false, &system);
@@ -240,12 +241,15 @@ void RGWOp_User_Modify::execute()
 
   op_state.set_user_id(uid);
   op_state.set_display_name(display_name);
-  op_state.set_user_email(email);
+
+  if (email_set)
+    op_state.set_user_email(email);
+
   op_state.set_caps(caps);
   op_state.set_access_key(access_key);
   op_state.set_secret_key(secret_key);
 
-  if (max_buckets != RGW_DEFAULT_MAX_BUCKETS)
+  if (quota_set)
     op_state.set_max_buckets(max_buckets);
 
   if (gen_key)
@@ -418,8 +422,12 @@ void RGWOp_Subuser_Modify::execute()
 
   op_state.set_user_id(uid);
   op_state.set_subuser(subuser);
-  op_state.set_secret_key(secret_key);
-  op_state.set_gen_secret();
+
+  if (!secret_key.empty())
+    op_state.set_secret_key(secret_key);
+
+  if (gen_secret)
+    op_state.set_gen_secret();
 
   if (!key_type_str.empty()) {
     if (key_type_str.compare("swift") == 0)

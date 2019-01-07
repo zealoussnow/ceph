@@ -131,6 +131,12 @@ which are as follows:
 :command:`zone list`
   List all zones set on this cluster.
 
+:command:`sync error list`
+  list sync error.
+
+:command:`sync error trim`
+  trim sync error.
+
 :command:`pool add`
   Add an existing pool for data placement.
 
@@ -300,8 +306,12 @@ Options
 
 .. option:: --shard-id=<shard-id>
 
-	Optional for mdlog list. Required for ``mdlog trim``,
+	Optional for mdlog list, data sync status. Required for ``mdlog trim``,
 	``replica mdlog get/delete``, ``replica datalog get/delete``.
+
+.. option:: --max-entries=<entries>
+
+	Optional for listing operations to specify the max entires
 
 .. option:: --auth-uid=auid
 

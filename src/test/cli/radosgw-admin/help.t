@@ -140,6 +140,8 @@
     reshard list               list all bucket resharding or scheduled to be reshared
     reshard process            process of scheduled reshard jobs
     reshard cancel             cancel resharding a bucket
+    sync error list            list sync error
+    sync error trim            trim sync error
   options:
      --tenant=<tenant>         tenant name
      --uid=<id>                user id
@@ -158,18 +160,21 @@
      --max-buckets             max number of buckets for a user
      --admin                   set the admin flag on the user
      --system                  set the system flag on the user
-     --bucket=<bucket>
-     --pool=<pool>
-     --object=<object>
-     --date=<date>
-     --start-date=<date>
-     --end-date=<date>
-     --bucket-id=<bucket-id>
-     --shard-id=<shard-id>     optional for mdlog list
+     --bucket=<bucket>         Specify the bucket name. Also used by the quota command.
+     --pool=<pool>             Specify the pool name. Also used to scan for leaked rados objects.
+     --object=<object>         object name
+     --date=<date>             date in the format yyyy-mm-dd
+     --start-date=<date>       start date in the format yyyy-mm-dd
+     --end-date=<date>         end date in the format yyyy-mm-dd
+     --bucket-id=<bucket-id>   bucket id
+     --shard-id=<shard-id>     optional for: 
+                                 mdlog list
+                                 data sync status
                                required for: 
                                  mdlog trim
                                  replica mdlog get/delete
                                  replica datalog get/delete
+     --max-entries=<entries>   max entries for listing operations
      --metadata-key=<key>      key to retrieve metadata from with metadata get
      --remote=<remote>         zone or zonegroup id of remote gateway
      --period=<id>             period id
@@ -227,6 +232,7 @@
                                (NOTE: required to delete a non-empty bucket)
      --sync-stats              option to 'user stats', update user stats with current
                                stats reported by user's buckets indexes
+     --reset-stats             option to 'user stats', reset stats in accordance with user buckets
      --show-log-entries=<flag> enable/disable dump of log entries on log show
      --show-log-sum=<flag>     enable/disable dump of log summation on log show
      --skip-zero-entries       log show only dumps entries that don't have zero value
@@ -273,7 +279,7 @@
      --path-prefix             path prefix for filtering roles
   
     --conf/-c FILE    read configuration from the given configuration file
-    --id/-i ID        set ID portion of my name
+    --id ID           set ID portion of my name
     --name/-n TYPE.ID set name
     --cluster NAME    set cluster name (default: ceph)
     --setuser USER    set uid to user or uid (and gid to user's gid)

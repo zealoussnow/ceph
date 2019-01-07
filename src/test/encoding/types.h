@@ -190,8 +190,8 @@ TYPE(sr_t)
 TYPE(frag_info_t)
 TYPE(nest_info_t)
 TYPE(client_writeable_range_t)
-TYPE_FEATUREFUL(inode_t)
-TYPE_FEATUREFUL(old_inode_t)
+TYPE_FEATUREFUL(inode_t<std::allocator>)
+TYPE_FEATUREFUL(old_inode_t<std::allocator>)
 TYPE(fnode_t)
 TYPE(old_rstat_t)
 TYPE_FEATUREFUL(session_info_t)
@@ -317,6 +317,7 @@ TYPE(rgw_bucket_dir)
 TYPE(rgw_bucket_entry_ver)
 TYPE(cls_rgw_obj_key)
 TYPE(rgw_bucket_olh_log_entry)
+TYPE(rgw_usage_log_entry)
 
 #include "cls/rgw/cls_rgw_ops.h"
 TYPE(rgw_cls_obj_prepare_op)
@@ -389,6 +390,18 @@ TYPE(rgw_obj)
 #include "rgw/rgw_log.h"
 TYPE(rgw_log_entry)
 
+#include "rgw/rgw_sync.h"
+TYPE(rgw_meta_sync_info)
+TYPE(rgw_meta_sync_marker)
+TYPE(rgw_meta_sync_status)
+
+#include "rgw/rgw_data_sync.h"
+TYPE(rgw_data_sync_info)
+TYPE(rgw_data_sync_marker)
+TYPE(rgw_data_sync_status)
+
+#endif
+
 #ifdef WITH_RBD
 #include "cls/rbd/cls_rbd.h"
 TYPE(cls_rbd_parent)
@@ -397,8 +410,6 @@ TYPE(cls_rbd_snap)
 #include "cls/rbd/cls_rbd_types.h"
 TYPE(cls::rbd::MirrorPeer)
 TYPE(cls::rbd::MirrorImage)
-#endif
-
 #endif
 
 #include "cls/lock/cls_lock_types.h"

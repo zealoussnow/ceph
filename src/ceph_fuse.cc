@@ -93,6 +93,19 @@ int main(int argc, const char **argv, const char *envp[]) {
       filer_flags |= CEPH_OSD_FLAG_LOCALIZE_READS;
     } else if (ceph_argparse_flag(args, i, "-h", "--help", (char*)NULL)) {
       usage();
+    } else if (ceph_argparse_flag(args, i, "-V", (char*)nullptr)) {
+      const char* tmpargv[] = {
+	"ceph-fuse",
+	"-V"
+      };
+
+      struct fuse_args fargs = FUSE_ARGS_INIT(2, (char**)tmpargv);
+      if (fuse_parse_cmdline(&fargs, nullptr, nullptr, nullptr) == -1) {
+       derr << "fuse_parse_cmdline failed." << dendl;
+      }
+      assert(fargs.allocated);
+      fuse_opt_free_args(&fargs);
+      exit(0);
     } else {
       ++i;
     }
@@ -158,10 +171,14 @@ int main(int argc, const char **argv, const char *envp[]) {
 #if defined(__linux__)
 	int ver = get_linux_version();
 	assert(ver != 0);
-	bool can_invalidate_dentries = g_conf->client_try_dentry_invalidate &&
-				       ver < KERNEL_VERSION(3, 18, 0);
+        bool client_try_dentry_invalidate = g_conf->get_val<bool>(
+          "client_try_dentry_invalidate");
+	bool can_invalidate_dentries =
+          client_try_dentry_invalidate && ver < KERNEL_VERSION(3, 18, 0);
 	int tr = client->test_dentry_handling(can_invalidate_dentries);
-	if (tr != 0) {
+        bool client_die_on_failed_dentry_invalidate = g_conf->get_val<bool>(
+          "client_die_on_failed_dentry_invalidate");
+	if (tr != 0 && client_die_on_failed_dentry_invalidate) {
 	  cerr << "ceph-fuse[" << getpid()
 	       << "]: fuse failed dentry invalidate/remount test with error "
 	       << cpp_strerror(tr) << ", stopping" << std::endl;
@@ -250,9 +267,11 @@ int main(int argc, const char **argv, const char *envp[]) {
     r = client->mount(g_conf->client_mountpoint.c_str(), perms,
 		      g_ceph_context->_conf->fuse_require_active_mds);
     if (r < 0) {
-      if (r == CEPH_FUSE_NO_MDS_UP)
+      if (r == CEPH_FUSE_NO_MDS_UP) {
         cerr << "ceph-fuse[" << getpid() << "]: probably no MDS server is up?" << std::endl;
-      cerr << "ceph-fuse[" << getpid() << "]: ceph mount failed with " << cpp_strerror(-r) << std::endl;
+      }
+      cerr << "ceph-fuse[" << getpid() << "]: ceph mount failed with " << cpp_strerror(-r) << std::endl;r = EXIT_FAILURE;
+      r = EXIT_FAILURE;
       goto out_shutdown;
     }
 

@@ -5,6 +5,7 @@
 #include "librbd/ImageCtx.h"
 #include "librbd/internal.h"
 #include "librbd/Journal.h"
+#include "librbd/Types.h"
 #include "librbd/Utils.h"
 #include "librbd/cache/ImageCache.h"
 #include "librbd/io/AioCompletion.h"
@@ -27,32 +28,75 @@ using util::get_image_ctx;
 namespace {
 
 template <typename ImageCtxT = ImageCtx>
-struct C_DiscardJournalCommit : public Context {
+struct C_DiscardRequest {
   typedef std::vector<ObjectExtent> ObjectExtents;
 
   ImageCtxT &image_ctx;
-  AioCompletion *aio_comp;
+  AioCompletion *aio_completion;
   ObjectExtents object_extents;
 
-  C_DiscardJournalCommit(ImageCtxT &_image_ctx, AioCompletion *_aio_comp,
-                         const ObjectExtents &_object_extents, uint64_t tid)
-    : image_ctx(_image_ctx), aio_comp(_aio_comp),
-      object_extents(_object_extents) {
+  C_DiscardRequest(ImageCtxT &image_ctx, AioCompletion *aio_completion,
+                   const ObjectExtents &object_extents)
+    : image_ctx(image_ctx), aio_completion(aio_completion),
+      object_extents(object_extents) {
+    aio_completion->add_request();
+  }
+
+  void send() {
+    discard_writeback();
+  }
+
+  void discard_writeback() {
+    CephContext *cct = image_ctx.cct;
+    ldout(cct, 20) << "C_DiscardRequest: delaying cache discard until "
+                   << "writeback flushed" << dendl;
+
+    // ensure we aren't holding the cache lock post-write
+    auto ctx = util::create_async_context_callback(
+      image_ctx, util::create_context_callback<
+        C_DiscardRequest<ImageCtxT>,
+        &C_DiscardRequest<ImageCtxT>::handle_discard_writeback>(this));
+
+    // ensure any in-flight writeback is complete before advancing
+    // the discard request
+    Mutex::Locker cache_locker(image_ctx.cache_lock);
+    image_ctx.object_cacher->discard_writeback(image_ctx.object_set,
+                                               object_extents, ctx);
+  }
+
+  void handle_discard_writeback(int r) {
+    CephContext *cct = image_ctx.cct;
+    ldout(cct, 20) << "C_DiscardRequest: writeback flushed: " << r << dendl;
+
+    {
+      Mutex::Locker cache_locker(image_ctx.cache_lock);
+      image_ctx.object_cacher->discard_set(image_ctx.object_set,
+                                           object_extents);
+    }
+    aio_completion->complete_request(r);
+    delete this;
+  }
+};
+
+template <typename ImageCtxT = ImageCtx>
+struct C_DiscardJournalCommit : public Context {
+  ImageCtxT &image_ctx;
+  C_DiscardRequest<ImageCtxT> *discard_request;
+
+  C_DiscardJournalCommit(ImageCtxT &_image_ctx,
+                         C_DiscardRequest<ImageCtxT> *discard_request,
+                         uint64_t tid)
+    : image_ctx(_image_ctx), discard_request(discard_request) {
     CephContext *cct = image_ctx.cct;
     ldout(cct, 20) << "delaying cache discard until journal tid " << tid << " "
                    << "safe" << dendl;
-
-    aio_comp->add_request();
   }
 
   void finish(int r) override {
     CephContext *cct = image_ctx.cct;
     ldout(cct, 20) << "C_DiscardJournalCommit: "
                    << "journal committed: discarding from cache" << dendl;
-
-    Mutex::Locker cache_locker(image_ctx.cache_lock);
-    image_ctx.object_cacher->discard_set(image_ctx.object_set, object_extents);
-    aio_comp->complete_request(r);
+    discard_request->send();
   }
 };
 
@@ -76,34 +120,6 @@ struct C_FlushJournalCommit : public Context {
     ldout(cct, 20) << "C_FlushJournalCommit: journal committed" << dendl;
     aio_comp->complete_request(r);
   }
-};
-
-template <typename ImageCtxT>
-class C_ObjectCacheRead : public Context {
-public:
-  explicit C_ObjectCacheRead(ImageCtxT &ictx, ObjectReadRequest<ImageCtxT> *req)
-    : m_image_ctx(ictx), m_req(req), m_enqueued(false) {}
-
-  void complete(int r) override {
-    if (!m_enqueued) {
-      // cache_lock creates a lock ordering issue -- so re-execute this context
-      // outside the cache_lock
-      m_enqueued = true;
-      m_image_ctx.op_work_queue->queue(this, r);
-      return;
-    }
-    Context::complete(r);
-  }
-
-protected:
-  void finish(int r) override {
-    m_req->complete(r);
-  }
-
-private:
-  ImageCtxT &m_image_ctx;
-  ObjectReadRequest<ImageCtxT> *m_req;
-  bool m_enqueued;
 };
 
 } // anonymous namespace
@@ -352,23 +368,12 @@ void ImageReadRequest<I>::send_request() {
                      << dendl;
 
       auto req_comp = new io::ReadResult::C_SparseReadRequest<I>(
-        aio_comp);
+        aio_comp, std::move(extent.buffer_extents), true);
       ObjectReadRequest<I> *req = ObjectReadRequest<I>::create(
         &image_ctx, extent.oid.name, extent.objectno, extent.offset,
-        extent.length, extent.buffer_extents, snap_id, true, m_op_flags,
-	this->m_trace, req_comp);
+        extent.length, snap_id, m_op_flags, false, this->m_trace, req_comp);
       req_comp->request = req;
-
-      if (image_ctx.object_cacher) {
-        C_ObjectCacheRead<I> *cache_comp = new C_ObjectCacheRead<I>(image_ctx,
-                                                                    req);
-        image_ctx.aio_read_from_cache(
-          extent.oid, extent.objectno, &req->data(), extent.length,
-          extent.offset, cache_comp, m_op_flags,
-          (this->m_trace.valid() ? &this->m_trace : nullptr));
-      } else {
-        req->send();
-      }
+      req->send();
     }
   }
 
@@ -440,7 +445,7 @@ void AbstractImageWriteRequest<I>::send_request() {
   if (!object_extents.empty()) {
     uint64_t journal_tid = 0;
     aio_comp->set_request_count(
-      object_extents.size() + get_object_cache_request_count(journaling));
+      object_extents.size() + get_object_cache_request_count());
 
     ObjectRequests requests;
     send_object_requests(object_extents, snapc,
@@ -605,7 +610,7 @@ uint64_t ImageDiscardRequest<I>::append_journal_event(
                                                              this->m_skip_partial_discard));
     tid = image_ctx.journal->append_io_event(std::move(event_entry),
                                              requests, extent.first,
-                                             extent.second, synchronous);
+                                             extent.second, synchronous, 0);
   }
 
   AioCompletion *aio_comp = this->m_aio_comp;
@@ -636,10 +641,10 @@ int ImageDiscardRequest<I>::prune_object_extents(ObjectExtents &object_extents) 
 }
 
 template <typename I>
-uint32_t ImageDiscardRequest<I>::get_object_cache_request_count(bool journaling) const {
-  // extra completion request is required for tracking journal commit
+uint32_t ImageDiscardRequest<I>::get_object_cache_request_count() const {
+  // extra completion request is required for tracking discard
   I &image_ctx = this->m_image_ctx;
-  return (image_ctx.object_cacher != nullptr && journaling ? 1 : 0);
+  return (image_ctx.object_cacher != nullptr ? 1 : 0);
 }
 
 template <typename I>
@@ -660,17 +665,15 @@ template <typename I>
 void ImageDiscardRequest<I>::send_object_cache_requests(
     const ObjectExtents &object_extents, uint64_t journal_tid) {
   I &image_ctx = this->m_image_ctx;
+  auto aio_comp = this->m_aio_comp;
+  auto req = new C_DiscardRequest<I>(image_ctx, aio_comp, object_extents);
   if (journal_tid == 0) {
-    Mutex::Locker cache_locker(image_ctx.cache_lock);
-    image_ctx.object_cacher->discard_set(image_ctx.object_set,
-                                         object_extents);
+    req->send();
   } else {
     // cannot discard from cache until journal has committed
     assert(image_ctx.journal != NULL);
-    AioCompletion *aio_comp = this->m_aio_comp;
     image_ctx.journal->wait_event(
-      journal_tid, new C_DiscardJournalCommit<I>(image_ctx, aio_comp,
-                                                 object_extents, journal_tid));
+      journal_tid, new C_DiscardJournalCommit<I>(image_ctx, req, journal_tid));
   }
 }
 
@@ -680,22 +683,10 @@ ObjectRequestHandle *ImageDiscardRequest<I>::create_object_request(
     Context *on_finish) {
   I &image_ctx = this->m_image_ctx;
 
-  ObjectRequest<I> *req;
-  if (object_extent.length == image_ctx.layout.object_size) {
-    req = ObjectRequest<I>::create_remove(
-      &image_ctx, object_extent.oid.name, object_extent.objectno, snapc,
-      this->m_trace, on_finish);
-  } else if (object_extent.offset + object_extent.length ==
-               image_ctx.layout.object_size) {
-    req = ObjectRequest<I>::create_truncate(
-      &image_ctx, object_extent.oid.name, object_extent.objectno,
-      object_extent.offset, snapc, this->m_trace, on_finish);
-  } else {
-    req = ObjectRequest<I>::create_zero(
-      &image_ctx, object_extent.oid.name, object_extent.objectno,
-      object_extent.offset, object_extent.length, snapc,
-      this->m_trace, on_finish);
-  }
+  auto req = ObjectRequest<I>::create_discard(
+    &image_ctx, object_extent.oid.name, object_extent.objectno,
+    object_extent.offset, object_extent.length, snapc, true, true,
+    this->m_trace, on_finish);
   return req;
 }
 
@@ -723,7 +714,7 @@ void ImageFlushRequest<I>::send_request() {
     // in-flight ops are flushed prior to closing the journal
     uint64_t journal_tid = image_ctx.journal->append_io_event(
       journal::EventEntry(journal::AioFlushEvent()),
-      ObjectRequests(), 0, 0, false);
+      ObjectRequests(), 0, 0, false, 0);
 
     aio_comp->set_request_count(1);
     aio_comp->associate_journal_event(journal_tid);
@@ -822,7 +813,7 @@ uint64_t ImageWriteSameRequest<I>::append_journal_event(
                                                                m_data_bl));
     tid = image_ctx.journal->append_io_event(std::move(event_entry),
                                              requests, extent.first,
-                                             extent.second, synchronous);
+                                             extent.second, synchronous, 0);
   }
 
   if (image_ctx.object_cacher == NULL) {
@@ -923,7 +914,7 @@ uint64_t ImageCompareAndWriteRequest<I>::append_journal_event(
                                                                    m_cmp_bl, m_bl));
   tid = image_ctx.journal->append_io_event(std::move(event_entry),
                                            requests, extent.first,
-                                           extent.second, synchronous);
+                                           extent.second, synchronous, -EILSEQ);
 
   AioCompletion *aio_comp = this->m_aio_comp;
   aio_comp->associate_journal_event(tid);
@@ -932,14 +923,21 @@ uint64_t ImageCompareAndWriteRequest<I>::append_journal_event(
 }
 
 template <typename I>
+uint32_t ImageCompareAndWriteRequest<I>::get_object_cache_request_count() const {
+  // extra completion request is required for tracking discard
+  I &image_ctx = this->m_image_ctx;
+  return (image_ctx.object_cacher != nullptr ? 1 : 0);
+}
+
+template <typename I>
 void ImageCompareAndWriteRequest<I>::send_object_cache_requests(
   const ObjectExtents &object_extents, uint64_t journal_tid) {
   I &image_ctx = this->m_image_ctx;
 
   if (image_ctx.object_cacher != NULL) {
-    Mutex::Locker cache_locker(image_ctx.cache_lock);
-    image_ctx.object_cacher->discard_set(image_ctx.object_set,
-                                         object_extents);
+    auto aio_comp = this->m_aio_comp;
+    auto req = new C_DiscardRequest<I>(image_ctx, aio_comp, object_extents);
+    req->send();
   }
 }
 

@@ -12,6 +12,7 @@
  * 
  */
 
+#include <boost/utility/string_view.hpp>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -108,7 +109,7 @@ void MDSCapMatch::normalize_path()
   // drop ..
 }
 
-bool MDSCapMatch::match(const std::string &target_path,
+bool MDSCapMatch::match(boost::string_view target_path,
 			const int caller_uid,
 			const int caller_gid,
 			const vector<uint64_t> *caller_gid_list) const
@@ -116,19 +117,21 @@ bool MDSCapMatch::match(const std::string &target_path,
   if (uid != MDS_AUTH_UID_ANY) {
     if (uid != caller_uid)
       return false;
-    bool gid_matched = false;
-    if (std::find(gids.begin(), gids.end(), caller_gid) != gids.end())
-      gid_matched = true;
-    if (caller_gid_list) {
-      for (auto i = caller_gid_list->begin(); i != caller_gid_list->end(); ++i) {
-	if (std::find(gids.begin(), gids.end(), *i) != gids.end()) {
-	  gid_matched = true;
-	  break;
+    if (!gids.empty()) {
+      bool gid_matched = false;
+      if (std::find(gids.begin(), gids.end(), caller_gid) != gids.end())
+	gid_matched = true;
+      if (caller_gid_list) {
+	for (auto i = caller_gid_list->begin(); i != caller_gid_list->end(); ++i) {
+	  if (std::find(gids.begin(), gids.end(), *i) != gids.end()) {
+	    gid_matched = true;
+	    break;
+	  }
 	}
       }
+      if (!gid_matched)
+	return false;
     }
-    if (!gid_matched)
-      return false;
   }
 
   if (!match_path(target_path)) {
@@ -138,7 +141,7 @@ bool MDSCapMatch::match(const std::string &target_path,
   return true;
 }
 
-bool MDSCapMatch::match_path(const std::string &target_path) const
+bool MDSCapMatch::match_path(boost::string_view target_path) const
 {
   if (path.length()) {
     if (target_path.find(path) != 0)
@@ -158,7 +161,7 @@ bool MDSCapMatch::match_path(const std::string &target_path) const
  * Is the client *potentially* able to access this path?  Actual
  * permission will depend on uids/modes in the full is_capable.
  */
-bool MDSAuthCaps::path_capable(const std::string &inode_path) const
+bool MDSAuthCaps::path_capable(boost::string_view inode_path) const
 {
   for (const auto &i : grants) {
     if (i.match.match_path(inode_path)) {
@@ -176,7 +179,7 @@ bool MDSAuthCaps::path_capable(const std::string &inode_path) const
  * This is true if any of the 'grant' clauses in the capability match the
  * requested path + op.
  */
-bool MDSAuthCaps::is_capable(const std::string &inode_path,
+bool MDSAuthCaps::is_capable(boost::string_view inode_path,
 			     uid_t inode_uid, gid_t inode_gid,
 			     unsigned inode_mode,
 			     uid_t caller_uid, gid_t caller_gid,
@@ -276,7 +279,7 @@ void MDSAuthCaps::set_allow_all()
                        MDSCapMatch()));
 }
 
-bool MDSAuthCaps::parse(CephContext *c, const std::string& str, ostream *err)
+bool MDSAuthCaps::parse(CephContext *c, boost::string_view str, ostream *err)
 {
   // Special case for legacy caps
   if (str == "allow") {
@@ -285,9 +288,9 @@ bool MDSAuthCaps::parse(CephContext *c, const std::string& str, ostream *err)
     return true;
   }
 
-  MDSCapParser<std::string::const_iterator> g;
-  std::string::const_iterator iter = str.begin();
-  std::string::const_iterator end = str.end();
+  auto iter = str.begin();
+  auto end = str.end();
+  MDSCapParser<decltype(iter)> g;
 
   bool r = qi::phrase_parse(iter, end, g, ascii::space, *this);
   cct = c;  // set after parser self-assignment

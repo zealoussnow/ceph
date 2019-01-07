@@ -43,7 +43,7 @@ add_ceph_unittest(unittest_prioritized_queue ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/u
 target_link_libraries(unittest_prioritized_queue global ${BLKID_LIBRARIES})
 
 # unittest_mclock_priority_queue
-add_executable(unittest_mclock_priority_queue EXCLUDE_FROM_ALL
+add_executable(unittest_mclock_priority_queue
   test_mclock_priority_queue.cc
   )
 add_ceph_unittest(unittest_mclock_priority_queue ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/unittest_mclock_priority_queue)
@@ -276,3 +276,10 @@ add_ceph_unittest(unittest_iso_8601
 add_executable(unittest_backport14 test_backport14.cc)
 add_ceph_unittest(unittest_backport14
   ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/unittest_backport14)
+
+add_executable(unittest_bounded_key_counter
+  test_bounded_key_counter.cc
+  $<TARGET_OBJECTS:unit-main>)
+target_link_libraries(unittest_bounded_key_counter global)
+add_ceph_unittest(unittest_bounded_key_counter
+  ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/unittest_bounded_key_counter)

@@ -187,9 +187,13 @@ PyObject *ActivePyModules::get_python(const std::string &what)
       }
     });
     return f.get();
-  } else if (what == "config") {
+  } else if (what.substr(0, 6) == "config") {
     PyFormatter f;
-    g_conf->show_config(&f);
+    if (what == "config_options") {
+      g_conf->config_options(&f);  
+    } else if (what == "config") {
+      g_conf->show_config(&f);
+    }
     return f.get();
   } else if (what == "mon_map") {
     PyFormatter f;
@@ -259,6 +263,9 @@ PyObject *ActivePyModules::get_python(const std::string &what)
           for (const auto &i : all) {
             f.dump_int(i.first.c_str(), i.second);
           }
+          f.close_section();
+          f.open_object_section("pg_stats_sum");
+          pg_map.pg_sum.dump(&f);
           f.close_section();
         }
     );
@@ -330,7 +337,7 @@ int ActivePyModules::start_one(std::string const &module_name,
 
   modules[module_name].reset(new ActivePyModule(
       module_name, pClass,
-      pMyThreadState));
+      pMyThreadState, clog));
 
   int r = modules[module_name]->load(this);
   if (r != 0) {
@@ -555,13 +562,24 @@ PyObject* ActivePyModules::get_counter_python(
     Mutex::Locker l2(metadata->lock);
     if (metadata->perf_counters.instances.count(path)) {
       auto counter_instance = metadata->perf_counters.instances.at(path);
-      const auto &data = counter_instance.get_data();
-      for (const auto &datapoint : data) {
-        f.open_array_section("datapoint");
-        f.dump_unsigned("t", datapoint.t.sec());
-        f.dump_unsigned("v", datapoint.v);
-        f.close_section();
-
+      auto counter_type = metadata->perf_counters.types.at(path);
+      if (counter_type.type & PERFCOUNTER_LONGRUNAVG) {
+        const auto &avg_data = counter_instance.get_data_avg();
+        for (const auto &datapoint : avg_data) {
+          f.open_array_section("datapoint");
+          f.dump_unsigned("t", datapoint.t.sec());
+          f.dump_unsigned("s", datapoint.s);
+          f.dump_unsigned("c", datapoint.c);
+          f.close_section();
+        }
+      } else {
+        const auto &data = counter_instance.get_data();
+        for (const auto &datapoint : data) {
+          f.open_array_section("datapoint");
+          f.dump_unsigned("t", datapoint.t.sec());
+          f.dump_unsigned("v", datapoint.v);
+          f.close_section();
+        }
       }
     } else {
       dout(4) << "Missing counter: '" << path << "' ("
@@ -623,6 +641,7 @@ PyObject* ActivePyModules::get_perf_schema_python(
 	}
 	f.dump_unsigned("type", type.type);
 	f.dump_unsigned("priority", type.priority);
+	f.dump_unsigned("units", type.unit);
 	f.close_section();
       }
       f.close_section();

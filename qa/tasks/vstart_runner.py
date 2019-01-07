@@ -373,6 +373,14 @@ class LocalDaemon(object):
 
         self.proc = self.controller.run([os.path.join(BIN_PREFIX, "./ceph-{0}".format(self.daemon_type)), "-i", self.daemon_id])
 
+    def signal(self, sig, silent=False):
+        if not self.running():
+            raise RuntimeError("Can't send signal to non-running daemon")
+
+        os.kill(self._get_pid(), sig)
+        if not silent:
+            log.info("Sent signal {0} to {1}.{2}".format(sig, self.daemon_type, self.daemon_id))
+
 
 def safe_kill(pid):
     """
@@ -462,7 +470,7 @@ class LocalFuseMount(FuseMount):
 
         prefix = [os.path.join(BIN_PREFIX, "ceph-fuse")]
         if os.getuid() != 0:
-            prefix += ["--client-die-on-failed-remount=false"]
+            prefix += ["--client_die_on_failed_dentry_invalidate=false"]
 
         if mount_path is not None:
             prefix += ["--client_mountpoint={0}".format(mount_path)]
@@ -508,15 +516,13 @@ class LocalFuseMount(FuseMount):
         else:
             self._fuse_conn = new_conns[0]
 
-    def _run_python(self, pyscript):
+    def _run_python(self, pyscript, py_version='python'):
         """
         Override this to remove the daemon-helper prefix that is used otherwise
         to make the process killable.
         """
-        return self.client_remote.run(args=[
-            'python', '-c', pyscript
-        ], wait=False)
-
+        return self.client_remote.run(args=[py_version, '-c', pyscript],
+                                      wait=False)
 
 class LocalCephManager(CephManager):
     def __init__(self):
@@ -697,6 +703,7 @@ class LocalFilesystem(Filesystem, LocalMDSCluster):
 
         self.id = None
         self.name = None
+        self.ec_profile = None
         self.metadata_pool_name = None
         self.metadata_overlay = False
         self.data_pool_name = None

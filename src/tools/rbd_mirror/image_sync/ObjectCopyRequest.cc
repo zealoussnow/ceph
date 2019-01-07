@@ -173,6 +173,13 @@ template <typename I>
 void ObjectCopyRequest<I>::handle_read_object(int r) {
   dout(20) << ": r=" << r << dendl;
 
+  auto snap_seq = m_snap_sync_ops.begin()->first.second;
+  if (r == -ENOENT && m_read_whole_object[snap_seq]) {
+    dout(5) << ": object missing when forced to read whole object"
+            << dendl;
+    r = 0;
+  }
+
   if (r == -ENOENT) {
     m_retry_snap_set = m_snap_set;
     m_retry_missing_read = true;
@@ -211,14 +218,15 @@ void ObjectCopyRequest<I>::send_write_object() {
     }
   }
 
+  int r;
   Context *finish_op_ctx;
   {
     RWLock::RLocker owner_locker(m_local_image_ctx->owner_lock);
-    finish_op_ctx = start_local_op(m_local_image_ctx->owner_lock);
+    finish_op_ctx = start_local_op(m_local_image_ctx->owner_lock, &r);
   }
   if (finish_op_ctx == nullptr) {
     derr << ": lost exclusive lock" << dendl;
-    finish(-EROFS);
+    finish(r);
     return;
   }
 
@@ -287,8 +295,8 @@ void ObjectCopyRequest<I>::send_write_object() {
       finish_op_ctx->complete(0);
     });
   librados::AioCompletion *comp = create_rados_callback(ctx);
-  int r = m_local_io_ctx.aio_operate(m_local_oid, comp, &op, local_snap_seq,
-                                     local_snap_ids);
+  r = m_local_io_ctx.aio_operate(m_local_oid, comp, &op, local_snap_seq,
+                                 local_snap_ids);
   assert(r == 0);
   comp->release();
 }
@@ -347,12 +355,13 @@ void ObjectCopyRequest<I>::send_update_object_map() {
            << "object_state=" << static_cast<uint32_t>(snap_object_state.second)
            << dendl;
 
-  auto finish_op_ctx = start_local_op(m_local_image_ctx->owner_lock);
+  int r;
+  auto finish_op_ctx = start_local_op(m_local_image_ctx->owner_lock, &r);
   if (finish_op_ctx == nullptr) {
     derr << ": lost exclusive lock" << dendl;
     m_local_image_ctx->snap_lock.put_read();
     m_local_image_ctx->owner_lock.put_read();
-    finish(-EROFS);
+    finish(r);
     return;
   }
 
@@ -365,7 +374,7 @@ void ObjectCopyRequest<I>::send_update_object_map() {
   bool sent = m_local_image_ctx->object_map->template aio_update<
     Context, &Context::complete>(
       snap_object_state.first, m_object_number, snap_object_state.second, {},
-      {}, ctx);
+      {}, false, ctx);
   assert(sent);
   m_local_image_ctx->snap_lock.put_read();
   m_local_image_ctx->owner_lock.put_read();
@@ -384,12 +393,13 @@ void ObjectCopyRequest<I>::handle_update_object_map(int r) {
 }
 
 template <typename I>
-Context *ObjectCopyRequest<I>::start_local_op(RWLock &owner_lock) {
+Context *ObjectCopyRequest<I>::start_local_op(RWLock &owner_lock, int *r) {
   assert(m_local_image_ctx->owner_lock.is_locked());
   if (m_local_image_ctx->exclusive_lock == nullptr) {
+    *r = -EROFS;
     return nullptr;
   }
-  return m_local_image_ctx->exclusive_lock->start_op();
+  return m_local_image_ctx->exclusive_lock->start_op(r);
 }
 
 template <typename I>
@@ -413,9 +423,18 @@ void ObjectCopyRequest<I>::compute_diffs() {
     uint64_t end_size;
     bool exists;
     librados::snap_t clone_end_snap_id;
+    bool read_whole_object;
     calc_snap_set_diff(cct, m_snap_set, start_remote_snap_id,
                        end_remote_snap_id, &diff, &end_size, &exists,
-                       &clone_end_snap_id);
+                       &clone_end_snap_id, &read_whole_object);
+
+    if (read_whole_object) {
+      dout(1) << ": need to read full object" << dendl;
+      diff.insert(0, m_remote_image_ctx->layout.object_size);
+      exists = true;
+      end_size = m_remote_image_ctx->layout.object_size;
+      clone_end_snap_id = end_remote_snap_id;
+    }
 
     dout(20) << ": "
              << "start_remote_snap=" << start_remote_snap_id << ", "
@@ -455,6 +474,7 @@ void ObjectCopyRequest<I>::compute_diffs() {
         // do not read past the sync point snapshot
         clone_end_snap_id = remote_sync_pont_snap_id;
       }
+      m_read_whole_object[clone_end_snap_id] = read_whole_object;
 
       // object write/zero, or truncate
       // NOTE: a single snapshot clone might represent multiple snapshots, but

@@ -1059,6 +1059,8 @@ def osd_scrub_pgs(ctx, config):
         # allow this to fail; in certain cases the OSD might not be up
         # at this point.  we will catch all pgs below.
         try:
+            manager.raw_cluster_cmd('tell', 'osd.' + id_, 'config', 'set',
+                                    'osd_debug_deep_scrub_sleep', '0');
             manager.raw_cluster_cmd('osd', 'deep-scrub', id_)
         except run.CommandFailedError:
             pass
@@ -1256,12 +1258,13 @@ def healthy(ctx, config):
         log.info('ignoring flush pg stats error, probably testing upgrade: %s', e)
     manager.wait_for_clean()
 
-    log.info('Waiting until ceph cluster %s is healthy...', cluster_name)
-    teuthology.wait_until_healthy(
-        ctx,
-        remote=mon0_remote,
-        ceph_cluster=cluster_name,
-    )
+    if config.get('wait-for-healthy', True):
+        log.info('Waiting until ceph cluster %s is healthy...', cluster_name)
+        teuthology.wait_until_healthy(
+            ctx,
+            remote=mon0_remote,
+            ceph_cluster=cluster_name,
+        )
 
     if ctx.cluster.only(teuthology.is_type('mds', cluster_name)).remotes:
         # Some MDSs exist, wait for them to be healthy

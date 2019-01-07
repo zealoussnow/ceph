@@ -154,43 +154,37 @@ static int get_obj_vals(cls_method_context_t hctx, const string& start, const st
   if (pkeys->empty())
     return 0;
 
-  map<string, bufferlist>::reverse_iterator last_element = pkeys->rbegin();
+  auto last_element = pkeys->rbegin();
   if ((unsigned char)last_element->first[0] < BI_PREFIX_CHAR) {
     /* nothing to see here, move along */
     return 0;
   }
 
-  map<string, bufferlist>::iterator first_element = pkeys->begin();
+  auto first_element = pkeys->begin();
   if ((unsigned char)first_element->first[0] > BI_PREFIX_CHAR) {
     return 0;
   }
 
   /* let's rebuild the list, only keep entries we're interested in */
-  map<string, bufferlist> old_keys;
-  old_keys.swap(*pkeys);
+  auto comp = [](const pair<string, bufferlist>& l, const string &r) { return l.first < r; };
+  string new_start = {static_cast<char>(BI_PREFIX_CHAR + 1)};
 
-  for (map<string, bufferlist>::iterator iter = old_keys.begin(); iter != old_keys.end(); ++iter) {
-    if ((unsigned char)iter->first[0] != BI_PREFIX_CHAR) {
-      (*pkeys)[iter->first] = iter->second;
-    }
-  }
+  auto lower = pkeys->lower_bound(string{static_cast<char>(BI_PREFIX_CHAR)});
+  auto upper = std::lower_bound(lower, pkeys->end(), new_start, comp);
+  pkeys->erase(lower, upper);
 
   if (num_entries == (int)pkeys->size())
     return 0;
 
   map<string, bufferlist> new_keys;
-  char c[] = { (char)(BI_PREFIX_CHAR + 1), 0 };
-  string new_start = c;
 
   /* now get some more keys */
   ret = cls_cxx_map_get_vals(hctx, new_start, filter_prefix, num_entries - pkeys->size(), &new_keys, pmore);
   if (ret < 0)
     return ret;
 
-  for (map<string, bufferlist>::iterator iter = new_keys.begin(); iter != new_keys.end(); ++iter) {
-    (*pkeys)[iter->first] = iter->second;
-  }
-
+  pkeys->insert(std::make_move_iterator(new_keys.begin()),
+                std::make_move_iterator(new_keys.end()));
   return 0;
 }
 
@@ -317,12 +311,20 @@ static void split_key(const string& key, list<string>& vals)
   }
 }
 
+static string escape_str(const string& s)
+{
+   int len = escape_json_attr_len(s.c_str(), s.size());
+   char escaped[len];
+   escape_json_attr(s.c_str(), s.size(), escaped);
+   return string(escaped);
+}
+
 /*
  * list index key structure:
  *
  * <obj name>\0[v<ver>\0i<instance id>]
  */
-static void decode_list_index_key(const string& index_key, cls_rgw_obj_key *key, uint64_t *ver)
+static int decode_list_index_key(const string& index_key, cls_rgw_obj_key *key, uint64_t *ver)
 {
   size_t len = strlen(index_key.c_str());
 
@@ -331,19 +333,25 @@ static void decode_list_index_key(const string& index_key, cls_rgw_obj_key *key,
 
   if (len == index_key.size()) {
     key->name = index_key;
-    return;
+    return 0;
   }
 
   list<string> vals;
   split_key(index_key, vals);
 
-  assert(!vals.empty());
+  if (vals.empty()) {
+    CLS_LOG(0, "ERROR: %s(): bad index_key (%s): split_key() returned empty vals", __func__, escape_str(index_key).c_str());
+    return -EIO;
+  }
 
   list<string>::iterator iter = vals.begin();
   key->name = *iter;
   ++iter;
 
-  assert(iter != vals.end());
+  if (iter == vals.end()) {
+    CLS_LOG(0, "ERROR: %s(): bad index_key (%s): no vals", __func__, escape_str(index_key).c_str());
+    return -EIO;
+  }
 
   for (; iter != vals.end(); ++iter) {
     string& val = *iter;
@@ -353,9 +361,14 @@ static void decode_list_index_key(const string& index_key, cls_rgw_obj_key *key,
       string err;
       const char *s = val.c_str() + 1;
       *ver = strict_strtoll(s, 10, &err);
-      assert(err.empty());
+      if (!err.empty()) {
+        CLS_LOG(0, "ERROR: %s(): bad index_key (%s): could not parse val (v=%s)", __func__, escape_str(index_key).c_str(), s);
+        return -EIO;
+      }
     }
   }
+
+  return 0;
 }
 
 static int read_bucket_header(cls_method_context_t hctx, struct rgw_bucket_dir_header *header)
@@ -436,10 +449,15 @@ int rgw_bucket_list(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
 
       cls_rgw_obj_key key;
       uint64_t ver;
-      decode_list_index_key(kiter->first, &key, &ver);
 
       start_key = kiter->first;
       CLS_LOG(20, "start_key=%s len=%zu", start_key.c_str(), start_key.size());
+
+      int ret = decode_list_index_key(kiter->first, &key, &ver);
+      if (ret < 0) {
+        CLS_LOG(0, "ERROR: failed to decode list index key (%s)\n", escape_str(kiter->first).c_str());
+        continue;
+      }
 
       if (!entry.is_valid()) {
         CLS_LOG(20, "entry %s[%s] is not valid\n", key.name.c_str(), key.instance.c_str());
@@ -579,6 +597,7 @@ int rgw_bucket_update_stats(cls_method_context_t hctx, bufferlist *in, bufferlis
       dest.total_size += s.second.total_size;
       dest.total_size_rounded += s.second.total_size_rounded;
       dest.num_entries += s.second.num_entries;
+      dest.actual_size += s.second.actual_size;
     }
   }
 
@@ -989,14 +1008,6 @@ static void update_olh_log(struct rgw_bucket_olh_entry& olh_data_entry, OLHLogOp
   log_entry.key = key;
   log_entry.delete_marker = delete_marker;
   log.push_back(log_entry);
-}
-
-static string escape_str(const string& s)
-{
-   int len = escape_json_attr_len(s.c_str(), s.size());
-   char escaped[len];
-   escape_json_attr(s.c_str(), s.size(), escaped);
-   return string(escaped);
 }
 
 static int write_obj_instance_entry(cls_method_context_t hctx, struct rgw_bucket_dir_entry& instance_entry, const string& instance_idx)
@@ -1684,7 +1695,7 @@ static int rgw_bucket_unlink_instance(cls_method_context_t hctx, bufferlist *in,
     rgw_bucket_entry_ver ver;
     ver.epoch = (op.olh_epoch ? op.olh_epoch : olh.get_epoch());
 
-    real_time mtime = real_clock::now(); /* mtime has no real meaning in instance removal context */
+    real_time mtime = obj.mtime(); /* mtime has no real meaning in instance removal context */
     ret = log_index_operation(hctx, op.key, CLS_RGW_OP_UNLINK_INSTANCE, op.op_tag,
                               mtime, ver,
                               CLS_RGW_STATE_COMPLETE, header.ver, header.max_marker,
@@ -1905,6 +1916,10 @@ int rgw_dir_suggest_changes(cls_method_context_t hctx,
     if (ret < 0 && ret != -ENOENT)
       return -EINVAL;
 
+    if (ret == -ENOENT) {
+      continue;
+    }
+
     if (cur_disk_bl.length()) {
       bufferlist::iterator cur_disk_iter = cur_disk_bl.begin();
       try {
@@ -1959,18 +1974,6 @@ int rgw_dir_suggest_changes(cls_method_context_t hctx,
         }
         break;
       case CEPH_RGW_UPDATE:
-	if (!cur_disk.exists) {
-	  // this update would only have been sent by the rgw client
-	  // if the rgw_bucket_dir_entry existed, however between that
-	  // check and now the entry has diappeared, so we were likely
-	  // in the midst of a delete op, and we will not recreate the
-	  // entry
-	  CLS_LOG(10,
-		  "CEPH_RGW_UPDATE not applied because rgw_bucket_dir_entry"
-		  " no longer exists\n");
-	  break;
-	}
-
         CLS_LOG(10, "CEPH_RGW_UPDATE name=%s instance=%s total_entries: %" PRId64 " -> %" PRId64 "\n",
                 cur_change.key.name.c_str(), cur_change.key.instance.c_str(), stats.num_entries, stats.num_entries + 1);
 
@@ -2296,6 +2299,9 @@ static int list_plain_entries(cls_method_context_t hctx, const string& name, con
   for (iter = keys.begin(); iter != keys.end(); ++iter) {
     if (iter->first >= end_key) {
       /* past the end of plain namespace */
+      if (pmore) {
+	*pmore = false;
+      }
       return count;
     }
 
@@ -2317,6 +2323,10 @@ static int list_plain_entries(cls_method_context_t hctx, const string& name, con
     CLS_LOG(20, "%s(): entry.idx=%s e.key.name=%s", __func__, escape_str(entry.idx).c_str(), escape_str(e.key.name).c_str());
 
     if (!name.empty() && e.key.name != name) {
+      /* we are skipping the rest of the entries */
+      if (pmore) {
+	*pmore = false;
+      }
       return count;
     }
 
@@ -2379,6 +2389,10 @@ static int list_instance_entries(cls_method_context_t hctx, const string& name, 
     entry.data = iter->second;
 
     if (!filter.empty() && entry.idx.compare(0, filter.size(), filter) != 0) {
+      /* we are skipping the rest of the entries */
+      if (pmore) {
+	*pmore = false;
+      }
       return count;
     }
 
@@ -2395,6 +2409,10 @@ static int list_instance_entries(cls_method_context_t hctx, const string& name, 
     }
 
     if (!name.empty() && e.key.name != name) {
+      /* we are skipping the rest of the entries */
+      if (pmore) {
+	*pmore = false;
+      }
       return count;
     }
 
@@ -2456,6 +2474,10 @@ static int list_olh_entries(cls_method_context_t hctx, const string& name, const
     entry.data = iter->second;
 
     if (!filter.empty() && entry.idx.compare(0, filter.size(), filter) != 0) {
+      /* we are skipping the rest of the entries */
+      if (pmore) {
+	*pmore = false;
+      }
       return count;
     }
 
@@ -2472,6 +2494,10 @@ static int list_olh_entries(cls_method_context_t hctx, const string& name, const
     }
 
     if (!name.empty() && e.key.name != name) {
+      /* we are skipping the rest of the entries */
+      if (pmore) {
+	*pmore = false;
+      }
       return count;
     }
 
@@ -2502,7 +2528,7 @@ static int rgw_bi_list_op(cls_method_context_t hctx, bufferlist *in, bufferlist 
   int32_t max = (op.max < MAX_BI_LIST_ENTRIES ? op.max : MAX_BI_LIST_ENTRIES);
   string start_key = op.marker;
   bool more;
-  int ret = list_plain_entries(hctx, op.name, op.marker, max, &op_ret.entries, &more); 
+  int ret = list_plain_entries(hctx, op.name, op.marker, max, &op_ret.entries, &more);
   if (ret < 0) {
     CLS_LOG(0, "ERROR: %s(): list_plain_entries retured ret=%d", __func__, ret);
     return ret;
@@ -2532,7 +2558,7 @@ static int rgw_bi_list_op(cls_method_context_t hctx, bufferlist *in, bufferlist 
   }
 
   op_ret.is_truncated = (count >= max) || more;
-  while (count >= max) {
+  while (count > max) {
     op_ret.entries.pop_back();
     count--;
   }
@@ -2611,6 +2637,9 @@ static int bi_log_iterate_entries(cls_method_context_t hctx, const string& marke
 
     if (key.compare(end_key) > 0) {
       key_iter = key;
+      if (truncated) {
+        *truncated = false;
+      }
       return 0;
     }
 
@@ -2917,6 +2946,8 @@ static int usage_iterate_range(cls_method_context_t hctx, uint64_t start, uint64
   string user_key;
   bool truncated_status = false;
 
+  assert(truncated != nullptr);
+
   if (!by_user) {
     usage_record_prefix_by_time(end, end_key);
   } else {
@@ -2939,9 +2970,7 @@ static int usage_iterate_range(cls_method_context_t hctx, uint64_t start, uint64
   if (ret < 0)
     return ret;
 
-  if (truncated) {
-    *truncated = truncated_status;
-  }
+  *truncated = truncated_status;
       
   map<string, bufferlist>::iterator iter = keys.begin();
   if (iter == keys.end())
@@ -2955,17 +2984,15 @@ static int usage_iterate_range(cls_method_context_t hctx, uint64_t start, uint64
 
     if (!by_user && key.compare(end_key) >= 0) {
       CLS_LOG(20, "usage_iterate_range reached key=%s, done", key.c_str());
-      if (truncated_status) {
-        key_iter = key;
-      }
+      *truncated = false;
+      key_iter = key;
       return 0;
     }
 
     if (by_user && key.compare(0, user_key.size(), user_key) != 0) {
       CLS_LOG(20, "usage_iterate_range reached key=%s, done", key.c_str());
-      if (truncated_status) {
-        key_iter = key;
-      }
+      *truncated = false;
+      key_iter = key;
       return 0;
     }
 
@@ -2977,8 +3004,10 @@ static int usage_iterate_range(cls_method_context_t hctx, uint64_t start, uint64
       continue;
 
     /* keys are sorted by epoch, so once we're past end we're done */
-    if (e.epoch >= end)
+    if (e.epoch >= end) {
+      *truncated = false;
       return 0;
+    }
 
     ret = cb(hctx, key, e, param);
     if (ret < 0)
@@ -3041,6 +3070,10 @@ int rgw_user_usage_log_read(cls_method_context_t hctx, bufferlist *in, bufferlis
 
 static int usage_log_trim_cb(cls_method_context_t hctx, const string& key, rgw_usage_log_entry& entry, void *param)
 {
+  bool *found = (bool *)param;
+  if (found) {
+    *found = true;
+  }
   string key_by_time;
   string key_by_user;
 
@@ -3076,10 +3109,14 @@ int rgw_user_usage_log_trim(cls_method_context_t hctx, bufferlist *in, bufferlis
 
   string iter;
   bool more;
+  bool found = false;
 #define MAX_USAGE_TRIM_ENTRIES 128
-  ret = usage_iterate_range(hctx, op.start_epoch, op.end_epoch, op.user, iter, MAX_USAGE_TRIM_ENTRIES, &more, usage_log_trim_cb, NULL);
+  ret = usage_iterate_range(hctx, op.start_epoch, op.end_epoch, op.user, iter, MAX_USAGE_TRIM_ENTRIES, &more, usage_log_trim_cb, (void *)&found);
   if (ret < 0)
     return ret;
+
+  if (!more && !found)
+    return -ENODATA;
 
   return 0;
 }
@@ -3270,7 +3307,7 @@ static int gc_iterate_entries(cls_method_context_t hctx, const string& marker, b
     get_time_key(now, &now_str);
     prepend_index_prefix(now_str, GC_OBJ_TIME_INDEX, &end_key);
 
-    CLS_LOG(0, "gc_iterate_entries end_key=%s\n", end_key.c_str());
+    CLS_LOG(10, "gc_iterate_entries end_key=%s\n", end_key.c_str());
   }
 
   string filter;
@@ -3292,8 +3329,11 @@ static int gc_iterate_entries(cls_method_context_t hctx, const string& marker, b
 
     CLS_LOG(10, "gc_iterate_entries key=%s\n", key.c_str());
 
-    if (!end_key.empty() && key.compare(end_key) >= 0)
+    if (!end_key.empty() && key.compare(end_key) >= 0) {
+      if (truncated)
+        *truncated = false;
       return 0;
+    }
 
     if (!key_in_index(key, GC_OBJ_TIME_INDEX))
       return 0;

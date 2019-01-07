@@ -12,6 +12,7 @@
 #include "librbd/Utils.h"
 #include "librbd/journal/Types.h"
 #include "tools/rbd_mirror/image_sync/ImageCopyRequest.h"
+#include "tools/rbd_mirror/image_sync/MetadataCopyRequest.h"
 #include "tools/rbd_mirror/image_sync/SnapshotCopyRequest.h"
 #include "tools/rbd_mirror/image_sync/SyncPointCreateRequest.h"
 #include "tools/rbd_mirror/image_sync/SyncPointPruneRequest.h"
@@ -26,6 +27,7 @@ namespace rbd {
 namespace mirror {
 
 using namespace image_sync;
+using librbd::util::create_async_context_callback;
 using librbd::util::create_context_callback;
 using librbd::util::unique_lock_name;
 
@@ -84,14 +86,29 @@ void ImageSync<I>::send_notify_sync_request() {
 
   dout(20) << dendl;
 
-  Context *ctx = create_context_callback<
-    ImageSync<I>, &ImageSync<I>::handle_notify_sync_request>(this);
+  m_lock.Lock();
+  if (m_canceled) {
+    m_lock.Unlock();
+    BaseRequest::finish(-ECANCELED);
+    return;
+  }
+
+  Context *ctx = create_async_context_callback(
+    m_work_queue, create_context_callback<
+      ImageSync<I>, &ImageSync<I>::handle_notify_sync_request>(this));
   m_instance_watcher->notify_sync_request(m_local_image_ctx->id, ctx);
+  m_lock.Unlock();
 }
 
 template <typename I>
 void ImageSync<I>::handle_notify_sync_request(int r) {
   dout(20) << ": r=" << r << dendl;
+
+  m_lock.Lock();
+  if (r == 0 && m_canceled) {
+    r = -ECANCELED;
+  }
+  m_lock.Unlock();
 
   if (r < 0) {
     BaseRequest::finish(r);
@@ -298,15 +315,16 @@ void ImageSync<I>::send_copy_object_map() {
   dout(20) << ": snap_id=" << snap_id << ", "
            << "snap_name=" << sync_point.snap_name << dendl;
 
+  int r = -EROFS;
   Context *finish_op_ctx = nullptr;
   if (m_local_image_ctx->exclusive_lock != nullptr) {
-    finish_op_ctx = m_local_image_ctx->exclusive_lock->start_op();
+    finish_op_ctx = m_local_image_ctx->exclusive_lock->start_op(&r);
   }
   if (finish_op_ctx == nullptr) {
     derr << ": lost exclusive lock" << dendl;
     m_local_image_ctx->snap_lock.put_read();
     m_local_image_ctx->owner_lock.put_read();
-    finish(-EROFS);
+    finish(r);
     return;
   }
 
@@ -381,6 +399,30 @@ void ImageSync<I>::handle_prune_sync_points(int r) {
 
   if (!m_client_meta->sync_points.empty()) {
     send_copy_image();
+    return;
+  }
+
+  send_copy_metadata();
+}
+
+template <typename I>
+void ImageSync<I>::send_copy_metadata() {
+  dout(20) << dendl;
+  update_progress("COPY_METADATA");
+
+  Context *ctx = create_context_callback<
+    ImageSync<I>, &ImageSync<I>::handle_copy_metadata>(this);
+  auto request = MetadataCopyRequest<I>::create(
+    m_local_image_ctx, m_remote_image_ctx, ctx);
+  request->send();
+}
+
+template <typename I>
+void ImageSync<I>::handle_copy_metadata(int r) {
+  dout(20) << ": r=" << r << dendl;
+  if (r < 0) {
+    derr << ": failed to copy metadata: " << cpp_strerror(r) << dendl;
+    finish(r);
     return;
   }
 

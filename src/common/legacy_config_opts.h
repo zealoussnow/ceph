@@ -169,6 +169,10 @@ OPTION(ms_async_rdma_roce_ver, OPT_INT)         // 0=RoCEv1, 1=RoCEv2, 2=RoCEv1.
 OPTION(ms_async_rdma_sl, OPT_INT)               // in RoCE, this means PCP
 OPTION(ms_async_rdma_dscp, OPT_INT)            // in RoCE, this means DSCP
 
+// when there are enough accept failures, indicating there are unrecoverable failures,
+// just do ceph_abort() . Here we make it configurable.
+OPTION(ms_max_accept_failures, OPT_INT)
+
 OPTION(ms_dpdk_port_id, OPT_INT)
 SAFE_OPTION(ms_dpdk_coremask, OPT_STR)        // it is modified in unittest so that use SAFE_OPTION to declare 
 OPTION(ms_dpdk_memory_channel, OPT_STR)
@@ -222,7 +226,6 @@ OPTION(mon_osd_prime_pg_temp, OPT_BOOL)  // prime osdmap with pg mapping changes
 OPTION(mon_osd_prime_pg_temp_max_time, OPT_FLOAT)  // max time to spend priming
 OPTION(mon_osd_prime_pg_temp_max_estimate, OPT_FLOAT) // max estimate of pg total before we do all pgs in parallel
 OPTION(mon_osd_pool_ec_fast_read, OPT_BOOL) // whether turn on fast read on the pool or not
-OPTION(mon_stat_smooth_intervals, OPT_INT)  // smooth stats over last N PGMap maps
 OPTION(mon_election_timeout, OPT_FLOAT)  // on election proposer, max waiting time for all ACKs
 OPTION(mon_lease, OPT_FLOAT)       // lease interval
 OPTION(mon_lease_renew_interval_factor, OPT_FLOAT) // on leader, to renew the lease
@@ -233,7 +236,6 @@ OPTION(mon_clock_drift_allowed, OPT_FLOAT) // allowed clock drift between monito
 OPTION(mon_clock_drift_warn_backoff, OPT_FLOAT) // exponential backoff for clock drift warnings
 OPTION(mon_timecheck_interval, OPT_FLOAT) // on leader, timecheck (clock drift check) interval (seconds)
 OPTION(mon_timecheck_skew_interval, OPT_FLOAT) // on leader, timecheck (clock drift check) interval when in presence of a skew (seconds)
-OPTION(mon_pg_stuck_threshold, OPT_INT) // number of seconds after which pgs can be considered stuck inactive, unclean, etc (see doc/control.rst under dump_stuck for more info)
 OPTION(mon_pg_min_inactive, OPT_U64) // the number of PGs which have to be inactive longer than 'mon_pg_stuck_threshold' before health goes into ERR. 0 means disabled, never go into ERR.
 OPTION(mon_pg_warn_max_object_skew, OPT_FLOAT) // max skew few average in objects per pg
 OPTION(mon_pg_warn_min_objects, OPT_INT)  // do not warn below this object #
@@ -273,7 +275,6 @@ OPTION(mon_health_to_clog, OPT_BOOL)
 OPTION(mon_health_to_clog_interval, OPT_INT)
 OPTION(mon_health_to_clog_tick_interval, OPT_DOUBLE)
 OPTION(mon_health_preluminous_compat, OPT_BOOL)
-OPTION(mon_health_max_detail, OPT_INT) // max detailed pgs to report in health detail
 OPTION(mon_data_avail_crit, OPT_INT)
 OPTION(mon_data_avail_warn, OPT_INT)
 OPTION(mon_data_size_warn, OPT_U64) // issue a warning when the monitor's data store goes over 15GB (in bytes)
@@ -294,6 +295,7 @@ OPTION(mon_osd_reporter_subtree_level , OPT_STR)   // in which level of parent b
 OPTION(mon_osd_force_trim_to, OPT_INT)   // force mon to trim maps to this point, regardless of min_last_epoch_clean (dangerous)
 OPTION(mon_mds_force_trim_to, OPT_INT)   // force mon to trim mdsmaps to this point (dangerous)
 OPTION(mon_mds_skip_sanity, OPT_BOOL)  // skip safety assertions on FSMap (in case of bugs where we want to continue anyway)
+OPTION(mon_osd_snap_trim_queue_warn_on, OPT_INT)
 
 // monitor debug options
 OPTION(mon_debug_deprecated_as_obsolete, OPT_BOOL) // consider deprecated commands as obsolete
@@ -333,9 +335,12 @@ OPTION(auth_service_required, OPT_STR)   // required by daemons of clients
 OPTION(auth_client_required, OPT_STR)     // what clients require of daemons
 OPTION(auth_supported, OPT_STR)               // deprecated; default value for above if they are not defined.
 OPTION(max_rotating_auth_attempts, OPT_INT)
-OPTION(cephx_require_signatures, OPT_BOOL) //  If true, don't talk to Cephx partners if they don't support message signing; off by default
+OPTION(cephx_require_signatures, OPT_BOOL)
 OPTION(cephx_cluster_require_signatures, OPT_BOOL)
 OPTION(cephx_service_require_signatures, OPT_BOOL)
+OPTION(cephx_require_version, OPT_INT)
+OPTION(cephx_cluster_require_version, OPT_INT)
+OPTION(cephx_service_require_version, OPT_INT)
 OPTION(cephx_sign_messages, OPT_BOOL)  // Default to signing session messages if supported
 OPTION(auth_mon_ticket_ttl, OPT_DOUBLE)
 OPTION(auth_service_ticket_ttl, OPT_DOUBLE)
@@ -398,7 +403,6 @@ OPTION(fuse_require_active_mds, OPT_BOOL) // if ceph_fuse requires active mds se
 OPTION(fuse_syncfs_on_mksnap, OPT_BOOL)
 
 OPTION(client_try_dentry_invalidate, OPT_BOOL) // the client should try to use dentry invaldation instead of remounting, on kernels it believes that will work for
-OPTION(client_die_on_failed_remount, OPT_BOOL)
 OPTION(client_check_pool_perm, OPT_BOOL)
 OPTION(client_use_faked_inos, OPT_BOOL)
 OPTION(client_mds_namespace, OPT_STR)
@@ -435,14 +439,12 @@ OPTION(mds_decay_halflife, OPT_FLOAT)
 OPTION(mds_beacon_interval, OPT_FLOAT)
 OPTION(mds_beacon_grace, OPT_FLOAT)
 OPTION(mds_enforce_unique_name, OPT_BOOL)
-OPTION(mds_blacklist_interval, OPT_FLOAT)  // how long to blacklist failed nodes
 
-OPTION(mds_session_timeout, OPT_FLOAT)    // cap bits and leases time out if client idle
+OPTION(mds_session_timeout, OPT_FLOAT)    // cap bits and leases time out if client unresponsive or not returning its caps
 OPTION(mds_session_blacklist_on_timeout, OPT_BOOL)    // whether to blacklist clients whose sessions are dropped due to timeout
 OPTION(mds_session_blacklist_on_evict, OPT_BOOL)  // whether to blacklist clients whose sessions are dropped via admin commands
 
 OPTION(mds_sessionmap_keys_per_op, OPT_U32)    // how many sessions should I try to load/store in a single OMAP operation?
-OPTION(mds_revoke_cap_timeout, OPT_FLOAT)    // detect clients which aren't revoking caps
 OPTION(mds_recall_state_timeout, OPT_FLOAT)    // detect clients which aren't trimming caps
 OPTION(mds_freeze_tree_timeout, OPT_FLOAT)    // detecting freeze tree deadlock
 OPTION(mds_session_autoclose, OPT_FLOAT) // autoclose idle session
@@ -461,7 +463,6 @@ OPTION(mds_log_max_events, OPT_INT)
 OPTION(mds_log_events_per_segment, OPT_INT)
 OPTION(mds_log_segment_size, OPT_INT)  // segment size for mds log, default to default file_layout_t
 OPTION(mds_log_max_segments, OPT_U32)
-OPTION(mds_log_max_expiring, OPT_INT)
 OPTION(mds_bal_export_pin, OPT_BOOL)  // allow clients to pin directory trees to ranks
 OPTION(mds_bal_sample_interval, OPT_DOUBLE)  // every 3 seconds
 OPTION(mds_bal_replicate_threshold, OPT_FLOAT)
@@ -472,8 +473,6 @@ OPTION(mds_bal_split_rd, OPT_FLOAT)
 OPTION(mds_bal_split_wr, OPT_FLOAT)
 OPTION(mds_bal_split_bits, OPT_INT)
 OPTION(mds_bal_merge_size, OPT_INT)
-OPTION(mds_bal_interval, OPT_INT)           // seconds
-OPTION(mds_bal_fragment_interval, OPT_INT)      // seconds
 OPTION(mds_bal_fragment_size_max, OPT_INT) // order of magnitude higher than split size
 OPTION(mds_bal_fragment_fast_factor, OPT_FLOAT) // multiple of size_max that triggers immediate split
 OPTION(mds_bal_idle_threshold, OPT_FLOAT)
@@ -775,6 +774,8 @@ OPTION(osd_max_scrubs, OPT_INT)
 OPTION(osd_scrub_during_recovery, OPT_BOOL) // Allow new scrubs to start while recovery is active on the OSD
 OPTION(osd_scrub_begin_hour, OPT_INT)
 OPTION(osd_scrub_end_hour, OPT_INT)
+OPTION(osd_scrub_begin_week_day, OPT_INT)
+OPTION(osd_scrub_end_week_day, OPT_INT)
 OPTION(osd_scrub_load_threshold, OPT_FLOAT)
 OPTION(osd_scrub_min_interval, OPT_FLOAT)    // if load is low
 OPTION(osd_scrub_max_interval, OPT_FLOAT)  // regardless of load
@@ -788,7 +789,12 @@ OPTION(osd_scrub_auto_repair_num_errors, OPT_U32)   // only auto-repair when num
 OPTION(osd_deep_scrub_interval, OPT_FLOAT) // once a week
 OPTION(osd_deep_scrub_randomize_ratio, OPT_FLOAT) // scrubs will randomly become deep scrubs at this rate (0.15 -> 15% of scrubs are deep)
 OPTION(osd_deep_scrub_stride, OPT_INT)
+OPTION(osd_deep_scrub_keys, OPT_INT)
 OPTION(osd_deep_scrub_update_digest_min_age, OPT_INT)   // objects must be this old (seconds) before we update the whole-object digest on scrub
+OPTION(osd_skip_data_digest, OPT_BOOL)
+OPTION(osd_distrust_data_digest, OPT_BOOL)
+OPTION(osd_deep_scrub_large_omap_object_key_threshold, OPT_U64)
+OPTION(osd_deep_scrub_large_omap_object_value_sum_threshold, OPT_U64)
 OPTION(osd_class_dir, OPT_STR) // where rados plugins are stored
 OPTION(osd_open_classes_on_start, OPT_BOOL)
 OPTION(osd_class_load_list, OPT_STR) // list of object classes allowed to be loaded (allow all: *)
@@ -807,6 +813,7 @@ OPTION(osd_max_pg_log_entries, OPT_U32) // max entries, say when degraded, befor
 OPTION(osd_pg_log_dups_tracked, OPT_U32) // how many versions back to track combined in both pglog's regular + dup logs
 OPTION(osd_force_recovery_pg_log_entries_factor, OPT_FLOAT) // max entries factor before force recovery
 OPTION(osd_pg_log_trim_min, OPT_U32)
+OPTION(osd_pg_log_trim_max, OPT_U32)
 OPTION(osd_op_complaint_time, OPT_FLOAT) // how many seconds old makes an op complaint-worthy
 OPTION(osd_command_max_records, OPT_INT)
 OPTION(osd_max_pg_blocked_by, OPT_U32)    // max peer osds to report that are blocking our progress
@@ -823,8 +830,7 @@ OPTION(osd_debug_drop_ping_probability, OPT_DOUBLE)
 OPTION(osd_debug_drop_ping_duration, OPT_INT)
 OPTION(osd_debug_op_order, OPT_BOOL)
 OPTION(osd_debug_verify_missing_on_start, OPT_BOOL)
-OPTION(osd_debug_scrub_chance_rewrite_digest, OPT_U64)
-OPTION(osd_debug_verify_snaps_on_info, OPT_BOOL)
+OPTION(osd_debug_verify_snaps, OPT_BOOL)
 OPTION(osd_debug_verify_stray_on_activate, OPT_BOOL)
 OPTION(osd_debug_skip_full_check_in_backfill_reservation, OPT_BOOL)
 OPTION(osd_debug_reject_backfill_probability, OPT_DOUBLE)
@@ -833,6 +839,7 @@ OPTION(osd_debug_misdirected_ops, OPT_BOOL)
 OPTION(osd_debug_skip_full_check_in_recovery, OPT_BOOL)
 OPTION(osd_debug_random_push_read_error, OPT_DOUBLE)
 OPTION(osd_debug_verify_cached_snaps, OPT_BOOL)
+OPTION(osd_debug_deep_scrub_sleep, OPT_FLOAT)
 OPTION(osd_enable_op_tracker, OPT_BOOL) // enable/disable OSD op tracking
 OPTION(osd_num_op_tracker_shard, OPT_U32) // The number of shards for holding the ops
 OPTION(osd_op_history_size, OPT_U32)    // Max number of completed ops to track
@@ -1106,7 +1113,6 @@ OPTION(bluestore_cache_size_hdd, OPT_U64)
 OPTION(bluestore_cache_size_ssd, OPT_U64)
 OPTION(bluestore_cache_meta_ratio, OPT_DOUBLE)
 OPTION(bluestore_cache_kv_ratio, OPT_DOUBLE)
-OPTION(bluestore_cache_kv_max, OPT_U64) // limit the maximum amount of cache for the kv store
 OPTION(bluestore_kvbackend, OPT_STR)
 OPTION(bluestore_allocator, OPT_STR)     // stupid | bitmap
 OPTION(bluestore_freelist_blocks_per_key, OPT_INT)
@@ -1368,9 +1374,11 @@ OPTION(rgw_content_length_compat, OPT_BOOL) // Check both HTTP_CONTENT_LENGTH an
 OPTION(rgw_lifecycle_work_time, OPT_STR) //job process lc  at 00:00-06:00s
 OPTION(rgw_lc_lock_max_time, OPT_INT)  // total run time for a single lc processor work
 OPTION(rgw_lc_max_objs, OPT_INT)
+OPTION(rgw_lc_max_rules, OPT_U32)  // Max rules set on one bucket
 OPTION(rgw_lc_debug_interval, OPT_INT)  // Debug run interval, in seconds
 OPTION(rgw_script_uri, OPT_STR) // alternative value for SCRIPT_URI if not set in request
 OPTION(rgw_request_uri, OPT_STR) // alternative value for REQUEST_URI if not set in request
+OPTION(rgw_ignore_get_invalid_range, OPT_BOOL) // treat invalid (e.g., negative) range requests as full
 OPTION(rgw_swift_url, OPT_STR)             // the swift url, being published by the internal swift auth
 OPTION(rgw_swift_url_prefix, OPT_STR) // entry point for which a url is considered a swift url
 OPTION(rgw_swift_auth_url, OPT_STR)        // default URL to go and verify tokens for v1 auth (if not using internal swift auth)
@@ -1396,12 +1404,11 @@ OPTION(rgw_keystone_accepted_admin_roles, OPT_STR) // list of roles allowing an 
 OPTION(rgw_keystone_token_cache_size, OPT_INT)  // max number of entries in keystone token cache
 OPTION(rgw_keystone_revocation_interval, OPT_INT)  // seconds between tokens revocation check
 OPTION(rgw_keystone_verify_ssl, OPT_BOOL) // should we try to verify keystone's ssl
-OPTION(rgw_keystone_implicit_tenants, OPT_BOOL)  // create new users in their own tenants of the same name
 OPTION(rgw_cross_domain_policy, OPT_STR)
 OPTION(rgw_healthcheck_disabling_path, OPT_STR) // path that existence causes the healthcheck to respond 503
 OPTION(rgw_s3_auth_use_rados, OPT_BOOL)  // should we try to use the internal credentials for s3?
 OPTION(rgw_s3_auth_use_keystone, OPT_BOOL)  // should we try to use keystone for s3?
-OPTION(rgw_s3_auth_aws4_force_boto2_compat, OPT_BOOL) // force aws4 auth boto2 compatibility
+OPTION(rgw_s3_auth_order, OPT_STR) // s3 authentication order to try
 OPTION(rgw_barbican_url, OPT_STR)  // url for barbican server
 
 /* OpenLDAP-style LDAP parameter strings */
@@ -1480,8 +1487,6 @@ OPTION(rgw_ops_log_data_backlog, OPT_INT) // max data backlog for ops log
 OPTION(rgw_fcgi_socket_backlog, OPT_INT) // socket  backlog for fcgi
 OPTION(rgw_usage_log_flush_threshold, OPT_INT) // threshold to flush pending log data
 OPTION(rgw_usage_log_tick_interval, OPT_INT) // flush pending log data every X seconds
-OPTION(rgw_intent_log_object_name, OPT_STR)  // man date to see codes (a subset are supported)
-OPTION(rgw_intent_log_object_name_utc, OPT_BOOL)
 OPTION(rgw_init_timeout, OPT_INT) // time in seconds
 OPTION(rgw_mime_types_file, OPT_STR)
 OPTION(rgw_gc_max_objs, OPT_INT)
@@ -1502,6 +1507,8 @@ OPTION(rgw_md_log_max_shards, OPT_INT) // max shards for metadata log
 OPTION(rgw_num_zone_opstate_shards, OPT_INT) // max shards for keeping inter-region copy progress info
 OPTION(rgw_opstate_ratelimit_sec, OPT_INT) // min time between opstate updates on a single upload (0 for disabling ratelimit)
 OPTION(rgw_curl_wait_timeout_ms, OPT_INT) // timeout for certain curl calls
+OPTION(rgw_curl_low_speed_limit, OPT_INT) // low speed limit for certain curl calls
+OPTION(rgw_curl_low_speed_time, OPT_INT) // low speed time for certain curl calls
 OPTION(rgw_copy_obj_progress, OPT_BOOL) // should dump progress during long copy operations?
 OPTION(rgw_copy_obj_progress_every_bytes, OPT_INT) // min bytes between copy progress output
 OPTION(rgw_obj_tombstone_cache_size, OPT_INT) // how many objects in tombstone cache, which is used in multi-zone sync to keep
@@ -1539,7 +1546,6 @@ OPTION(rgw_olh_pending_timeout_sec, OPT_INT) // time until we retire a pending o
 OPTION(rgw_user_max_buckets, OPT_INT) // global option to set max buckets count for all user
 
 OPTION(rgw_objexp_gc_interval, OPT_U32) // maximum time between round of expired objects garbage collecting
-OPTION(rgw_objexp_time_step, OPT_U32) // number of seconds for rounding the timestamps
 OPTION(rgw_objexp_hints_num_shards, OPT_U32) // maximum number of parts in which the hint index is stored in
 OPTION(rgw_objexp_chunk_size, OPT_U32) // maximum number of entries in a single operation when processing objexp data
 

@@ -569,13 +569,14 @@ the accompanying lockbox cephx key.
 
 Usage::
 
-    ceph osd new {<uuid>} {<id>} -i {<secrets.json>}
+    ceph osd new {<uuid>} {<id>} -i {<params.json>}
 
-The secrets JSON file is optional but if provided, is expected to maintain
+The parameters JSON file is optional but if provided, is expected to maintain
 a form of the following format::
 
     {
-        "cephx_secret": "AQBWtwhZdBO5ExAAIDyjK2Bh16ZXylmzgYYEjg=="
+        "cephx_secret": "AQBWtwhZdBO5ExAAIDyjK2Bh16ZXylmzgYYEjg==",
+	"crush_device_class": "myclass"
     }
 
 Or::
@@ -583,9 +584,19 @@ Or::
     {
         "cephx_secret": "AQBWtwhZdBO5ExAAIDyjK2Bh16ZXylmzgYYEjg==",
         "cephx_lockbox_secret": "AQDNCglZuaeVCRAAYr76PzR1Anh7A0jswkODIQ==",
-        "dmcrypt_key": "<dm-crypt key>"
+        "dmcrypt_key": "<dm-crypt key>",
+	"crush_device_class": "myclass"
     }
-        
+
+Or::
+
+    {
+	"crush_device_class": "myclass"
+    }
+
+The "crush_device_class" property is optional. If specified, it will set the
+initial CRUSH device class for the new OSD.
+
 
 Subcommand ``crush`` is used for CRUSH management. It uses some additional
 subcommands.
@@ -922,7 +933,7 @@ Subcommand ``create`` creates pool.
 Usage::
 
 	ceph osd pool create <poolname> <int[0-]> {<int[0-]>} {replicated|erasure}
-	{<erasure_code_profile>} {<ruleset>} {<int>}
+	{<erasure_code_profile>} {<rule>} {<int>}
 
 Subcommand ``delete`` deletes pool.
 
@@ -935,7 +946,7 @@ Subcommand ``get`` gets pool parameter <var>.
 Usage::
 
 	ceph osd pool get <poolname> size|min_size|crash_replay_interval|pg_num|
-	pgp_num|crush_ruleset|auid|write_fadvise_dontneed
+	pgp_num|crush_rule|auid|write_fadvise_dontneed
 
 Only for tiered pools::
 
@@ -987,7 +998,7 @@ Subcommand ``set`` sets pool parameter <var> to <val>.
 Usage::
 
 	ceph osd pool set <poolname> size|min_size|crash_replay_interval|pg_num|
-	pgp_num|crush_ruleset|hashpspool|nodelete|nopgchange|nosizechange|
+	pgp_num|crush_rule|hashpspool|nodelete|nopgchange|nosizechange|
 	hit_set_type|hit_set_period|hit_set_count|hit_set_fpp|debug_fake_ec_pool|
 	target_max_bytes|target_max_objects|cache_target_dirty_ratio|
 	cache_target_dirty_high_ratio|
@@ -1252,11 +1263,11 @@ Subcommand ``ls`` lists pg with specific pool, osd, state
 Usage::
 
 	ceph pg ls {<int>} {active|clean|down|replay|splitting|
-	scrubbing|scrubq|degraded|inconsistent|peering|repair|
+	scrubbing|degraded|inconsistent|peering|repair|
 	recovery|backfill_wait|incomplete|stale| remapped|
 	deep_scrub|backfill|backfill_toofull|recovery_wait|
 	undersized [active|clean|down|replay|splitting|
-	scrubbing|scrubq|degraded|inconsistent|peering|repair|
+	scrubbing|degraded|inconsistent|peering|repair|
 	recovery|backfill_wait|incomplete|stale|remapped|
 	deep_scrub|backfill|backfill_toofull|recovery_wait|
 	undersized...]}
@@ -1267,11 +1278,11 @@ Usage::
 
 	ceph pg ls-by-osd <osdname (id|osd.id)> {<int>}
 	{active|clean|down|replay|splitting|
-	scrubbing|scrubq|degraded|inconsistent|peering|repair|
+	scrubbing|degraded|inconsistent|peering|repair|
 	recovery|backfill_wait|incomplete|stale| remapped|
 	deep_scrub|backfill|backfill_toofull|recovery_wait|
 	undersized [active|clean|down|replay|splitting|
-	scrubbing|scrubq|degraded|inconsistent|peering|repair|
+	scrubbing|degraded|inconsistent|peering|repair|
 	recovery|backfill_wait|incomplete|stale|remapped|
 	deep_scrub|backfill|backfill_toofull|recovery_wait|
 	undersized...]}
@@ -1282,11 +1293,11 @@ Usage::
 
 	ceph pg ls-by-pool <poolstr> {<int>} {active|
 	clean|down|replay|splitting|
-	scrubbing|scrubq|degraded|inconsistent|peering|repair|
+	scrubbing|degraded|inconsistent|peering|repair|
 	recovery|backfill_wait|incomplete|stale| remapped|
 	deep_scrub|backfill|backfill_toofull|recovery_wait|
 	undersized [active|clean|down|replay|splitting|
-	scrubbing|scrubq|degraded|inconsistent|peering|repair|
+	scrubbing|degraded|inconsistent|peering|repair|
 	recovery|backfill_wait|incomplete|stale|remapped|
 	deep_scrub|backfill|backfill_toofull|recovery_wait|
 	undersized...]}
@@ -1297,11 +1308,11 @@ Usage::
 
 	ceph pg ls-by-primary <osdname (id|osd.id)> {<int>}
 	{active|clean|down|replay|splitting|
-	scrubbing|scrubq|degraded|inconsistent|peering|repair|
+	scrubbing|degraded|inconsistent|peering|repair|
 	recovery|backfill_wait|incomplete|stale| remapped|
 	deep_scrub|backfill|backfill_toofull|recovery_wait|
 	undersized [active|clean|down|replay|splitting|
-	scrubbing|scrubq|degraded|inconsistent|peering|repair|
+	scrubbing|degraded|inconsistent|peering|repair|
 	recovery|backfill_wait|incomplete|stale|remapped|
 	deep_scrub|backfill|backfill_toofull|recovery_wait|
 	undersized...]}

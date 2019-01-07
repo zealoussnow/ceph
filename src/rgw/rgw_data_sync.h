@@ -10,7 +10,6 @@
 #include "common/RWLock.h"
 #include "common/ceph_json.h"
 
-
 struct rgw_datalog_info {
   uint32_t num_shards;
 
@@ -82,6 +81,7 @@ struct rgw_data_sync_info {
     JSONDecoder::decode_json("num_shards", num_shards, obj);
     JSONDecoder::decode_json("instance_id", num_shards, obj);
   }
+  static void generate_test_instances(std::list<rgw_data_sync_info*>& o);
 
   rgw_data_sync_info() : state((int)StateInit), num_shards(0) {}
 };
@@ -124,7 +124,19 @@ struct rgw_data_sync_marker {
   }
 
   void dump(Formatter *f) const {
-    encode_json("state", (int)state, f);
+    const char *s{nullptr};
+    switch ((SyncState)state) {
+      case FullSync:
+        s = "full-sync";
+        break;
+      case IncrementalSync:
+        s = "incremental-sync";
+        break;
+      default:
+        s = "unknown";
+        break;
+    }
+    encode_json("status", s, f);
     encode_json("marker", marker, f);
     encode_json("next_step_marker", next_step_marker, f);
     encode_json("total_entries", total_entries, f);
@@ -132,9 +144,13 @@ struct rgw_data_sync_marker {
     encode_json("timestamp", utime_t(timestamp), f);
   }
   void decode_json(JSONObj *obj) {
-    int s;
-    JSONDecoder::decode_json("state", s, obj);
-    state = s;
+    std::string s;
+    JSONDecoder::decode_json("status", s, obj);
+    if (s == "full-sync") {
+      state = FullSync;
+    } else if (s == "incremental-sync") {
+      state = IncrementalSync;
+    }
     JSONDecoder::decode_json("marker", marker, obj);
     JSONDecoder::decode_json("next_step_marker", next_step_marker, obj);
     JSONDecoder::decode_json("total_entries", total_entries, obj);
@@ -143,6 +159,7 @@ struct rgw_data_sync_marker {
     JSONDecoder::decode_json("timestamp", t, obj);
     timestamp = t.to_real_time();
   }
+  static void generate_test_instances(std::list<rgw_data_sync_marker*>& o);
 };
 WRITE_CLASS_ENCODER(rgw_data_sync_marker)
 
@@ -174,6 +191,7 @@ struct rgw_data_sync_status {
     JSONDecoder::decode_json("info", sync_info, obj);
     JSONDecoder::decode_json("markers", sync_markers, obj);
   }
+  static void generate_test_instances(std::list<rgw_data_sync_status*>& o);
 };
 WRITE_CLASS_ENCODER(rgw_data_sync_status)
 
@@ -263,6 +281,8 @@ public:
   int read_source_log_shards_info(map<int, RGWDataChangesLogInfo> *shards_info);
   int read_source_log_shards_next(map<int, string> shard_markers, map<int, rgw_datalog_shard_data> *result);
   int read_sync_status(rgw_data_sync_status *sync_status);
+  int read_recovering_shards(const int num_shards, set<int>& recovering_shards);
+  int read_shard_status(int shard_id, set<string>& lagging_buckets,set<string>& recovering_buckets, rgw_data_sync_marker* sync_marker, const int max_entries);
   int init_sync_status(int num_shards);
   int run_sync(int num_shards);
 
@@ -293,6 +313,11 @@ public:
     : store(_store), source_zone(_source_zone), conn(NULL), error_logger(NULL),
       sync_module(nullptr),
       source_log(store, async_rados), num_shards(0) {}
+  RGWDataSyncStatusManager(RGWRados *_store, RGWAsyncRadosProcessor *async_rados,
+                           const string& _source_zone, const RGWSyncModuleInstanceRef& _sync_module)
+    : store(_store), source_zone(_source_zone), conn(NULL), error_logger(NULL),
+      sync_module(_sync_module),
+      source_log(store, async_rados), num_shards(0) {}
   ~RGWDataSyncStatusManager() {
     finalize();
   }
@@ -304,6 +329,14 @@ public:
 
   int read_sync_status(rgw_data_sync_status *sync_status) {
     return source_log.read_sync_status(sync_status);
+  }
+
+  int read_recovering_shards(const int num_shards, set<int>& recovering_shards) {
+    return source_log.read_recovering_shards(num_shards, recovering_shards);
+  }
+
+  int read_shard_status(int shard_id, set<string>& lagging_buckets, set<string>& recovering_buckets, rgw_data_sync_marker *sync_marker, const int max_entries) {
+    return source_log.read_shard_status(shard_id, lagging_buckets, recovering_buckets,sync_marker, max_entries);
   }
   int init_sync_status() { return source_log.init_sync_status(num_shards); }
 
@@ -350,10 +383,8 @@ struct rgw_bucket_shard_full_sync_marker {
      DECODE_FINISH(bl);
   }
 
-  void dump(Formatter *f) const {
-    encode_json("position", position, f);
-    encode_json("count", count, f);
-  }
+  void dump(Formatter *f) const;
+  void decode_json(JSONObj *obj);
 };
 WRITE_CLASS_ENCODER(rgw_bucket_shard_full_sync_marker)
 
@@ -376,9 +407,8 @@ struct rgw_bucket_shard_inc_sync_marker {
      DECODE_FINISH(bl);
   }
 
-  void dump(Formatter *f) const {
-    encode_json("position", position, f);
-  }
+  void dump(Formatter *f) const;
+  void decode_json(JSONObj *obj);
 
   bool operator<(const rgw_bucket_shard_inc_sync_marker& m) const {
     return (position < m.position);
@@ -417,31 +447,27 @@ struct rgw_bucket_shard_sync_info {
      DECODE_FINISH(bl);
   }
 
-  void dump(Formatter *f) const {
-    string s;
-    switch ((SyncState)state) {
-      case StateInit:
-	s = "init";
-	break;
-      case StateFullSync:
-	s = "full-sync";
-	break;
-      case StateIncrementalSync:
-	s = "incremental-sync";
-	break;
-      default:
-	s = "unknown";
-	break;
-    }
-    encode_json("status", s, f);
-    encode_json("full_marker", full_marker, f);
-    encode_json("inc_marker", inc_marker, f);
-  }
+  void dump(Formatter *f) const;
+  void decode_json(JSONObj *obj);
 
   rgw_bucket_shard_sync_info() : state((int)StateInit) {}
 
 };
 WRITE_CLASS_ENCODER(rgw_bucket_shard_sync_info)
+
+struct rgw_bucket_index_marker_info {
+  string bucket_ver;
+  string master_ver;
+  string max_marker;
+  bool syncstopped{false};
+
+  void decode_json(JSONObj *obj) {
+    JSONDecoder::decode_json("bucket_ver", bucket_ver, obj);
+    JSONDecoder::decode_json("master_ver", master_ver, obj);
+    JSONDecoder::decode_json("max_marker", max_marker, obj);
+    JSONDecoder::decode_json("syncstopped", syncstopped, obj);
+  }
+};
 
 
 class RGWRemoteBucketLog : public RGWCoroutinesManager {
@@ -522,6 +548,11 @@ public:
   int read_sync_status();
   int run();
 };
+
+/// read the sync status of all bucket shards from the given source zone
+int rgw_bucket_sync_status(RGWRados *store, const std::string& source_zone,
+                           const RGWBucketInfo& bucket_info,
+                           std::vector<rgw_bucket_shard_sync_info> *status);
 
 class RGWDefaultSyncModule : public RGWSyncModule {
 public:

@@ -94,6 +94,7 @@ rgw_http_errors rgw_http_s3_errors({
     { ERR_NO_SUCH_BUCKET_POLICY, {404, "NoSuchBucketPolicy"}},
     { ERR_NO_SUCH_USER, {404, "NoSuchUser"}},
     { ERR_NO_SUCH_SUBUSER, {404, "NoSuchSubUser"}},
+    { ERR_NO_SUCH_CORS_CONFIGURATION, {404, "NoSuchCORSConfiguration"}},
     { ERR_METHOD_NOT_ALLOWED, {405, "MethodNotAllowed" }},
     { ETIMEDOUT, {408, "RequestTimeout" }},
     { EEXIST, {409, "BucketAlreadyExists" }},
@@ -135,7 +136,11 @@ rgw_http_errors rgw_http_swift_errors({
 
 int rgw_perf_start(CephContext *cct)
 {
-  PerfCountersBuilder plb(cct, cct->_conf->name.to_str(), l_rgw_first, l_rgw_last);
+  PerfCountersBuilder plb(cct, "rgw", l_rgw_first, l_rgw_last);
+
+  // RGW emits comparatively few metrics, so let's be generous
+  // and mark them all USEFUL to get transmission to ceph-mgr by default.
+  plb.set_prio_default(PerfCountersBuilder::PRIO_USEFUL);
 
   plb.add_u64_counter(l_rgw_req, "req", "Requests");
   plb.add_u64_counter(l_rgw_failed_req, "failed_req", "Aborted requests");
@@ -1123,6 +1128,19 @@ bool verify_requester_payer_permission(struct req_state *s)
   return false;
 }
 
+namespace {
+Effect eval_or_pass(const optional<Policy>& policy,
+			   const rgw::IAM::Environment& env,
+			   const rgw::auth::Identity& id,
+			   const uint64_t op,
+			   const ARN& arn) {
+  if (!policy)
+    return Effect::Pass;
+  else
+    return policy->eval(env, id, op, arn);
+}
+}
+
 bool verify_bucket_permission(struct req_state * const s,
 			      const rgw_bucket& bucket,
                               RGWAccessControlPolicy * const user_acl,
@@ -1133,15 +1151,14 @@ bool verify_bucket_permission(struct req_state * const s,
   if (!verify_requester_payer_permission(s))
     return false;
 
-  if (bucket_policy) {
-    auto r = bucket_policy->eval(s->env, *s->auth.identity, op, ARN(bucket));
-    if (r == Effect::Allow)
-      // It looks like S3 ACLs only GRANT permissions rather than
-      // denying them, so this should be safe.
-      return true;
-    else if (r == Effect::Deny)
-      return false;
-  }
+  auto r = eval_or_pass(bucket_policy, s->env, *s->auth.identity,
+			op, ARN(bucket));
+  if (r == Effect::Allow)
+    // It looks like S3 ACLs only GRANT permissions rather than
+    // denying them, so this should be safe.
+    return true;
+  else if (r == Effect::Deny)
+    return false;
 
   const auto perm = op_to_perm(op);
 
@@ -1190,6 +1207,25 @@ bool verify_bucket_permission(struct req_state * const s, const uint64_t op)
                                   op);
 }
 
+// Authorize anyone permitted by the policy and the bucket owner
+// unless explicitly denied by the policy.
+
+int verify_bucket_owner_or_policy(struct req_state* const s,
+				  const uint64_t op)
+{
+  auto e = eval_or_pass(s->iam_policy,
+			s->env, *s->auth.identity,
+			op, ARN(s->bucket));
+  if (e == Effect::Allow ||
+      (e == Effect::Pass &&
+       s->auth.identity->is_owner_of(s->bucket_owner.get_id()))) {
+    return 0;
+  } else {
+    return -EACCES;
+  }
+}
+
+
 static inline bool check_deferred_bucket_perms(struct req_state * const s,
 					       const rgw_bucket& bucket,
 					       RGWAccessControlPolicy * const user_acl,
@@ -1223,15 +1259,14 @@ bool verify_object_permission(struct req_state * const s,
   if (!verify_requester_payer_permission(s))
     return false;
 
-  if (bucket_policy) {
-    auto r = bucket_policy->eval(s->env, *s->auth.identity, op, ARN(obj));
-    if (r == Effect::Allow)
-      // It looks like S3 ACLs only GRANT permissions rather than
-      // denying them, so this should be safe.
-      return true;
-    else if (r == Effect::Deny)
-      return false;
-  }
+
+  auto r = eval_or_pass(bucket_policy, s->env, *s->auth.identity, op, ARN(obj));
+  if (r == Effect::Allow)
+    // It looks like S3 ACLs only GRANT permissions rather than
+    // denying them, so this should be safe.
+    return true;
+  else if (r == Effect::Deny)
+    return false;
 
   const auto perm = op_to_perm(op);
 
@@ -1755,56 +1790,11 @@ bool RGWUserCaps::is_valid_cap_type(const string& tp)
   return false;
 }
 
-static ssize_t unescape_str(const string& s, ssize_t ofs, char esc_char, char special_char, string *dest)
-{
-  const char *src = s.c_str();
-  char dest_buf[s.size() + 1];
-  char *destp = dest_buf;
-  bool esc = false;
-
-  dest_buf[0] = '\0';
-
-  for (size_t i = ofs; i < s.size(); i++) {
-    char c = src[i];
-    if (!esc && c == esc_char) {
-      esc = true;
-      continue;
-    }
-    if (!esc && c == special_char) {
-      *destp = '\0';
-      *dest = dest_buf;
-      return (ssize_t)i + 1;
-    }
-    *destp++ = c;
-    esc = false;
-  }
-  *destp = '\0';
-  *dest = dest_buf;
-  return string::npos;
-}
-
-static void escape_str(const string& s, char esc_char, char special_char, string *dest)
-{
-  const char *src = s.c_str();
-  char dest_buf[s.size() * 2 + 1];
-  char *destp = dest_buf;
-
-  for (size_t i = 0; i < s.size(); i++) {
-    char c = src[i];
-    if (c == esc_char || c == special_char) {
-      *destp++ = esc_char;
-    }
-    *destp++ = c;
-  }
-  *destp++ = '\0';
-  *dest = dest_buf;
-}
-
 void rgw_pool::from_str(const string& s)
 {
-  size_t pos = unescape_str(s, 0, '\\', ':', &name);
+  size_t pos = rgw_unescape_str(s, 0, '\\', ':', &name);
   if (pos != string::npos) {
-    pos = unescape_str(s, pos, '\\', ':', &ns);
+    pos = rgw_unescape_str(s, pos, '\\', ':', &ns);
     /* ignore return; if pos != string::npos it means that we had a colon
      * in the middle of ns that wasn't escaped, we're going to stop there
      */
@@ -1814,12 +1804,12 @@ void rgw_pool::from_str(const string& s)
 string rgw_pool::to_str() const
 {
   string esc_name;
-  escape_str(name, '\\', ':', &esc_name);
+  rgw_escape_str(name, '\\', ':', &esc_name);
   if (ns.empty()) {
     return esc_name;
   }
   string esc_ns;
-  escape_str(ns, '\\', ':', &esc_ns);
+  rgw_escape_str(ns, '\\', ':', &esc_ns);
   return esc_name + ":" + esc_ns;
 }
 

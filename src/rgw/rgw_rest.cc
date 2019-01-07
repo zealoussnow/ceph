@@ -883,20 +883,9 @@ int RGWGetObj_ObjStore::get_params()
     get_data &= (!rgwx_stat);
   }
 
-  /* start gettorrent */
-  bool is_torrent = s->info.args.exists(GET_TORRENT);
-  bool torrent_flag = s->cct->_conf->rgw_torrent_flag;
-  if (torrent_flag && is_torrent)
-  {
-    int ret = 0;
-    ret = torrent.get_params();
-    if (ret < 0)
-    {
-      return ret;
-    }
+  if (s->info.args.exists(GET_TORRENT)) {
+    return torrent.get_params();
   }
-  /* end gettorrent */
-
   return 0;
 }
 
@@ -1680,7 +1669,7 @@ int RGWListBucketMultiparts_ObjStore::get_params()
 {
   delimiter = s->info.args.get("delimiter");
   prefix = s->info.args.get("prefix");
-  string str = s->info.args.get("max-parts");
+  string str = s->info.args.get("max-uploads");
   if (!str.empty())
     max_uploads = atoi(str.c_str());
   else

@@ -44,6 +44,7 @@
 
 typedef boost::mt11213b gen_type;
 
+const uint64_t DEF_STORE_TEST_BLOCKDEV_SIZE = 10240000000;
 #define dout_context g_ceph_context
 
 #if GTEST_HAS_PARAM_TEST
@@ -2255,6 +2256,55 @@ TEST_P(StoreTest, MiscFragmentTests) {
 
 }
 
+TEST_P(StoreTest, ZeroVsObjectSize) {
+  ObjectStore::Sequencer osr("test");
+  int r;
+  coll_t cid;
+  struct stat stat;
+  ghobject_t hoid(hobject_t(sobject_t("foo", CEPH_NOSNAP)));
+  {
+    ObjectStore::Transaction t;
+    t.create_collection(cid, 0);
+    cerr << "Creating collection " << cid << std::endl;
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(r, 0);
+  }
+  bufferlist a;
+  a.append("stuff");
+  {
+    ObjectStore::Transaction t;
+    t.write(cid, hoid, 0, 5, a);
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(r, 0);
+  }
+  ASSERT_EQ(0, store->stat(cid, hoid, &stat));
+  ASSERT_EQ(5, stat.st_size);
+  {
+    ObjectStore::Transaction t;
+    t.zero(cid, hoid, 1, 2);
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(r, 0);
+  }
+  ASSERT_EQ(0, store->stat(cid, hoid, &stat));
+  ASSERT_EQ(5, stat.st_size);
+  {
+    ObjectStore::Transaction t;
+    t.zero(cid, hoid, 3, 200);
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(r, 0);
+  }
+  ASSERT_EQ(0, store->stat(cid, hoid, &stat));
+  ASSERT_EQ(203, stat.st_size);
+  {
+    ObjectStore::Transaction t;
+    t.zero(cid, hoid, 100000, 200);
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(r, 0);
+  }
+  ASSERT_EQ(0, store->stat(cid, hoid, &stat));
+  ASSERT_EQ(100200, stat.st_size);
+}
+
 TEST_P(StoreTest, ZeroLengthWrite) {
   ObjectStore::Sequencer osr("test");
   int r;
@@ -2273,6 +2323,34 @@ TEST_P(StoreTest, ZeroLengthWrite) {
     t.write(cid, hoid, 1048576, 0, empty);
     r = apply_transaction(store, &osr, std::move(t));
     ASSERT_EQ(r, 0);
+  }
+  struct stat stat;
+  r = store->stat(cid, hoid, &stat);
+  ASSERT_EQ(0, r);
+  ASSERT_EQ(0, stat.st_size);
+
+  bufferlist newdata;
+  r = store->read(cid, hoid, 0, 1048576, newdata);
+  ASSERT_EQ(0, r);
+}
+
+TEST_P(StoreTest, ZeroLengthZero) {
+  ObjectStore::Sequencer osr("test");
+  int r;
+  coll_t cid;
+  ghobject_t hoid(hobject_t(sobject_t("foo", CEPH_NOSNAP)));
+  {
+    ObjectStore::Transaction t;
+    t.create_collection(cid, 0);
+    t.touch(cid, hoid);
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(0, r);
+  }
+  {
+    ObjectStore::Transaction t;
+    t.zero(cid, hoid, 1048576, 0);
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(0, r);
   }
   struct stat stat;
   r = store->stat(cid, hoid, &stat);
@@ -2306,6 +2384,7 @@ TEST_P(StoreTest, SimpleAttrTest) {
     r = apply_transaction(store, &osr, std::move(t));
     ASSERT_EQ(r, 0);
   }
+  osr.flush();
   {
     bool empty;
     int r = store->collection_empty(cid, &empty);
@@ -2325,6 +2404,7 @@ TEST_P(StoreTest, SimpleAttrTest) {
     r = apply_transaction(store, &osr, std::move(t));
     ASSERT_EQ(r, 0);
   }
+  osr.flush();
   {
     bool empty;
     int r = store->collection_empty(cid, &empty);
@@ -3832,16 +3912,18 @@ public:
       len = ROUND_UP_TO(len, write_alignment);
     }
 
-    auto& data = contents[new_obj].data;
-    if (data.length() < offset + len) {
-      data.append_zero(offset+len-data.length());
+    if (len > 0) {
+      auto& data = contents[new_obj].data;
+      if (data.length() < offset + len) {
+	data.append_zero(offset+len-data.length());
+      }
+      bufferlist n;
+      n.substr_of(data, 0, offset);
+      n.append_zero(len);
+      if (data.length() > offset + len)
+	data.copy(offset + len, data.length() - offset - len, n);
+      data.swap(n);
     }
-    bufferlist n;
-    n.substr_of(data, 0, offset);
-    n.append_zero(len);
-    if (data.length() > offset + len)
-      data.copy(offset + len, data.length() - offset - len, n);
-    data.swap(n);
 
     t.zero(cid, new_obj, offset, len);
     ++in_flight;
@@ -6382,6 +6464,108 @@ TEST_P(StoreTestSpecificAUSize, SmallWriteOnShardedExtents) {
   g_conf->set_val("bluestore_csum_type", "crc32c");
 }
 
+TEST_P(StoreTestSpecificAUSize, ExcessiveFragmentation) {
+  if (string(GetParam()) != "bluestore")
+    return;
+
+  g_conf->set_val("bluestore_block_size",
+    stringify((uint64_t)2048 * 1024 * 1024));
+
+  ASSERT_EQ(g_conf->get_val<uint64_t>("bluefs_alloc_size"),
+	    1024 * 1024);
+
+  size_t block_size = 0x10000;
+  StartDeferred(block_size);
+
+  ObjectStore::Sequencer osr("test");
+  int r;
+  coll_t cid;
+  ghobject_t hoid1(hobject_t(sobject_t("Object 1", CEPH_NOSNAP)));
+  ghobject_t hoid2(hobject_t(sobject_t("Object 2", CEPH_NOSNAP)));
+
+  {
+    ObjectStore::Transaction t;
+    t.create_collection(cid, 0);
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(r, 0);
+  }
+  {
+    // create 2x400MB objects in a way that their pextents are interleaved
+    ObjectStore::Transaction t;
+    bufferlist bl;
+
+    bl.append(std::string(block_size * 4, 'a')); // 256KB
+    uint64_t offs = 0;
+    while(offs < (uint64_t)400 * 1024 * 1024) {
+      t.write(cid, hoid1, offs, bl.length(), bl, 0);
+      t.write(cid, hoid2, offs, bl.length(), bl, 0);
+      r = apply_transaction(store, &osr, std::move(t));
+      ASSERT_EQ(r, 0);
+      offs += bl.length();
+      if( (offs % (100 * 1024 * 1024)) == 0) {
+       std::cout<<"written " << offs << std::endl;
+      }
+    }
+  }
+  std::cout<<"written 800MB"<<std::endl;
+  {
+    // Partially overwrite objects with 100MB each leaving space
+    // fragmented and occuping still unfragmented space at the end
+    // So we'll have enough free space but it'll lack long enough (e.g. 1MB)
+    // contiguous pextents.
+    ObjectStore::Transaction t;
+    bufferlist bl;
+
+    bl.append(std::string(block_size * 4, 'a'));
+    uint64_t offs = 0;
+    while(offs < 112 * 1024 * 1024) {
+      t.write(cid, hoid1, offs, bl.length(), bl, 0);
+      t.write(cid, hoid2, offs, bl.length(), bl, 0);
+      r = apply_transaction(store, &osr, std::move(t));
+      ASSERT_EQ(r, 0);
+      // this will produce high fragmentation if original allocations
+      // were contiguous
+      offs += bl.length();
+      if( (offs % (10 * 1024 * 1024)) == 0) {
+       std::cout<<"written " << offs << std::endl;
+      }
+    }
+  }
+  {
+    // remove one of the object producing much free space
+    // and hence triggering bluefs rebalance.
+    // Which should fail as there is no long enough pextents.
+    ObjectStore::Transaction t;
+    t.remove(cid, hoid2);
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(r, 0);
+  }
+
+  auto to_sleep = 5 *
+    (int)g_conf->get_val<double>("bluestore_bluefs_balance_interval");
+  std::cout<<"sleeping... " << std::endl;
+  sleep(to_sleep);
+
+  {
+    // touch another object to triggerrebalance
+    ObjectStore::Transaction t;
+    t.touch(cid, hoid1);
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(r, 0);
+  }
+  {
+    ObjectStore::Transaction t;
+    t.remove(cid, hoid1);
+    t.remove(cid, hoid2);
+    t.remove_collection(cid);
+    cerr << "Cleaning" << std::endl;
+    r = apply_transaction(store, &osr, std::move(t));
+    ASSERT_EQ(r, 0);
+  }
+  g_conf->set_val("bluestore_block_size",
+    stringify(DEF_STORE_TEST_BLOCKDEV_SIZE));
+}
+
 #endif //#if defined(HAVE_LIBAIO)
 
 TEST_P(StoreTest, KVDBHistogramTest) {
@@ -6635,6 +6819,42 @@ TEST_P(StoreTestSpecificAUSize, garbageCollection) {
 }
 #endif
 
+TEST_P(StoreTestSpecificAUSize, fsckOnUnalignedDevice) {
+  if (string(GetParam()) != "bluestore")
+    return;
+
+  g_conf->set_val("bluestore_block_size", stringify(0x280005000)); //10 Gb + 4K
+  g_conf->set_val("bluestore_fsck_on_mount", "false");
+  g_conf->set_val("bluestore_fsck_on_umount", "false");
+  StartDeferred(0x4000);
+  store->umount();
+  ASSERT_EQ(store->fsck(false), 0); // do fsck explicitly
+  store->mount();
+
+  g_conf->set_val("bluestore_fsck_on_mount", "true");
+  g_conf->set_val("bluestore_fsck_on_umount", "true");
+  g_conf->set_val("bluestore_block_size", stringify(0x280000000)); // 10 Gb
+  g_conf->apply_changes(NULL);
+}
+
+TEST_P(StoreTestSpecificAUSize, fsckOnUnalignedDevice2) {
+  if (string(GetParam()) != "bluestore")
+    return;
+
+  g_conf->set_val("bluestore_block_size", stringify(0x280005000)); //10 Gb + 20K
+  g_conf->set_val("bluestore_fsck_on_mount", "false");
+  g_conf->set_val("bluestore_fsck_on_umount", "false");
+  StartDeferred(0x1000);
+  store->umount();
+  ASSERT_EQ(store->fsck(false), 0); // do fsck explicitly
+  store->mount();
+
+  g_conf->set_val("bluestore_block_size", stringify(0x280000000)); // 10 Gb
+  g_conf->set_val("bluestore_fsck_on_mount", "true");
+  g_conf->set_val("bluestore_fsck_on_umount", "true");
+  g_conf->apply_changes(NULL);
+}
+
 int main(int argc, char **argv) {
   vector<const char*> args;
   argv_to_vec(argc, (const char **)argv, args);
@@ -6670,7 +6890,8 @@ int main(int argc, char **argv) {
   g_ceph_context->_conf->set_val("bdev_debug_aio", "true");
 
   // specify device size
-  g_ceph_context->_conf->set_val("bluestore_block_size", "10240000000");
+  g_ceph_context->_conf->set_val("bluestore_block_size",
+    stringify(DEF_STORE_TEST_BLOCKDEV_SIZE));
 
   g_ceph_context->_conf->set_val(
     "enable_experimental_unrecoverable_data_corrupting_features", "*");

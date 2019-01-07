@@ -17,6 +17,7 @@
 
 #include <ostream>
 #include <bitset>
+#include <type_traits>
 #include "include/types.h"
 #include "include/interval_set.h"
 #include "include/utime.h"
@@ -62,6 +63,8 @@ struct bluestore_cnode_t {
   static void generate_test_instances(list<bluestore_cnode_t*>& o);
 };
 WRITE_CLASS_DENC(bluestore_cnode_t)
+
+ostream& operator<<(ostream& out, const bluestore_cnode_t& l);
 
 class AllocExtent;
 typedef mempool::bluestore_alloc::vector<AllocExtent> AllocExtentVector;
@@ -729,8 +732,8 @@ public:
     }
   }
 
-  int map(uint64_t x_off, uint64_t x_len,
-	   std::function<int(uint64_t,uint64_t)> f) const {
+  template<class F>
+  int map(uint64_t x_off, uint64_t x_len, F&& f) const {
     auto p = extents.begin();
     assert(p != extents.end());
     while (x_off >= p->length) {
@@ -750,9 +753,10 @@ public:
     }
     return 0;
   }
+  template<class F>
   void map_bl(uint64_t x_off,
 	      bufferlist& bl,
-	      std::function<void(uint64_t,bufferlist&)> f) const {
+	      F&& f) const {
     auto p = extents.begin();
     assert(p != extents.end());
     while (x_off >= p->length) {

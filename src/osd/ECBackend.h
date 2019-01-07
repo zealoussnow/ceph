@@ -320,6 +320,12 @@ private:
     const PushReplyOp &op,
     pg_shard_t from,
     RecoveryMessages *m);
+  void get_all_avail_shards(
+    const hobject_t &hoid,
+    const set<pg_shard_t> &error_shards,
+    set<int> &have,
+    map<shard_id_t, pg_shard_t> &shards,
+    bool for_recovery);
 
 public:
   /**
@@ -381,6 +387,7 @@ public:
 
     ZTracer::Trace trace;
 
+    map<hobject_t, set<int>> want_to_read;
     map<hobject_t, read_request_t> to_read;
     map<hobject_t, read_result_t> complete;
 
@@ -397,9 +404,11 @@ public:
       bool do_redundant_reads,
       bool for_recovery,
       OpRequestRef op,
+      map<hobject_t, set<int>> &&_want_to_read,
       map<hobject_t, read_request_t> &&_to_read)
       : priority(priority), tid(tid), op(op), do_redundant_reads(do_redundant_reads),
-	for_recovery(for_recovery), to_read(std::move(_to_read)) {
+	for_recovery(for_recovery), want_to_read(std::move(_want_to_read)),
+	to_read(std::move(_to_read)) {
       for (auto &&hpair: to_read) {
 	auto &returned = complete[hpair.first].returned;
 	for (auto &&extent: hpair.second.to_read) {
@@ -425,6 +434,7 @@ public:
   map<pg_shard_t, set<ceph_tid_t> > shard_to_read_map;
   void start_read_op(
     int priority,
+    map<hobject_t, set<int>> &want_to_read,
     map<hobject_t, read_request_t> &to_read,
     OpRequestRef op,
     bool do_redundant_reads, bool for_recovery);
@@ -650,7 +660,10 @@ public:
   int get_remaining_shards(
     const hobject_t &hoid,
     const set<int> &avail,
-    set<pg_shard_t> *to_read);
+    const set<int> &want,
+    const read_result_t &result,
+    set<pg_shard_t> *to_read,
+    bool for_recovery);
 
   int objects_get_attrs(
     const hobject_t &hoid,
@@ -664,11 +677,11 @@ public:
   bool scrub_supported() override { return true; }
   bool auto_repair_supported() const override { return true; }
 
-  void be_deep_scrub(
-    const hobject_t &obj,
-    uint32_t seed,
-    ScrubMap::object &o,
-    ThreadPool::TPHandle &handle) override;
+  int be_deep_scrub(
+    const hobject_t &poid,
+    ScrubMap &map,
+    ScrubMapBuilder &pos,
+    ScrubMap::object &o) override;
   uint64_t be_get_ondisk_size(uint64_t logical_size) override {
     return sinfo.logical_to_next_chunk_offset(logical_size);
   }

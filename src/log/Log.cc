@@ -4,6 +4,7 @@
 #include "Log.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <syslog.h>
 
 #include "common/errno.h"
@@ -131,6 +132,10 @@ void Log::set_crash_on_nospc(bool crash_on_nospc)
 {
   m_crash_on_nospc = crash_on_nospc;
 }
+void Log::set_log_stderr_prefix(const std::string& p)
+{
+  m_log_stderr_prefix = p;
+}
 
 void Log::reopen_log_file()
 {
@@ -139,12 +144,11 @@ void Log::reopen_log_file()
   if (m_fd >= 0)
     VOID_TEMP_FAILURE_RETRY(::close(m_fd));
   if (m_log_file.length()) {
-    m_fd = ::open(m_log_file.c_str(), O_CREAT|O_WRONLY|O_APPEND, 0644);
+    m_fd = ::open(m_log_file.c_str(), O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC, 0644);
     if (m_fd >= 0 && (m_uid || m_gid)) {
-      int r = ::fchown(m_fd, m_uid, m_gid);
-      if (r < 0) {
-	r = -errno;
-	cerr << "failed to chown " << m_log_file << ": " << cpp_strerror(r)
+      if (::fchown(m_fd, m_uid, m_gid) < 0) {
+	int e = errno;
+	std::cerr << "failed to chown " << m_log_file << ": " << cpp_strerror(e)
 	     << std::endl;
       }
     }
@@ -281,7 +285,7 @@ void Log::flush()
 
   // trim
   while (m_recent.m_len > m_max_recent) {
-    delete m_recent.dequeue();
+    m_recent.dequeue()->destroy();
   }
 
   m_flush_mutex_holder = 0;
@@ -333,7 +337,7 @@ void Log::_flush(EntryQueue *t, EntryQueue *requeue, bool crash)
       }
 
       if (do_stderr) {
-        cerr << buf << std::endl;
+        cerr << m_log_stderr_prefix << buf << std::endl;
       }
       if (do_fd) {
         buf[buflen] = '\n';
@@ -442,13 +446,14 @@ void Log::start()
 
 void Log::stop()
 {
-  assert(is_started());
-  pthread_mutex_lock(&m_queue_mutex);
-  m_stop = true;
-  pthread_cond_signal(&m_cond_flusher);
-  pthread_cond_broadcast(&m_cond_loggers);
-  pthread_mutex_unlock(&m_queue_mutex);
-  join();
+  if (is_started()) {
+    pthread_mutex_lock(&m_queue_mutex);
+    m_stop = true;
+    pthread_cond_signal(&m_cond_flusher);
+    pthread_cond_broadcast(&m_cond_loggers);
+    pthread_mutex_unlock(&m_queue_mutex);
+    join();
+  }
 }
 
 void *Log::entry()

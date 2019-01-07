@@ -474,12 +474,18 @@ public:
       unsigned long new_size = info.size;
 
       if (new_size != size) {
+        dout(5) << "resize detected" << dendl;
         if (ioctl(fd, BLKFLSBUF, NULL) < 0)
-            derr << "invalidate page cache failed: " << cpp_strerror(errno) << dendl;
+            derr << "invalidate page cache failed: " << cpp_strerror(errno)
+                 << dendl;
         if (ioctl(fd, NBD_SET_SIZE, new_size) < 0) {
             derr << "resize failed: " << cpp_strerror(errno) << dendl;
         } else {
           size = new_size;
+        }
+        if (ioctl(fd, BLKRRPART, NULL) < 0) {
+          derr << "rescan of partition table failed: " << cpp_strerror(errno)
+               << dendl;
         }
         if (image.invalidate_cache() < 0)
             derr << "invalidate rbd cache failed" << dendl;
@@ -589,14 +595,13 @@ static int do_map(int argc, const char *argv[], Config *cfg)
       cerr << err << std::endl;
       return r;
     }
-
     if (forker.is_parent()) {
-      global_init_postfork_start(g_ceph_context);
       if (forker.parent_wait(err) != 0) {
         return -ENXIO;
       }
       return 0;
     }
+    global_init_postfork_start(g_ceph_context);
   }
 
   common_init_finish(g_ceph_context);
@@ -607,15 +612,65 @@ static int do_map(int argc, const char *argv[], Config *cfg)
     goto close_ret;
   }
 
+  r = rados.init_with_context(g_ceph_context);
+  if (r < 0)
+    goto close_fd;
+
+  r = rados.connect();
+  if (r < 0)
+    goto close_fd;
+
+  r = rados.ioctx_create(cfg->poolname.c_str(), io_ctx);
+  if (r < 0)
+    goto close_fd;
+
+  r = rbd.open(io_ctx, image, cfg->imgname.c_str());
+  if (r < 0)
+    goto close_fd;
+
+  if (cfg->exclusive) {
+    r = image.lock_acquire(RBD_LOCK_MODE_EXCLUSIVE);
+    if (r < 0) {
+      cerr << "rbd-nbd: failed to acquire exclusive lock: " << cpp_strerror(r)
+           << std::endl;
+      goto close_fd;
+    }
+  }
+
+  if (!cfg->snapname.empty()) {
+    r = image.snap_set(cfg->snapname.c_str());
+    if (r < 0)
+      goto close_fd;
+  }
+
+  r = image.stat(info, sizeof(info));
+  if (r < 0)
+    goto close_fd;
+
   if (cfg->devpath.empty()) {
     char dev[64];
     bool try_load_module = true;
+    const char *path = "/sys/module/nbd/parameters/nbds_max";
+    int nbds_max = -1;
+    if (access(path, F_OK) == 0) {
+      std::ifstream ifs;
+      ifs.open(path, std::ifstream::in);
+      if (ifs.is_open()) {
+        ifs >> nbds_max;
+        ifs.close();
+      }
+    }
+
     while (true) {
       snprintf(dev, sizeof(dev), "/dev/nbd%d", index);
 
       nbd = open_device(dev, cfg, try_load_module);
       try_load_module = false;
       if (nbd < 0) {
+        if (nbd == -EPERM && nbds_max != -1 && index < (nbds_max-1)) {
+          ++index;
+          continue;
+        }
         r = nbd;
         cerr << "rbd-nbd: failed to find unused device" << std::endl;
         goto close_fd;
@@ -660,41 +715,6 @@ static int do_map(int argc, const char *argv[], Config *cfg)
     read_only = 1;
   }
 
-  r = rados.init_with_context(g_ceph_context);
-  if (r < 0)
-    goto close_nbd;
-
-  r = rados.connect();
-  if (r < 0)
-    goto close_nbd;
-
-  r = rados.ioctx_create(cfg->poolname.c_str(), io_ctx);
-  if (r < 0)
-    goto close_nbd;
-
-  r = rbd.open(io_ctx, image, cfg->imgname.c_str());
-  if (r < 0)
-    goto close_nbd;
-
-  if (cfg->exclusive) {
-    r = image.lock_acquire(RBD_LOCK_MODE_EXCLUSIVE);
-    if (r < 0) {
-      cerr << "rbd-nbd: failed to acquire exclusive lock: " << cpp_strerror(r)
-           << std::endl;
-      goto close_nbd;
-    }
-  }
-
-  if (!cfg->snapname.empty()) {
-    r = image.snap_set(cfg->snapname.c_str());
-    if (r < 0)
-      goto close_nbd;
-  }
-
-  r = image.stat(info, sizeof(info));
-  if (r < 0)
-    goto close_nbd;
-
   r = ioctl(nbd, NBD_SET_BLKSIZE, RBD_NBD_BLKSIZE);
   if (r < 0) {
     r = -errno;
@@ -703,8 +723,8 @@ static int do_map(int argc, const char *argv[], Config *cfg)
 
   if (info.size > ULONG_MAX) {
     r = -EFBIG;
-    cerr << "rbd-nbd: image is too large (" << prettybyte_t(info.size)
-         << ", max is " << prettybyte_t(ULONG_MAX) << ")" << std::endl;
+    cerr << "rbd-nbd: image is too large (" << byte_u_t(info.size)
+         << ", max is " << byte_u_t(ULONG_MAX) << ")" << std::endl;
     goto close_nbd;
   }
 
@@ -740,9 +760,8 @@ static int do_map(int argc, const char *argv[], Config *cfg)
     cout << cfg->devpath << std::endl;
 
     if (g_conf->daemonize) {
-      forker.daemonize();
-      global_init_postfork_start(g_ceph_context);
       global_init_postfork_finish(g_ceph_context);
+      forker.daemonize();
     }
 
     {
@@ -838,7 +857,8 @@ static int get_mapped_info(int pid, Config *cfg)
   std::vector<const char*> args;
 
   ifs.open(path.c_str(), std::ifstream::in);
-  assert (ifs.is_open());
+  if (!ifs.is_open())
+    return -1;
   ifs >> cmdline;
 
   for (unsigned i = 0; i < cmdline.size(); i++) {

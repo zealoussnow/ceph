@@ -1135,6 +1135,21 @@ public:
 
 #define META_SYNC_UPDATE_MARKER_WINDOW 10
 
+
+int RGWLastCallerWinsCR::operate() {
+  RGWCoroutine *call_cr;
+  reenter(this) {
+    while (cr) {
+      call_cr = cr;
+      cr = nullptr;
+      yield call(call_cr);
+      /* cr might have been modified at this point */
+    }
+    return set_cr_done();
+  }
+  return 0;
+}
+
 class RGWMetaSyncShardMarkerTrack : public RGWSyncShardMarkerTrack<string, string> {
   RGWMetaSyncEnv *sync_env;
 
@@ -1166,6 +1181,10 @@ public:
                                                            store,
                                                            rgw_raw_obj(store->get_zone_params().log_pool, marker_oid),
                                                            sync_marker);
+  }
+
+  RGWOrderCallCR *allocate_order_control_cr() {
+    return new RGWLastCallerWinsCR(sync_env->cct);
   }
 };
 
@@ -1310,8 +1329,8 @@ class RGWMetaSyncShardCR : public RGWCoroutine {
   string max_marker;
   const std::string& period_marker; //< max marker stored in next period
 
-  map<string, bufferlist> entries;
-  map<string, bufferlist>::iterator iter;
+  std::set<std::string> entries;
+  std::set<std::string>::iterator iter;
 
   string oid;
 
@@ -1502,20 +1521,20 @@ public:
         }
         iter = entries.begin();
         for (; iter != entries.end(); ++iter) {
-          ldout(sync_env->cct, 20) << __func__ << ": full sync: " << iter->first << dendl;
+          marker = *iter;
+          ldout(sync_env->cct, 20) << __func__ << ": full sync: " << marker << dendl;
           total_entries++;
-          if (!marker_tracker->start(iter->first, total_entries, real_time())) {
-            ldout(sync_env->cct, 0) << "ERROR: cannot start syncing " << iter->first << ". Duplicate entry?" << dendl;
+          if (!marker_tracker->start(marker, total_entries, real_time())) {
+            ldout(sync_env->cct, 0) << "ERROR: cannot start syncing " << marker << ". Duplicate entry?" << dendl;
           } else {
             // fetch remote and write locally
             yield {
-              RGWCoroutinesStack *stack = spawn(new RGWMetaSyncSingleEntryCR(sync_env, iter->first, iter->first, MDLOG_STATUS_COMPLETE, marker_tracker), false);
+              RGWCoroutinesStack *stack = spawn(new RGWMetaSyncSingleEntryCR(sync_env, marker, marker, MDLOG_STATUS_COMPLETE, marker_tracker), false);
               // stack_to_pos holds a reference to the stack
-              stack_to_pos[stack] = iter->first;
-              pos_to_prev[iter->first] = marker;
+              stack_to_pos[stack] = marker;
+              pos_to_prev[marker] = marker;
             }
           }
-          marker = iter->first;
         }
         collect_children();
       } while ((int)entries.size() == max_entries && can_adjust_marker);
@@ -2248,7 +2267,7 @@ int RGWCloneMetaLogCoroutine::state_send_rest_request()
     log_error() << "failed to send http operation: " << http_op->to_str() << " ret=" << ret << std::endl;
     http_op->put();
     http_op = NULL;
-    return ret;
+    return set_cr_error(ret);
   }
 
   return io_block(0);

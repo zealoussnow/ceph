@@ -59,7 +59,7 @@ int ceph_resolve_file_search(const std::string& filename_list,
   int ret = -ENOENT;
   list<string>::iterator iter;
   for (iter = ls.begin(); iter != ls.end(); ++iter) {
-    int fd = ::open(iter->c_str(), O_RDONLY);
+    int fd = ::open(iter->c_str(), O_RDONLY|O_CLOEXEC);
     if (fd < 0) {
       ret = -errno;
       continue;
@@ -389,6 +389,17 @@ void md_config_t::show_config(Formatter *f)
 {
   Mutex::Locker l(lock);
   _show_config(NULL, f);
+}
+
+void md_config_t::config_options(Formatter *f)
+{
+  Mutex::Locker l(lock);
+  f->open_array_section("options");
+  for (const auto& i: schema) {
+    const Option &opt = i.second;
+    opt.dump(f);
+  }
+  f->close_section();
 }
 
 void md_config_t::_show_config(std::ostream *out, Formatter *f)

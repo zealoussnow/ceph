@@ -127,6 +127,7 @@ enum {
   l_osd_pg_primary,
   l_osd_pg_replica,
   l_osd_pg_stray,
+  l_osd_pg_removing,
   l_osd_hb_to,
   l_osd_map,
   l_osd_mape,
@@ -837,11 +838,22 @@ public:
   // -- pg_temp --
 private:
   Mutex pg_temp_lock;
-  map<pg_t, vector<int> > pg_temp_wanted;
-  map<pg_t, vector<int> > pg_temp_pending;
+  struct pg_temp_t {
+    pg_temp_t()
+    {}
+    pg_temp_t(vector<int> v, bool f)
+      : acting{v}, forced{f}
+    {}
+    vector<int> acting;
+    bool forced = false;
+  };
+  map<pg_t, pg_temp_t> pg_temp_wanted;
+  map<pg_t, pg_temp_t> pg_temp_pending;
   void _sent_pg_temp();
+  friend std::ostream& operator<<(std::ostream&, const pg_temp_t&);
 public:
-  void queue_want_pg_temp(pg_t pgid, vector<int>& want);
+  void queue_want_pg_temp(pg_t pgid, const vector<int>& want,
+			  bool forced = false);
   void remove_want_pg_temp(pg_t pgid);
   void requeue_pg_temp();
   void send_pg_temp();
@@ -1202,7 +1214,8 @@ public:
 
 protected:
 
-  static const double OSD_TICK_INTERVAL; // tick interval for tick_timer and tick_timer_without_osd_lock
+  const double OSD_TICK_INTERVAL = { 1.0 };
+  double get_tick_interval() const;
 
   AuthAuthorizeHandlerRegistry *authorize_handler_cluster_registry;
   AuthAuthorizeHandlerRegistry *authorize_handler_service_registry;
@@ -1570,7 +1583,8 @@ public:
     }
     bool ms_verify_authorizer(Connection *con, int peer_type,
 			      int protocol, bufferlist& authorizer_data, bufferlist& authorizer_reply,
-			      bool& isvalid, CryptoKey& session_key) override {
+			      bool& isvalid, CryptoKey& session_key,
+			      std::unique_ptr<AuthAuthorizerChallenge> *challenge) override {
       isvalid = true;
       return true;
     }
@@ -1947,7 +1961,8 @@ protected:
   ceph::unordered_map<spg_t, PG*> pg_map; // protected by pg_map lock
 
   std::mutex pending_creates_lock;
-  std::set<pg_t> pending_creates_from_osd;
+  using create_from_osd_t = std::pair<pg_t, bool /* is primary*/>;
+  std::set<create_from_osd_t> pending_creates_from_osd;
   unsigned pending_creates_from_mon = 0;
 
   map<spg_t, list<PG::CephPeeringEvtRef> > peering_wait_for_split;
@@ -2296,7 +2311,17 @@ protected:
     void _clear() override {
       remove_queue.clear();
     }
+    int get_remove_queue_len() {
+      lock();
+      int r = remove_queue.size();
+      unlock();
+      return r;
+    }
   } remove_wq;
+
+  // -- status reporting --
+  MPGStats *collect_pg_stats();
+  std::vector<OSDHealthMetric> get_health_metrics();
 
 private:
   bool ms_can_fast_dispatch_any() const override { return true; }
@@ -2336,7 +2361,8 @@ private:
   bool ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer, bool force_new) override;
   bool ms_verify_authorizer(Connection *con, int peer_type,
 			    int protocol, bufferlist& authorizer, bufferlist& authorizer_reply,
-			    bool& isvalid, CryptoKey& session_key) override;
+			    bool& isvalid, CryptoKey& session_key,
+			    std::unique_ptr<AuthAuthorizerChallenge> *challenge) override;
   void ms_handle_connect(Connection *con) override;
   void ms_handle_fast_connect(Connection *con) override;
   void ms_handle_fast_accept(Connection *con) override;

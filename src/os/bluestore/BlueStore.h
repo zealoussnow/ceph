@@ -35,6 +35,7 @@
 #include "include/mempool.h"
 #include "common/Finisher.h"
 #include "common/perf_counters.h"
+#include "common/PriorityCache.h"
 #include "compressor/Compressor.h"
 #include "os/ObjectStore.h"
 
@@ -116,6 +117,7 @@ enum {
   l_bluestore_blob_split,
   l_bluestore_extent_compress,
   l_bluestore_gc_merged,
+  l_bluestore_read_eio,
   l_bluestore_last
 };
 
@@ -239,6 +241,10 @@ public:
 
   /// map logical extent range (object) onto buffers
   struct BufferSpace {
+    enum {
+      BYPASS_CLEAN_CACHE = 0x1,  // bypass clean cache
+    };
+
     typedef boost::intrusive::list<
       Buffer,
       boost::intrusive::member_hook<
@@ -338,7 +344,8 @@ public:
 
     void read(Cache* cache, uint32_t offset, uint32_t length,
 	      BlueStore::ready_regions_t& res,
-	      interval_set<uint32_t>& res_intervals);
+	      interval_set<uint32_t>& res_intervals,
+	      int flags = 0);
 
     void truncate(Cache* cache, uint32_t offset) {
       discard(cache, offset, (uint32_t)-1 - offset);
@@ -431,7 +438,8 @@ public:
     SharedBlobRef lookup(uint64_t sbid) {
       std::lock_guard<std::mutex> l(lock);
       auto p = sb_map.find(sbid);
-      if (p == sb_map.end()) {
+      if (p == sb_map.end() ||
+	  p->second->nref == 0) {
         return nullptr;
       }
       return p->second;
@@ -443,20 +451,19 @@ public:
       sb->coll = coll;
     }
 
-    bool try_remove(SharedBlob *sb) {
-      std::lock_guard<std::mutex> l(lock);
-      if (sb->nref == 0) {
-	assert(sb->get_parent() == this);
-	sb_map.erase(sb->get_sbid());
-	return true;
-      }
-      return false;
-    }
-
-    void remove(SharedBlob *sb) {
+    bool remove(SharedBlob *sb, bool verify_nref_is_zero=false) {
       std::lock_guard<std::mutex> l(lock);
       assert(sb->get_parent() == this);
-      sb_map.erase(sb->get_sbid());
+      if (verify_nref_is_zero && sb->nref != 0) {
+	return false;
+      }
+      // only remove if it still points to us
+      auto p = sb_map.find(sb->get_sbid());
+      if (p != sb_map.end() &&
+	  p->second == sb) {
+	sb_map.erase(p);
+      }
+      return true;
     }
 
     bool empty() {
@@ -1088,10 +1095,7 @@ public:
       --num_blobs;
     }
 
-    void trim(uint64_t target_bytes,
-	      float target_meta_ratio,
-	      float target_data_ratio,
-	      float bytes_per_onode);
+    void trim(uint64_t onode_max, uint64_t buffer_max);
 
     void trim_all();
 
@@ -1884,7 +1888,6 @@ private:
 
   PerfCounters *logger = nullptr;
 
-  std::mutex reap_lock;
   list<CollectionRef> removed_collections;
 
   RWLock debug_read_error_lock = {"BlueStore::debug_read_error_lock"};
@@ -1928,23 +1931,132 @@ private:
   uint64_t kv_throttle_costs = 0;
 
   // cache trim control
-  uint64_t cache_size = 0;      ///< total cache size
-  float cache_meta_ratio = 0;   ///< cache ratio dedicated to metadata
-  float cache_kv_ratio = 0;     ///< cache ratio dedicated to kv (e.g., rocksdb)
-  float cache_data_ratio = 0;   ///< cache ratio dedicated to object data
-
+  uint64_t cache_size = 0;       ///< total cache size
+  double cache_meta_ratio = 0;   ///< cache ratio dedicated to metadata
+  double cache_kv_ratio = 0;     ///< cache ratio dedicated to kv (e.g., rocksdb)
+  double cache_data_ratio = 0;   ///< cache ratio dedicated to object data
+  bool cache_autotune = false;   ///< cache autotune setting
+  uint64_t cache_autotune_chunk_size = 0; ///< cache autotune chunk size
+  double cache_autotune_interval = 0; ///< time to wait between cache rebalancing
+  uint64_t osd_memory_target = 0;   ///< OSD memory target when autotuning cache
+  uint64_t osd_memory_base = 0;     ///< OSD base memory when autotuning cache
+  double osd_memory_expected_fragmentation = 0; ///< expected memory fragmentation
+  uint64_t osd_memory_cache_min = 0; ///< Min memory to assign when autotuning cahce
+  double osd_memory_cache_resize_interval = 0; ///< Time to wait between cache resizing 
   std::mutex vstatfs_lock;
   volatile_statfs vstatfs;
 
   struct MempoolThread : public Thread {
+  public:
     BlueStore *store;
+
     Cond cond;
     Mutex lock;
     bool stop = false;
+    uint64_t autotune_cache_size = 0;
+
+    struct MempoolCache : public PriorityCache::PriCache {
+      BlueStore *store;
+      int64_t cache_bytes[PriorityCache::Priority::LAST+1];
+      double cache_ratio = 0;
+
+      MempoolCache(BlueStore *s) : store(s) {};
+
+      virtual uint64_t _get_used_bytes() const = 0;
+
+      virtual int64_t request_cache_bytes(
+          PriorityCache::Priority pri, uint64_t chunk_bytes) const {
+        int64_t assigned = get_cache_bytes(pri);
+
+        switch (pri) {
+        // All cache items are currently shoved into the LAST priority 
+        case PriorityCache::Priority::LAST:
+          {
+            uint64_t usage = _get_used_bytes();
+            int64_t request = PriorityCache::get_chunk(usage, chunk_bytes);
+            return(request > assigned) ? request - assigned : 0;
+          }
+        default:
+          break;
+        }
+        return -EOPNOTSUPP;
+      }
+ 
+      virtual int64_t get_cache_bytes(PriorityCache::Priority pri) const {
+        return cache_bytes[pri];
+      }
+      virtual int64_t get_cache_bytes() const { 
+        int64_t total = 0;
+
+        for (int i = 0; i < PriorityCache::Priority::LAST + 1; i++) {
+          PriorityCache::Priority pri = static_cast<PriorityCache::Priority>(i);
+          total += get_cache_bytes(pri);
+        }
+        return total;
+      }
+      virtual void set_cache_bytes(PriorityCache::Priority pri, int64_t bytes) {
+        cache_bytes[pri] = bytes;
+      }
+      virtual void add_cache_bytes(PriorityCache::Priority pri, int64_t bytes) {
+        cache_bytes[pri] += bytes;
+      }
+      virtual int64_t commit_cache_size() {
+        return get_cache_bytes(); 
+      }
+      virtual double get_cache_ratio() const {
+        return cache_ratio;
+      }
+      virtual void set_cache_ratio(double ratio) {
+        cache_ratio = ratio;
+      }
+      virtual string get_cache_name() const = 0;
+    };
+
+    struct MetaCache : public MempoolCache {
+      MetaCache(BlueStore *s) : MempoolCache(s) {};
+
+      virtual uint64_t _get_used_bytes() const {
+        return mempool::bluestore_cache_other::allocated_bytes() +
+            mempool::bluestore_cache_onode::allocated_bytes();
+      }
+
+      virtual string get_cache_name() const {
+        return "BlueStore Meta Cache";
+      }
+
+      uint64_t _get_num_onodes() const {
+        uint64_t onode_num =
+            mempool::bluestore_cache_onode::allocated_items();
+        return (2 > onode_num) ? 2 : onode_num;
+      }
+
+      double get_bytes_per_onode() const {
+        return (double)_get_used_bytes() / (double)_get_num_onodes();
+      }
+    } meta_cache;
+
+    struct DataCache : public MempoolCache {
+      DataCache(BlueStore *s) : MempoolCache(s) {};
+
+      virtual uint64_t _get_used_bytes() const {
+        uint64_t bytes = 0;
+        for (auto i : store->cache_shards) {
+          bytes += i->_get_buffer_bytes();
+        }
+        return bytes; 
+      }
+      virtual string get_cache_name() const {
+        return "BlueStore Data Cache";
+      }
+    } data_cache;
+
   public:
     explicit MempoolThread(BlueStore *s)
       : store(s),
-	lock("BlueStore::MempoolThread::lock") {}
+	lock("BlueStore::MempoolThread::lock"),
+        meta_cache(MetaCache(s)),
+        data_cache(DataCache(s)) {}
+
     void *entry() override;
     void init() {
       assert(stop == false);
@@ -1957,6 +2069,15 @@ private:
       lock.Unlock();
       join();
     }
+
+  private:
+    void _adjust_cache_settings();
+    void _trim_shards(bool interval_stats);
+    void _tune_cache_size(bool interval_stats);
+    void _balance_cache(const std::list<PriorityCache::PriCache *>& caches);
+    void _balance_cache_pri(int64_t *mem_avail, 
+                            const std::list<PriorityCache::PriCache *>& caches, 
+                            PriorityCache::Priority pri);
   } mempool_thread;
 
   // --------------------------------------------------------
@@ -1975,6 +2096,7 @@ private:
   void _close_fsid();
   void _set_alloc_sizes();
   void _set_blob_size();
+  void _set_finisher_num();
 
   int _open_bdev(bool create);
   void _close_bdev();
@@ -2015,7 +2137,7 @@ private:
   void _assign_nid(TransContext *txc, OnodeRef o);
   uint64_t _assign_blobid(TransContext *txc);
 
-  void _dump_onode(OnodeRef o, int log_level=30);
+  void _dump_onode(const OnodeRef& o, int log_level=30);
   void _dump_extent_map(ExtentMap& em, int log_level=30);
   void _dump_transaction(Transaction *t, int log_level = 30);
 
@@ -2067,6 +2189,7 @@ private:
     const PExtentVector& extents,
     bool compressed,
     mempool_dynamic_bitset &used_blocks,
+    uint64_t granularity,
     store_statfs_t& expected_statfs);
 
   void _buffer_cache_write(
@@ -2417,7 +2540,10 @@ public:
     assert(db);
     db->compact();
   }
-  
+  bool has_builtin_csum() const override {
+    return true;
+  }
+
 private:
   bool _debug_data_eio(const ghobject_t& o) {
     if (!cct->_conf->bluestore_debug_inject_read_err) {

@@ -30,6 +30,7 @@ set(unittest_librbd_srcs
   test_mock_Journal.cc
   test_mock_ManagedLock.cc
   test_mock_ObjectMap.cc
+  test_mock_Watcher.cc
   exclusive_lock/test_mock_PreAcquireRequest.cc
   exclusive_lock/test_mock_PostAcquireRequest.cc
   exclusive_lock/test_mock_PreReleaseRequest.cc
@@ -37,6 +38,7 @@ set(unittest_librbd_srcs
   image/test_mock_RemoveRequest.cc
   io/test_mock_ImageRequest.cc
   io/test_mock_ImageRequestWQ.cc
+  io/test_mock_ObjectRequest.cc
   journal/test_mock_OpenRequest.cc
   journal/test_mock_PromoteRequest.cc
   journal/test_mock_Replay.cc

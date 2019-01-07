@@ -34,73 +34,6 @@
 
 #include <stdio.h>
 
-int64_t unit_to_bytesize(string val, ostream *pss)
-{
-  if (val.empty()) {
-    if (pss)
-      *pss << "value is empty!";
-    return -EINVAL;
-  }
-
-  char c = val[val.length()-1];
-  int modifier = 0;
-  if (!::isdigit(c)) {
-    if (val.length() < 2) {
-      if (pss)
-        *pss << "invalid value: " << val;
-      return -EINVAL;
-    }
-    val = val.substr(0,val.length()-1);
-    switch (c) {
-    case 'B':
-      break;
-    case 'k':
-    case 'K':
-      modifier = 10;
-      break;
-    case 'M':
-      modifier = 20;
-      break;
-    case 'G':
-      modifier = 30;
-      break;
-    case 'T':
-      modifier = 40;
-      break;
-    case 'P':
-      modifier = 50;
-      break;
-    case 'E':
-      modifier = 60;
-      break;
-    default:
-      if (pss)
-        *pss << "unrecognized modifier '" << c << "'" << std::endl;
-      return -EINVAL;
-    }
-  }
-
-  if (val[0] == '+' || val[0] == '-') {
-    if (pss)
-      *pss << "expected numerical value, got: " << val;
-    return -EINVAL;
-  }
-
-  string err;
-  int64_t r = strict_strtoll(val.c_str(), 10, &err);
-  if ((r == 0) && !err.empty()) {
-    if (pss)
-      *pss << err;
-    return -1;
-  }
-  if (r < 0) {
-    if (pss)
-      *pss << "unable to parse positive integer '" << val << "'";
-    return -1;
-  }
-  return (r * (1LL << modifier));
-}
-
 int get_fs_stats(ceph_data_stats_t &stats, const char *path)
 {
   if (!path)
@@ -182,7 +115,7 @@ static void distro_detect(map<string, string> *m, CephContext *cct)
     lderr(cct) << "distro_detect - /etc/os-release is required" << dendl;
   }
 
-  for (const char* rk: {"distro", "distro_version"}) {
+  for (const char* rk: {"distro", "distro_description"}) {
     if (m->find(rk) == m->end())
       lderr(cct) << "distro_detect - can't detect " << rk << dendl;
   }
@@ -202,6 +135,18 @@ void collect_sys_info(map<string, string> *m, CephContext *cct)
     (*m)["kernel_description"] = u.version;
     (*m)["hostname"] = u.nodename;
     (*m)["arch"] = u.machine;
+  }
+
+  // but wait, am i in a container?
+  if (const char *pod_name = getenv("POD_NAME")) {
+    (*m)["pod_name"] = pod_name;
+    if (const char *node_name = getenv("NODE_NAME")) {
+      (*m)["container_hostname"] = u.nodename;
+      (*m)["hostname"] = node_name;
+    }
+  }
+  if (const char *ns = getenv("POD_NAMESPACE")) {
+    (*m)["pod_namespace"] = ns;
   }
 
   // memory

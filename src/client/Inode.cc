@@ -8,12 +8,14 @@
 #include "Fh.h"
 #include "MetaSession.h"
 #include "ClientSnapRealm.h"
+#include "Delegation.h"
 
 #include "mds/flock.h"
 
 Inode::~Inode()
 {
-  cap_item.remove_myself();
+  delay_cap_item.remove_myself();
+  dirty_cap_item.remove_myself(); 
   snaprealm_item.remove_myself();
 
   if (snapdir_parent) {
@@ -25,6 +27,12 @@ Inode::~Inode()
     lsubdout(client->cct, client, 0) << __func__ << ": leftover objects on inode 0x"
       << std::hex << ino << std::dec << dendl;
     assert(oset.objects.empty());
+  }
+
+  if (!delegations.empty()) {
+    lsubdout(client->cct, client, 0) << __func__ << ": leftover delegations on inode 0x"
+      << std::hex << ino << std::dec << dendl;
+    assert(delegations.empty());
   }
 
   delete fcntl_locks;
@@ -41,6 +49,7 @@ ostream& operator<<(ostream &out, const Inode &in)
       << " open=" << in.open_by_mode
       << " mode=" << oct << in.mode << dec
       << " size=" << in.size << "/" << in.max_size
+      << " nlink=" << in.nlink
       << " mtime=" << in.mtime
       << " caps=" << ccap_string(in.caps_issued());
   if (!in.caps.empty()) {
@@ -116,6 +125,7 @@ void Inode::make_nosnap_relative_path(filepath& p)
 void Inode::get_open_ref(int mode)
 {
   open_by_mode[mode]++;
+  break_deleg(!(mode & CEPH_FILE_MODE_WR));
 }
 
 bool Inode::put_open_ref(int mode)
@@ -142,9 +152,6 @@ void Inode::get_cap_ref(int cap)
 
 int Inode::put_cap_ref(int cap)
 {
-  // if cap is always a single bit (which it seems to be)
-  // all this logic is equivalent to:
-  // if (--cap_refs[c]) return false; else return true;
   int last = 0;
   int n = 0;
   while (cap) {
@@ -193,6 +200,13 @@ int Inode::caps_issued(int *implemented) const
       c |= it->second->issued;
       i |= it->second->implemented;
     }
+
+  // exclude caps issued by non-auth MDS, but are been revoking by
+  // the auth MDS. The non-auth MDS should be revoking/exporting
+  // these caps, but the message is delayed.
+  if (auth_cap)
+    c &= ~auth_cap->implemented | auth_cap->issued;
+
   if (implemented)
     *implemented = i;
   return c;
@@ -210,9 +224,27 @@ void Inode::try_touch_cap(mds_rank_t mds)
     touch_cap(caps[mds]);
 }
 
-bool Inode::caps_issued_mask(unsigned mask)
+/**
+ * caps_issued_mask - check whether we have all of the caps in the mask
+ * @mask: mask to check against
+ * @allow_impl: whether the caller can also use caps that are implemented but not issued
+ *
+ * This is the bog standard "check whether we have the required caps" operation.
+ * Typically, we only check against the capset that is currently "issued".
+ * In other words, we ignore caps that have been revoked but not yet released.
+ *
+ * Some callers (particularly those doing attribute retrieval) can also make
+ * use of the full set of "implemented" caps to satisfy requests from the
+ * cache.
+ *
+ * Those callers should refrain from taking new references to implemented
+ * caps!
+ */
+bool Inode::caps_issued_mask(unsigned mask, bool allow_impl)
 {
   int c = snap_caps;
+  int i = 0;
+
   if ((c & mask) == mask)
     return true;
   // prefer auth cap
@@ -232,8 +264,13 @@ bool Inode::caps_issued_mask(unsigned mask)
 	return true;
       }
       c |= it->second->issued;
+      i |= it->second->implemented;
     }
   }
+
+  if (allow_impl)
+    c |= i;
+
   if ((c & mask) == mask) {
     // bah.. touch them all
     for (map<mds_rank_t,Cap*>::iterator it = caps.begin();
@@ -554,4 +591,190 @@ void Inode::set_async_err(int r)
     fh->async_err = r;
   }
 }
+
+bool Inode::has_recalled_deleg()
+{
+  if (delegations.empty())
+    return false;
+
+  // Either all delegations are recalled or none are. Just check the first.
+  Delegation& deleg = delegations.front();
+  return deleg.is_recalled();
+}
+
+void Inode::recall_deleg(bool skip_read)
+{
+  if (delegations.empty())
+    return;
+
+  // Issue any recalls
+  for (list<Delegation>::iterator d = delegations.begin();
+       d != delegations.end(); ++d) {
+
+    Delegation& deleg = *d;
+    deleg.recall(skip_read);
+  }
+}
+
+bool Inode::delegations_broken(bool skip_read)
+{
+  if (delegations.empty()) {
+    lsubdout(client->cct, client, 10) <<
+	  __func__ << ": delegations empty on " << *this << dendl;
+    return true;
+  }
+
+  if (skip_read) {
+    Delegation& deleg = delegations.front();
+    lsubdout(client->cct, client, 10) <<
+	__func__ << ": read delegs only on " << *this << dendl;
+    if (deleg.get_type() == CEPH_FILE_MODE_RD) {
+	return true;
+    }
+  }
+  lsubdout(client->cct, client, 10) <<
+	__func__ << ": not broken" << *this << dendl;
+  return false;
+}
+
+void Inode::break_deleg(bool skip_read)
+{
+  lsubdout(client->cct, client, 10) <<
+	  __func__ << ": breaking delegs on " << *this << dendl;
+
+  recall_deleg(skip_read);
+
+  while (!delegations_broken(skip_read))
+    client->wait_on_list(waitfor_deleg);
+}
+
+/**
+ * set_deleg: request a delegation on an open Fh
+ * @fh: filehandle on which to acquire it
+ * @type: delegation request type
+ * @cb: delegation recall callback function
+ * @priv: private pointer to be passed to callback
+ *
+ * Attempt to acquire a delegation on an open file handle. If there are no
+ * conflicts and we have the right caps, allocate a new delegation, fill it
+ * out and return 0. Return an error if we can't get one for any reason.
+ */
+int Inode::set_deleg(Fh *fh, unsigned type, ceph_deleg_cb_t cb, void *priv)
+{
+  lsubdout(client->cct, client, 10) <<
+	  __func__ << ": inode " << *this << dendl;
+
+  /*
+   * 0 deleg timeout means that they haven't been explicitly enabled. Don't
+   * allow it, with an unusual error to make it clear.
+   */
+  if (!client->get_deleg_timeout())
+    return -ETIME;
+
+  // Just say no if we have any recalled delegs still outstanding
+  if (has_recalled_deleg()) {
+    lsubdout(client->cct, client, 10) << __func__ <<
+	  ": has_recalled_deleg" << dendl;
+    return -EAGAIN;
+  }
+
+  // check vs. currently open files on this inode
+  switch (type) {
+  case CEPH_DELEGATION_RD:
+    if (open_count_for_write()) {
+      lsubdout(client->cct, client, 10) << __func__ <<
+	    ": open for write" << dendl;
+      return -EAGAIN;
+    }
+    break;
+  case CEPH_DELEGATION_WR:
+    if (open_count() > 1) {
+      lsubdout(client->cct, client, 10) << __func__ << ": open" << dendl;
+      return -EAGAIN;
+    }
+    break;
+  default:
+    return -EINVAL;
+  }
+
+  /*
+   * A delegation is essentially a long-held container for cap references that
+   * we delegate to the client until recalled. The caps required depend on the
+   * type of delegation (read vs. rw). This is entirely an opportunistic thing.
+   * If we don't have the necessary caps for the delegation, then we just don't
+   * grant one.
+   *
+   * In principle we could request the caps from the MDS, but a delegation is
+   * usually requested just after an open. If we don't have the necessary caps
+   * already, then it's likely that there is some sort of conflicting access.
+   *
+   * In the future, we may need to add a way to have this request caps more
+   * aggressively -- for instance, to handle WANT_DELEGATION for NFSv4.1+.
+   */
+  int need = ceph_deleg_caps_for_type(type);
+  if (!caps_issued_mask(need)) {
+    lsubdout(client->cct, client, 10) << __func__ << ": cap mismatch, have="
+      << ccap_string(caps_issued()) << " need=" << ccap_string(need) << dendl;
+    return -EAGAIN;
+  }
+
+  for (list<Delegation>::iterator d = delegations.begin();
+       d != delegations.end(); ++d) {
+    Delegation& deleg = *d;
+    if (deleg.get_fh() == fh) {
+      deleg.reinit(type, cb, priv);
+      return 0;
+    }
+  }
+
+  delegations.emplace_back(fh, type, cb, priv);
+  return 0;
+}
+
+/**
+ * unset_deleg - remove a delegation that was previously set
+ * @fh: file handle to clear delegation of
+ *
+ * Unlink delegation from the Inode (if there is one), put caps and free it.
+ */
+void Inode::unset_deleg(Fh *fh)
+{
+  for (list<Delegation>::iterator d = delegations.begin();
+       d != delegations.end(); ++d) {
+    Delegation& deleg = *d;
+    if (deleg.get_fh() == fh) {
+      delegations.erase(d);
+      client->signal_cond_list(waitfor_deleg);
+      break;
+    }
+  }
+}
+
+/**
+* mark_caps_dirty - mark some caps dirty
+* @caps: the dirty caps
+*
+* note that if there is no dirty and flushing caps before, we need to pin this inode.
+* it will be unpined by handle_cap_flush_ack when there are no dirty and flushing caps.
+*/
+void Inode::mark_caps_dirty(int caps)
+{
+  lsubdout(client->cct, client, 10) << __func__ << " " << *this << " " << ccap_string(dirty_caps) << " -> "
+           << ccap_string(dirty_caps | caps) << dendl;
+  if (caps && !caps_dirty())
+    get();
+  dirty_caps |= caps;
+  client->get_dirty_list().push_back(&dirty_cap_item);
+}
+
+/**
+* mark_caps_clean - only clean the dirty_caps and caller should start flushing the dirty caps.
+*/
+void Inode::mark_caps_clean()
+{
+  lsubdout(client->cct, client, 10) << __func__ << " " << *this << dendl;
+  dirty_caps = 0;
+  dirty_cap_item.remove_myself();
+}
+
 

@@ -15,6 +15,8 @@
 #ifndef MDS_RANK_H_
 #define MDS_RANK_H_
 
+#include <boost/utility/string_view.hpp>
+
 #include "common/DecayCounter.h"
 #include "common/LogClient.h"
 #include "common/Timer.h"
@@ -27,9 +29,9 @@
 #include "MDSMap.h"
 #include "SessionMap.h"
 #include "MDCache.h"
-#include "Migrator.h"
 #include "MDLog.h"
 #include "PurgeQueue.h"
+#include "Server.h"
 #include "osdc/Journaler.h"
 
 // Full .h import instead of forward declaration for PerfCounter, for the
@@ -97,7 +99,6 @@ namespace ceph {
   struct heartbeat_handle_d;
 }
 
-class Server;
 class Locker;
 class MDCache;
 class MDLog;
@@ -136,6 +137,16 @@ class MDSRank {
     // a separate lock here in future potentially.
     Mutex &mds_lock;
 
+    mono_time get_starttime() const {
+      return starttime;
+    }
+    chrono::duration<double> get_uptime() const {
+      mono_time now = mono_clock::now();
+      return chrono::duration<double>(now-starttime);
+    }
+
+    class CephContext *cct;
+
     bool is_daemon_stopping() const;
 
     // Reference to global cluster log client, just to avoid initialising
@@ -173,6 +184,7 @@ class MDSRank {
     Session *get_session(client_t client) {
       return sessionmap.get_session(entity_name_t::CLIENT(client.v));
     }
+    Session *get_session(Message *m);
 
     PerfCounters       *logger, *mlogger;
     OpTracker    op_tracker;
@@ -207,6 +219,9 @@ class MDSRank {
     void handle_conf_change(const struct md_config_t *conf,
                             const std::set <std::string> &changed)
     {
+      mdcache->handle_conf_change(conf, changed, *mdsmap);
+      sessionmap.handle_conf_change(conf, changed);
+      server->handle_conf_change(conf, changed);
       purge_queue.handle_conf_change(conf, changed, *mdsmap);
     }
 
@@ -250,6 +265,7 @@ class MDSRank {
     ceph_tid_t last_tid;    // for mds-initiated requests (e.g. stray rename)
 
     list<MDSInternalContextBase*> waiting_for_active, waiting_for_replay, waiting_for_reconnect, waiting_for_resolve;
+    list<MDSInternalContextBase*> waiting_for_any_client_connection;
     list<MDSInternalContextBase*> replay_queue;
     map<mds_rank_t, list<MDSInternalContextBase*> > waiting_for_active_peer;
     map<epoch_t, list<MDSInternalContextBase*> > waiting_for_mdsmap;
@@ -282,8 +298,16 @@ class MDSRank {
       finished_queue.push_back(c);
       progress_thread.signal();
     }
-    void queue_waiters(list<MDSInternalContextBase*>& ls) {
+    void queue_waiter_front(MDSInternalContextBase *c) {
+      finished_queue.push_back(c);
+      progress_thread.signal();
+    }
+    void queue_waiters(std::list<MDSInternalContextBase*>& ls) {
       finished_queue.splice( finished_queue.end(), ls );
+      progress_thread.signal();
+    }
+    void queue_waiters_front(std::list<MDSInternalContextBase*>& ls) {
+      finished_queue.splice(finished_queue.begin(), ls);
       progress_thread.signal();
     }
 
@@ -339,7 +363,11 @@ class MDSRank {
      */
     void damaged_unlocked();
 
-    utime_t get_laggy_until() const;
+    double last_cleared_laggy() const {
+      return beacon.last_cleared_laggy();
+    }
+
+    double get_dispatch_queue_max_age(utime_t now) const;
 
     void send_message_mds(Message *m, mds_rank_t mds);
     void forward_message_mds(Message *req, mds_rank_t mds);
@@ -364,6 +392,12 @@ class MDSRank {
       waiting_for_active_peer[MDS_RANK_NONE].push_back(c);
     }
 
+    void wait_for_any_client_connection(MDSInternalContextBase *c) {
+      waiting_for_any_client_connection.push_back(c);
+    }
+    void kick_waiters_for_any_client_connection(void) {
+      finish_contexts(g_ceph_context, waiting_for_any_client_connection);
+    }
     void wait_for_active(MDSInternalContextBase *c) {
       waiting_for_active.push_back(c);
     }
@@ -395,7 +429,7 @@ class MDSRank {
 
     MDSMap *get_mds_map() { return mdsmap; }
 
-    int get_req_rate() const { return logger->get(l_mds_request); }
+    uint64_t get_num_requests() const { return logger->get(l_mds_request); }
   
     int get_mds_slow_req_count() const { return mds_slow_req_count; }
 
@@ -412,14 +446,14 @@ class MDSRank {
 
   protected:
     void dump_clientreplay_status(Formatter *f) const;
-    void command_scrub_path(Formatter *f, const string& path, vector<string>& scrubop_vec);
-    void command_tag_path(Formatter *f, const string& path,
-                          const string &tag);
-    void command_flush_path(Formatter *f, const string& path);
+    void command_scrub_path(Formatter *f, boost::string_view path, vector<string>& scrubop_vec);
+    void command_tag_path(Formatter *f, boost::string_view path,
+                          boost::string_view tag);
+    void command_flush_path(Formatter *f, boost::string_view path);
     void command_flush_journal(Formatter *f);
     void command_get_subtrees(Formatter *f);
     void command_export_dir(Formatter *f,
-        const std::string &path, mds_rank_t dest);
+        boost::string_view path, mds_rank_t dest);
     bool command_dirfrag_split(
         cmdmap_t cmdmap,
         std::ostream &ss);
@@ -430,7 +464,7 @@ class MDSRank {
         cmdmap_t cmdmap,
         std::ostream &ss,
         Formatter *f);
-    int _command_export_dir(const std::string &path, mds_rank_t dest);
+    int _command_export_dir(boost::string_view path, mds_rank_t dest);
     int _command_flush_journal(std::stringstream *ss);
     CDir *_command_dirfrag_get(
         const cmdmap_t &cmdmap,
@@ -504,6 +538,9 @@ class MDSRank {
 
     /* Update MDSMap export_targets for this rank. Called on ::tick(). */
     void update_targets(utime_t now);
+
+private:
+    mono_time starttime = mono_clock::zero();
 };
 
 /* This expects to be given a reference which it is responsible for.

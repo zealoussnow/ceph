@@ -8,6 +8,7 @@
 #include "librbd/internal.h"
 #include "librbd/Operations.h"
 #include "librbd/TaskFinisher.h"
+#include "librbd/Types.h"
 #include "librbd/Utils.h"
 #include "librbd/exclusive_lock/Policy.h"
 #include "librbd/image_watcher/NotifyLockOwner.h"
@@ -363,7 +364,7 @@ void ImageWatcher<I>::schedule_request_lock(bool use_timer, int timer_delay) {
          !m_image_ctx.exclusive_lock->is_lock_owner());
 
   RWLock::RLocker watch_locker(this->m_watch_lock);
-  if (this->m_watch_state == Watcher::WATCH_STATE_REGISTERED) {
+  if (this->is_registered(this->m_watch_lock)) {
     ldout(m_image_ctx.cct, 15) << this << " requesting exclusive lock" << dendl;
 
     FunctionContext *ctx = new FunctionContext(
@@ -978,7 +979,7 @@ void ImageWatcher<I>::handle_rewatch_complete(int r) {
     RWLock::RLocker owner_locker(m_image_ctx.owner_lock);
     if (m_image_ctx.exclusive_lock != nullptr) {
       // update the lock cookie with the new watch handle
-      m_image_ctx.exclusive_lock->reacquire_lock();
+      m_image_ctx.exclusive_lock->reacquire_lock(nullptr);
     }
   }
 

@@ -598,11 +598,13 @@ cdef class LibCephFS(object):
         if not dirent:
             return None
 
+        d_name = dirent.d_name if sys.version[0:2] == '2.' else dirent.d_name.\
+                 decode()
         return DirEntry(d_ino=dirent.d_ino,
                         d_off=dirent.d_off,
                         d_reclen=dirent.d_reclen,
                         d_type=dirent.d_type,
-                        d_name=dirent.d_name)
+                        d_name=d_name)
 
     def closedir(self, DirResult dir_handler):
         self.require_state("mounted")
@@ -962,10 +964,10 @@ cdef class LibCephFS(object):
             char *_inbuf = input_data
             size_t _inbuf_len = len(input_data)
 
-            char *_outbuf
-            size_t _outbuf_len
-            char *_outs
-            size_t _outs_len
+            char *_outbuf = NULL
+            size_t _outbuf_len = 0
+            char *_outs = NULL
+            size_t _outs_len = 0
 
         try:
             with nogil:
@@ -974,15 +976,12 @@ cdef class LibCephFS(object):
                                        <const char*>_inbuf, _inbuf_len,
                                        &_outbuf, &_outbuf_len,
                                        &_outs, &_outs_len)
-            if ret == 0:
-                my_outs = decode_cstr(_outs[:_outs_len])
-                my_outbuf = _outbuf[:_outbuf_len]
-                if _outs_len:
-                    ceph_buffer_free(_outs)
-                if _outbuf_len:
-                    ceph_buffer_free(_outbuf)
-                return (ret, my_outbuf, my_outs)
-            else:
-                return (ret, b"", "")
+            my_outs = decode_cstr(_outs[:_outs_len])
+            my_outbuf = _outbuf[:_outbuf_len]
+            if _outs_len:
+                ceph_buffer_free(_outs)
+            if _outbuf_len:
+                ceph_buffer_free(_outbuf)
+            return (ret, my_outbuf, my_outs)
         finally:
             free(_cmd)

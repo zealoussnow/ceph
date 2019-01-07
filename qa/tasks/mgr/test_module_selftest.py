@@ -24,9 +24,14 @@ class TestModuleSelftest(MgrTestCase):
         self.mgr_cluster.mon_manager.raw_cluster_cmd(module_name, "self-test")
 
     def test_zabbix(self):
+        # Set these mandatory config fields so that the zabbix module
+        # won't trigger health/log errors on load/serve.
+        self.mgr_cluster.set_module_conf("zabbix", "zabbix_host", "localhost")
+        self.mgr_cluster.set_module_conf("zabbix", "identifier", "foo")
         self._selftest_plugin("zabbix")
 
     def test_prometheus(self):
+        self._assign_ports("prometheus", "server_port", min_port=8100)
         self._selftest_plugin("prometheus")
 
     def test_influx(self):

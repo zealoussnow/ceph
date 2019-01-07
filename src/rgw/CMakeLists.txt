@@ -60,6 +60,7 @@ set(rgw_a_srcs
   rgw_frontend.cc
   rgw_gc.cc
   rgw_http_client.cc
+  rgw_http_client_curl.cc
   rgw_json_enc.cc
   rgw_keystone.cc
   rgw_ldap.cc
@@ -76,6 +77,7 @@ set(rgw_a_srcs
   rgw_sync_module_es.cc
   rgw_sync_module_es_rest.cc
   rgw_sync_module_log.cc
+  rgw_sync_log_trim.cc
   rgw_period_history.cc
   rgw_period_puller.cc
   rgw_period_pusher.cc
@@ -141,7 +143,6 @@ add_library(rgw_a STATIC ${rgw_a_srcs})
 add_dependencies(rgw_a civetweb_h)
 
 target_include_directories(rgw_a PUBLIC
-  "../Beast/include"
   ${FCGI_INCLUDE_DIR}
   "../rapidjson/include"
   )
@@ -153,6 +154,10 @@ target_link_libraries(rgw_a librados cls_lock_client cls_rgw_client cls_refcount
   ${CURL_LIBRARIES}
   ${EXPAT_LIBRARIES}
   ${OPENLDAP_LIBRARIES} ${CRYPTO_LIBS})
+
+if (WITH_CURL_OPENSSL)
+  target_link_libraries(rgw_a ${OPENSSL_LIBRARIES})
+endif (WITH_CURL_OPENSSL)
 
 set(radosgw_srcs
   rgw_loadgen_process.cc
@@ -173,11 +178,6 @@ endif (WITH_RADOSGW_BEAST_FRONTEND)
 add_library(radosgw_a STATIC ${radosgw_srcs}
   $<TARGET_OBJECTS:civetweb_common_objs>)
 target_link_libraries(radosgw_a rgw_a ${SSL_LIBRARIES})
-if(WITH_RADOSGW_BEAST_FRONTEND)
-  target_link_libraries(radosgw_a
-    Boost::coroutine
-    Boost::context)
-endif()
 
 add_executable(radosgw rgw_main.cc)
 target_link_libraries(radosgw radosgw_a librados
@@ -257,16 +257,3 @@ target_link_libraries(rgw LINK_PRIVATE
 set_target_properties(rgw PROPERTIES OUTPUT_NAME rgw VERSION 2.0.0
   SOVERSION 2)
 install(TARGETS rgw DESTINATION ${CMAKE_INSTALL_LIBDIR})
-
-if(WITH_EMBEDDED)
-  include(MergeStaticLibraries)
-  add_library(cephd_rgw_base STATIC rgw_main.cc ${radosgw_admin_srcs})
-  if(WITH_RADOSGW_FCGI_FRONTEND)  
-    target_include_directories(cephd_rgw_base PUBLIC ${FCGI_INCLUDE_DIR})
-  endif()
-  set_target_properties(cephd_rgw_base PROPERTIES COMPILE_DEFINITIONS BUILDING_FOR_EMBEDDED)
-  merge_static_libraries(cephd_rgw cephd_rgw_base rgw_a radosgw_a)
-  if(WITH_RADOSGW_FCGI_FRONTEND) 
-    target_link_libraries(cephd_rgw ${FCGI_LIBRARY})
-  endif()
-endif()

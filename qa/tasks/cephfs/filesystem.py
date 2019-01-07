@@ -268,6 +268,12 @@ class MDSCluster(CephCluster):
 
         self._one_or_all(mds_id, _fail_restart)
 
+    def mds_signal(self, mds_id, sig, silent=False):
+        """
+        signal a MDS daemon
+        """
+        self.mds_daemons[mds_id].signal(sig, silent);
+
     def newfs(self, name='cephfs', create=True):
         return Filesystem(self._ctx, name=name, create=create)
 
@@ -357,10 +363,6 @@ class MDSCluster(CephCluster):
     def get_mds_info(self, mds_id):
         return FSStatus(self.mon_manager).get_mds(mds_id)
 
-    def is_full(self):
-        flags = json.loads(self.mon_manager.raw_cluster_cmd("osd", "dump", "--format=json-pretty"))['flags']
-        return 'full' in flags
-
     def is_pool_full(self, pool_name):
         pools = json.loads(self.mon_manager.raw_cluster_cmd("osd", "dump", "--format=json-pretty"))['pools']
         for pool in pools:
@@ -437,6 +439,10 @@ class Filesystem(MDSCluster):
             raise RuntimeError("cannot deactivate rank 0")
         self.mon_manager.raw_cluster_cmd("mds", "deactivate", "%d:%d" % (self.id, rank))
 
+    def set_var(self, var, *args):
+        a = map(str, args)
+        self.mon_manager.raw_cluster_cmd("fs", "set", self.name, var, *a)
+
     def set_max_mds(self, max_mds):
         self.mon_manager.raw_cluster_cmd("fs", "set", self.name, "max_mds", "%d" % max_mds)
 
@@ -475,7 +481,7 @@ class Filesystem(MDSCluster):
                                              self.name, self.metadata_pool_name, data_pool_name,
                                              '--allow-dangerous-metadata-overlay')
         else:
-            if self.ec_profile:
+            if self.ec_profile and 'disabled' not in self.ec_profile:
                 log.info("EC profile is %s", self.ec_profile)
                 cmd = ['osd', 'erasure-code-profile', 'set', data_pool_name]
                 cmd.extend(self.ec_profile)
@@ -555,6 +561,9 @@ class Filesystem(MDSCluster):
 
     def get_mds_map(self):
         return self.status().get_fsmap(self.id)['mdsmap']
+
+    def get_var(self, var):
+        return self.status().get_fsmap(self.id)['mdsmap'][var]
 
     def add_data_pool(self, name):
         self.mon_manager.raw_cluster_cmd('osd', 'pool', 'create', name, self.get_pgs_per_fs_pool().__str__())
@@ -718,7 +727,17 @@ class Filesystem(MDSCluster):
 
         return result
 
-    def get_rank_names(self):
+    def get_rank(self, rank=0, status=None):
+        if status is None:
+            status = self.getinfo()
+        return status.get_rank(self.id, rank)
+
+    def get_ranks(self, status=None):
+        if status is None:
+            status = self.getinfo()
+        return status.get_ranks(self.id)
+
+    def get_rank_names(self, status=None):
         """
         Return MDS daemon names of those daemons holding a rank,
         sorted by rank.  This includes e.g. up:replay/reconnect
@@ -841,6 +860,10 @@ class Filesystem(MDSCluster):
             mds_id = self.get_lone_mds_id()
 
         return self.json_asok(command, 'mds', mds_id)
+
+    def rank_asok(self, command, rank=0):
+        info = self.get_rank(rank=rank)
+        return self.json_asok(command, 'mds', info['name'])
 
     def read_cache(self, path, depth=None):
         cmd = ["dump", "tree", path]
@@ -1055,7 +1078,8 @@ class Filesystem(MDSCluster):
         else:
             return True
 
-    def rados(self, args, pool=None, namespace=None, stdin_data=None):
+    def rados(self, args, pool=None, namespace=None, stdin_data=None,
+              stdin_file=None):
         """
         Call into the `rados` CLI from an MDS
         """
@@ -1073,6 +1097,10 @@ class Filesystem(MDSCluster):
         args = ([os.path.join(self._prefix, "rados"), "-p", pool] +
                 (["--namespace", namespace] if namespace else []) +
                 args)
+
+        if stdin_file is not None:
+            args = ["bash", "-c", "cat " + stdin_file + " | " + " ".join(args)]
+
         p = remote.run(
             args=args,
             stdin=stdin_data,
@@ -1211,3 +1239,6 @@ class Filesystem(MDSCluster):
             return workers[0].value
         else:
             return None
+
+    def is_full(self):
+        return self.is_pool_full(self.get_data_pool_name())

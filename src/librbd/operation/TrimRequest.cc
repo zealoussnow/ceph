@@ -45,8 +45,9 @@ public:
     string oid = image_ctx.get_object_name(m_object_no);
     ldout(image_ctx.cct, 10) << "removing (with copyup) " << oid << dendl;
 
-    auto req = io::ObjectRequest<I>::create_trim(&image_ctx, oid, m_object_no,
-                                                 m_snapc, false, this);
+    auto req = io::ObjectRequest<I>::create_discard(
+      &image_ctx, oid, m_object_no, 0, image_ctx.layout.object_size, m_snapc,
+      false, false, {}, this);
     req->send();
     return 0;
   }
@@ -197,7 +198,7 @@ void TrimRequest<I>::send_pre_trim() {
       RWLock::WLocker object_map_locker(image_ctx.object_map_lock);
       if (image_ctx.object_map->template aio_update<AsyncRequest<I> >(
             CEPH_NOSNAP, m_delete_start_min, m_num_objects, OBJECT_PENDING,
-            OBJECT_EXISTS, {}, this)) {
+            OBJECT_EXISTS, {}, false, this)) {
         return;
       }
     }
@@ -291,7 +292,7 @@ void TrimRequest<I>::send_post_trim() {
       RWLock::WLocker object_map_locker(image_ctx.object_map_lock);
       if (image_ctx.object_map->template aio_update<AsyncRequest<I> >(
             CEPH_NOSNAP, m_delete_start_min, m_num_objects, OBJECT_NONEXISTENT,
-            OBJECT_PENDING, {}, this)) {
+            OBJECT_PENDING, {}, false, this)) {
         return;
       }
     }
@@ -338,16 +339,14 @@ void TrimRequest<I>::send_clean_boundary() {
     ldout(cct, 20) << " ex " << *p << dendl;
     Context *req_comp = new C_ContextCompletion(*completion);
 
-    io::ObjectRequest<I> *req;
     if (p->offset == 0) {
-      req = io::ObjectRequest<I>::create_trim(&image_ctx, p->oid.name,
-                                              p->objectno, snapc, true,
-                                              req_comp);
-    } else {
-      req = io::ObjectRequest<I>::create_truncate(&image_ctx, p->oid.name,
-                                                  p->objectno, p->offset, snapc,
-                                                  {}, req_comp);
+      // treat as a full object delete on the boundary
+      p->length = image_ctx.layout.object_size;
     }
+    auto req = io::ObjectRequest<I>::create_discard(&image_ctx, p->oid.name,
+                                                    p->objectno, p->offset,
+                                                    p->length, snapc, false,
+                                                    true, {}, req_comp);
     req->send();
   }
   completion->finish_adding_requests();

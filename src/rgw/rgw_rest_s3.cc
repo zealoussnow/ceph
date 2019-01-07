@@ -649,12 +649,18 @@ int RGWListBucket_ObjStore_S3::get_params()
     marker.name = s->info.args.get("key-marker");
     marker.instance = s->info.args.get("version-id-marker");
   }
+
+  // non-standard
+  s->info.args.get_bool("allow-unordered", &allow_unordered, false);
+
+  delimiter = s->info.args.get("delimiter");
+
   max_keys = s->info.args.get("max-keys");
   op_ret = parse_max_keys();
   if (op_ret < 0) {
     return op_ret;
   }
-  delimiter = s->info.args.get("delimiter");
+
   encoding_type = s->info.args.get("encoding-type");
   if (s->system_request) {
     s->info.args.get_bool("objs-container", &objs_container, false);
@@ -670,6 +676,7 @@ int RGWListBucket_ObjStore_S3::get_params()
       shard_id = s->bucket_instance_shard_id;
     }
   }
+
   return 0;
 }
 
@@ -1255,29 +1262,33 @@ int RGWPutObj_ObjStore_S3::get_params()
 
   if_match = s->info.env->get("HTTP_IF_MATCH");
   if_nomatch = s->info.env->get("HTTP_IF_NONE_MATCH");
-  copy_source = s->info.env->get("HTTP_X_AMZ_COPY_SOURCE");
+  copy_source = url_decode(s->info.env->get("HTTP_X_AMZ_COPY_SOURCE", ""));
   copy_source_range = s->info.env->get("HTTP_X_AMZ_COPY_SOURCE_RANGE");
 
   /* handle x-amz-copy-source */
-
-  if (copy_source) {
-    if (*copy_source == '/') ++copy_source;
-    copy_source_bucket_name = copy_source;
+  boost::string_view cs_view(copy_source);
+  if (! cs_view.empty()) {
+    if (cs_view[0] == '/')
+      cs_view.remove_prefix(1);
+    copy_source_bucket_name = cs_view.to_string();
     pos = copy_source_bucket_name.find("/");
     if (pos == std::string::npos) {
       ret = -EINVAL;
       ldout(s->cct, 5) << "x-amz-copy-source bad format" << dendl;
       return ret;
     }
-    copy_source_object_name = copy_source_bucket_name.substr(pos + 1, copy_source_bucket_name.size());
+    copy_source_object_name =
+      copy_source_bucket_name.substr(pos + 1, copy_source_bucket_name.size());
     copy_source_bucket_name = copy_source_bucket_name.substr(0, pos);
 #define VERSION_ID_STR "?versionId="
     pos = copy_source_object_name.find(VERSION_ID_STR);
     if (pos == std::string::npos) {
       copy_source_object_name = url_decode(copy_source_object_name);
     } else {
-      copy_source_version_id = copy_source_object_name.substr(pos + sizeof(VERSION_ID_STR) - 1);
-      copy_source_object_name = url_decode(copy_source_object_name.substr(0, pos));
+      copy_source_version_id =
+	copy_source_object_name.substr(pos + sizeof(VERSION_ID_STR) - 1);
+      copy_source_object_name =
+	url_decode(copy_source_object_name.substr(0, pos));
     }
     pos = copy_source_bucket_name.find(":");
     if (pos == std::string::npos) {
@@ -1379,7 +1390,7 @@ void RGWPutObj_ObjStore_S3::send_response()
 	s->cct->_conf->rgw_s3_success_create_obj_status);
       set_req_state_err(s, op_ret);
     }
-    if (!copy_source) {
+    if (copy_source.empty()) {
       dump_errno(s);
       dump_etag(s, etag);
       dump_content_length(s, 0);
@@ -1608,7 +1619,11 @@ int RGWPostObj_ObjStore_S3::get_params()
   env.add_var("key", s->object.name);
 
   part_str(parts, "Content-Type", &content_type);
-  env.add_var("Content-Type", content_type);
+
+  /* AWS permits POST without Content-Type: http://tracker.ceph.com/issues/20201 */
+  if (! content_type.empty()) {
+    env.add_var("Content-Type", content_type);
+  }
 
   map<string, struct post_form_part, ltstr_nocase>::iterator piter =
     parts.upper_bound(RGW_AMZ_META_PREFIX);
@@ -2128,6 +2143,7 @@ void RGWCopyObj_ObjStore_S3::send_partial_response(off_t ofs)
     dump_errno(s);
 
     end_header(s, this, "application/xml");
+    dump_start(s);
     if (op_ret == 0) {
       s->formatter->open_object_section_in_ns("CopyObjectResult", XMLNS_AWS_S3);
     }
@@ -2275,7 +2291,7 @@ void RGWGetCORS_ObjStore_S3::send_response()
 {
   if (op_ret) {
     if (op_ret == -ENOENT)
-      set_req_state_err(s, ERR_NOT_FOUND);
+      set_req_state_err(s, ERR_NO_SUCH_CORS_CONFIGURATION);
     else
       set_req_state_err(s, op_ret);
   }
@@ -2532,23 +2548,24 @@ void RGWCompleteMultipart_ObjStore_S3::send_response()
     set_req_state_err(s, op_ret);
   dump_errno(s);
   end_header(s, this, "application/xml");
-  if (op_ret == 0) { 
+  if (op_ret == 0) {
     dump_start(s);
     s->formatter->open_object_section_in_ns("CompleteMultipartUploadResult", XMLNS_AWS_S3);
+    std::string base_uri = compute_domain_uri(s);
     if (!s->bucket_tenant.empty()) {
-      if (s->info.domain.length()) {
-        s->formatter->dump_format("Location", "%s.%s.%s",
-          s->bucket_name.c_str(),
-          s->bucket_tenant.c_str(),
-          s->info.domain.c_str());
-      }
+      s->formatter->dump_format("Location", "%s/%s:%s/%s",
+	  base_uri.c_str(),
+	  s->bucket_tenant.c_str(),
+	  s->bucket_name.c_str(),
+	  s->object.name.c_str()
+          );
       s->formatter->dump_string("Tenant", s->bucket_tenant);
     } else {
-      if (s->info.domain.length()) {
-        s->formatter->dump_format("Location", "%s.%s",
-          s->bucket_name.c_str(),
-          s->info.domain.c_str());
-      }
+      s->formatter->dump_format("Location", "%s/%s/%s",
+	  base_uri.c_str(),
+	  s->bucket_name.c_str(),
+	  s->object.name.c_str()
+          );
     }
     s->formatter->dump_string("Bucket", s->bucket_name);
     s->formatter->dump_string("Key", s->object.name);
@@ -3268,9 +3285,11 @@ int RGWHandler_REST_S3::init(RGWRados *store, struct req_state *s,
   s->has_acl_header = s->info.env->exists_prefix("HTTP_X_AMZ_GRANT");
 
   const char *copy_source = s->info.env->get("HTTP_X_AMZ_COPY_SOURCE");
+  if (copy_source &&
+      (! s->info.env->get("HTTP_X_AMZ_COPY_SOURCE_RANGE")) &&
+      (! s->info.args.exists("uploadId"))) {
 
-  if (copy_source && !s->info.env->get("HTTP_X_AMZ_COPY_SOURCE_RANGE")) {
-    ret = RGWCopyObj::parse_copy_location(copy_source,
+    ret = RGWCopyObj::parse_copy_location(url_decode(copy_source),
                                           s->init_state.src_bucket,
                                           s->src_object);
     if (!ret) {
@@ -3437,6 +3456,17 @@ bool RGWHandler_REST_S3Website::web_dir() const {
   return state->exists;
 }
 
+int RGWHandler_REST_S3Website::init(RGWRados *store, req_state *s,
+                                    rgw::io::BasicClient* cio)
+{
+  // save the original object name before retarget() replaces it with the
+  // result of get_effective_key(). the error_handler() needs the original
+  // object name for redirect handling
+  original_object_name = s->object.name;
+
+  return RGWHandler_REST_S3::init(store, s, cio);
+}
+
 int RGWHandler_REST_S3Website::retarget(RGWOp* op, RGWOp** new_op) {
   *new_op = op;
   ldout(s->cct, 10) << __func__ << "Starting retarget" << dendl;
@@ -3586,16 +3616,16 @@ int RGWHandler_REST_S3Website::error_handler(int err_no,
 
   RGWBWRoutingRule rrule;
   bool should_redirect =
-    s->bucket_info.website_conf.should_redirect(s->object.name, http_error_code,
-						&rrule);
+    s->bucket_info.website_conf.should_redirect(original_object_name,
+                                                http_error_code, &rrule);
 
   if (should_redirect) {
     const string& hostname = s->info.env->get("HTTP_HOST", "");
     const string& protocol =
       (s->info.env->get("SERVER_PORT_SECURE") ? "https" : "http");
     int redirect_code = 0;
-    rrule.apply_rule(protocol, hostname, s->object.name, &s->redirect,
-		    &redirect_code);
+    rrule.apply_rule(protocol, hostname, original_object_name,
+                     &s->redirect, &redirect_code);
     // Apply a custom HTTP response code
     if (redirect_code > 0)
       s->err.http_ret = redirect_code; // Apply a custom HTTP response code
@@ -3659,34 +3689,6 @@ RGWOp* RGWHandler_REST_Service_S3Website::get_obj_op(bool get_data)
 namespace rgw {
 namespace auth {
 namespace s3 {
-
-bool AWSGeneralAbstractor::is_time_skew_ok(const utime_t& header_time,
-                                           const bool qsr) const
-{
-  /* Check for time skew first. */
-  const time_t req_sec = header_time.sec();
-  time_t now;
-  time(&now);
-
-  if ((req_sec < now - RGW_AUTH_GRACE_MINS * 60 ||
-       req_sec > now + RGW_AUTH_GRACE_MINS * 60) && !qsr) {
-    ldout(cct, 10) << "req_sec=" << req_sec << " now=" << now
-                   << "; now - RGW_AUTH_GRACE_MINS="
-                   << now - RGW_AUTH_GRACE_MINS * 60
-                   << "; now + RGW_AUTH_GRACE_MINS="
-                   << now + RGW_AUTH_GRACE_MINS * 60
-                   << dendl;
-
-    ldout(cct, 0)  << "NOTICE: request time skew too big now="
-                   << utime_t(now, 0)
-                   << " req_time=" << header_time
-                   << dendl;
-    return false;
-  } else {
-    return true;
-  }
-}
-
 
 static rgw::auth::Completer::cmplptr_t
 null_completer_factory(const boost::optional<std::string>& secret_key)
@@ -3824,6 +3826,7 @@ AWSGeneralAbstractor::get_auth_data_v4(const req_state* const s,
         case RGW_OP_PUT_OBJ:
         case RGW_OP_PUT_ACLS:
         case RGW_OP_PUT_CORS:
+        case RGW_OP_INIT_MULTIPART: // in case that Init Multipart uses CHUNK encoding
         case RGW_OP_COMPLETE_MULTIPART:
         case RGW_OP_SET_BUCKET_VERSIONING:
         case RGW_OP_DELETE_MULTI_OBJ:
@@ -3832,6 +3835,7 @@ AWSGeneralAbstractor::get_auth_data_v4(const req_state* const s,
         case RGW_OP_PUT_BUCKET_POLICY:
         case RGW_OP_PUT_OBJ_TAGGING:
         case RGW_OP_PUT_LC:
+        case RGW_OP_SET_REQUEST_PAYMENT:
           break;
         default:
           dout(10) << "ERROR: AWS4 completion for this operation NOT IMPLEMENTED" << dendl;
@@ -3922,16 +3926,18 @@ AWSGeneralAbstractor::get_auth_data_v2(const req_state* const s) const
     qsr = true;
 
     boost::string_view expires = s->info.args.get("Expires");
-    if (! expires.empty()) {
-      /* It looks we have the guarantee that expires is a null-terminated,
-       * and thus string_view::data() can be safely used. */
-      const time_t exp = atoll(expires.data());
-      time_t now;
-      time(&now);
+    if (expires.empty()) {
+      throw -EPERM;
+    }
 
-      if (now >= exp) {
-        throw -EPERM;
-      }
+    /* It looks we have the guarantee that expires is a null-terminated,
+     * and thus string_view::data() can be safely used. */
+    const time_t exp = atoll(expires.data());
+    time_t now;
+    time(&now);
+
+    if (now >= exp) {
+      throw -EPERM;
     }
   } else {
     /* The "Authorization" HTTP header is being used. */
@@ -3956,7 +3962,7 @@ AWSGeneralAbstractor::get_auth_data_v2(const req_state* const s) const
   ldout(cct, 10) << "string_to_sign:\n"
                  << rgw::crypt_sanitize::auth{s,string_to_sign} << dendl;
 
-  if (! is_time_skew_ok(header_time, qsr)) {
+  if (!qsr && !is_time_skew_ok(header_time)) {
     throw -ERR_REQUEST_TIME_SKEWED;
   }
 

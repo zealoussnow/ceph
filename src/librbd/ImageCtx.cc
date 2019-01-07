@@ -22,6 +22,7 @@
 #include "librbd/ObjectMap.h"
 #include "librbd/Operations.h"
 #include "librbd/operation/ResizeRequest.h"
+#include "librbd/Types.h"
 #include "librbd/Utils.h"
 #include "librbd/LibrbdWriteback.h"
 #include "librbd/exclusive_lock/AutomaticPolicy.h"
@@ -362,25 +363,35 @@ struct C_InvalidateCache : public Context {
   }
 
   void ImageCtx::perf_start(string name) {
+    auto perf_prio = PerfCountersBuilder::PRIO_DEBUGONLY;
+    if (child == nullptr) {
+      // ensure top-level IO stats are exported for librbd daemons
+      perf_prio = PerfCountersBuilder::PRIO_USEFUL;
+    }
+
     PerfCountersBuilder plb(cct, name, l_librbd_first, l_librbd_last);
 
-    plb.add_u64_counter(l_librbd_rd, "rd", "Reads");
-    plb.add_u64_counter(l_librbd_rd_bytes, "rd_bytes", "Data size in reads");
-    plb.add_time_avg(l_librbd_rd_latency, "rd_latency", "Latency of reads");
-    plb.add_u64_counter(l_librbd_wr, "wr", "Writes");
-    plb.add_u64_counter(l_librbd_wr_bytes, "wr_bytes", "Written data");
-    plb.add_time_avg(l_librbd_wr_latency, "wr_latency", "Write latency");
+    plb.add_u64_counter(l_librbd_rd, "rd", "Reads", "r", perf_prio);
+    plb.add_u64_counter(l_librbd_rd_bytes, "rd_bytes", "Data size in reads",
+                        "rb", perf_prio, unit_t(BYTES));
+    plb.add_time_avg(l_librbd_rd_latency, "rd_latency", "Latency of reads",
+                     "rl", perf_prio);
+    plb.add_u64_counter(l_librbd_wr, "wr", "Writes", "w", perf_prio);
+    plb.add_u64_counter(l_librbd_wr_bytes, "wr_bytes", "Written data",
+                        "wb", perf_prio, unit_t(BYTES));
+    plb.add_time_avg(l_librbd_wr_latency, "wr_latency", "Write latency",
+                     "wl", perf_prio);
     plb.add_u64_counter(l_librbd_discard, "discard", "Discards");
-    plb.add_u64_counter(l_librbd_discard_bytes, "discard_bytes", "Discarded data");
+    plb.add_u64_counter(l_librbd_discard_bytes, "discard_bytes", "Discarded data", NULL, 0, unit_t(BYTES));
     plb.add_time_avg(l_librbd_discard_latency, "discard_latency", "Discard latency");
     plb.add_u64_counter(l_librbd_flush, "flush", "Flushes");
     plb.add_u64_counter(l_librbd_aio_flush, "aio_flush", "Async flushes");
     plb.add_time_avg(l_librbd_aio_flush_latency, "aio_flush_latency", "Latency of async flushes");
     plb.add_u64_counter(l_librbd_ws, "ws", "WriteSames");
-    plb.add_u64_counter(l_librbd_ws_bytes, "ws_bytes", "WriteSame data");
+    plb.add_u64_counter(l_librbd_ws_bytes, "ws_bytes", "WriteSame data", NULL, 0, unit_t(BYTES));
     plb.add_time_avg(l_librbd_ws_latency, "ws_latency", "WriteSame latency");
     plb.add_u64_counter(l_librbd_cmp, "cmp", "CompareAndWrites");
-    plb.add_u64_counter(l_librbd_cmp_bytes, "cmp_bytes", "Data size in cmps");
+    plb.add_u64_counter(l_librbd_cmp_bytes, "cmp_bytes", "Data size in cmps", NULL, 0, unit_t(BYTES));
     plb.add_time_avg(l_librbd_cmp_latency, "cmp_latency", "Latency of cmps");
     plb.add_u64_counter(l_librbd_snap_create, "snap_create", "Snap creations");
     plb.add_u64_counter(l_librbd_snap_remove, "snap_remove", "Snap removals");
@@ -389,11 +400,18 @@ struct C_InvalidateCache : public Context {
     plb.add_u64_counter(l_librbd_notify, "notify", "Updated header notifications");
     plb.add_u64_counter(l_librbd_resize, "resize", "Resizes");
     plb.add_u64_counter(l_librbd_readahead, "readahead", "Read ahead");
-    plb.add_u64_counter(l_librbd_readahead_bytes, "readahead_bytes", "Data size in read ahead");
+    plb.add_u64_counter(l_librbd_readahead_bytes, "readahead_bytes", "Data size in read ahead", NULL, 0, unit_t(BYTES));
     plb.add_u64_counter(l_librbd_invalidate_cache, "invalidate_cache", "Cache invalidates");
+
+    plb.add_time(l_librbd_opened_time, "opened_time", "Opened time",
+                 "ots", perf_prio);
+    plb.add_time(l_librbd_lock_acquired_time, "lock_acquired_time",
+                 "Lock acquired time", "lats", perf_prio);
 
     perfcounter = plb.create_perf_counters();
     cct->get_perfcounters_collection()->add(perfcounter);
+
+    perfcounter->tset(l_librbd_opened_time, ceph_clock_now());
   }
 
   void ImageCtx::perf_stop() {
@@ -638,18 +656,20 @@ struct C_InvalidateCache : public Context {
     return -ENOENT;
   }
 
-  int ImageCtx::test_flags(uint64_t flags, bool *flags_set) const
+  int ImageCtx::test_flags(librados::snap_t in_snap_id,
+                           uint64_t flags, bool *flags_set) const
   {
     RWLock::RLocker l(snap_lock);
-    return test_flags(flags, snap_lock, flags_set);
+    return test_flags(in_snap_id, flags, snap_lock, flags_set);
   }
 
-  int ImageCtx::test_flags(uint64_t flags, const RWLock &in_snap_lock,
+  int ImageCtx::test_flags(librados::snap_t in_snap_id,
+                           uint64_t flags, const RWLock &in_snap_lock,
                            bool *flags_set) const
   {
     assert(snap_lock.is_locked());
     uint64_t snap_flags;
-    int r = get_flags(snap_id, &snap_flags);
+    int r = get_flags(in_snap_id, &snap_flags);
     if (r < 0) {
       return r;
     }
@@ -963,7 +983,8 @@ struct C_InvalidateCache : public Context {
     return true;
   }
 
-  void ImageCtx::apply_metadata(const std::map<std::string, bufferlist> &meta) {
+  void ImageCtx::apply_metadata(const std::map<std::string, bufferlist> &meta,
+                                bool thread_safe) {
     ldout(cct, 20) << __func__ << dendl;
     std::map<string, bool> configs = boost::assign::map_list_of(
         "rbd_non_blocking_aio", false)(
@@ -980,6 +1001,7 @@ struct C_InvalidateCache : public Context {
         "rbd_localize_snap_reads", false)(
         "rbd_balance_parent_reads", false)(
         "rbd_localize_parent_reads", false)(
+        "rbd_sparse_read_threshold_bytes", false)(
         "rbd_readahead_trigger_requests", false)(
         "rbd_readahead_max_bytes", false)(
         "rbd_readahead_disable_after_bytes", false)(
@@ -1038,6 +1060,7 @@ struct C_InvalidateCache : public Context {
     ASSIGN_OPTION(localize_snap_reads, bool);
     ASSIGN_OPTION(balance_parent_reads, bool);
     ASSIGN_OPTION(localize_parent_reads, bool);
+    ASSIGN_OPTION(sparse_read_threshold_bytes, uint64_t);
     ASSIGN_OPTION(readahead_trigger_requests, int64_t);
     ASSIGN_OPTION(readahead_max_bytes, int64_t);
     ASSIGN_OPTION(readahead_disable_after_bytes, int64_t);
@@ -1052,13 +1075,20 @@ struct C_InvalidateCache : public Context {
     ASSIGN_OPTION(journal_object_flush_interval, int64_t);
     ASSIGN_OPTION(journal_object_flush_bytes, int64_t);
     ASSIGN_OPTION(journal_object_flush_age, double);
-    ASSIGN_OPTION(journal_pool, std::string);
     ASSIGN_OPTION(journal_max_payload_bytes, uint64_t);
     ASSIGN_OPTION(journal_max_concurrent_object_sets, int64_t);
     ASSIGN_OPTION(mirroring_resync_after_disconnect, bool);
     ASSIGN_OPTION(mirroring_replay_delay, int64_t);
     ASSIGN_OPTION(skip_partial_discard, bool);
     ASSIGN_OPTION(blkin_trace_all, bool);
+
+    if (thread_safe) {
+      ASSIGN_OPTION(journal_pool, std::string);
+    }
+
+    if (sparse_read_threshold_bytes == 0) {
+      sparse_read_threshold_bytes = get_object_size();
+    }
   }
 
   ExclusiveLock<ImageCtx> *ImageCtx::create_exclusive_lock() {
@@ -1117,6 +1147,10 @@ struct C_InvalidateCache : public Context {
     assert(policy != nullptr);
     delete journal_policy;
     journal_policy = policy;
+  }
+
+  bool ImageCtx::is_writeback_cache_enabled() const {
+    return (cache && cache_max_dirty > 0);
   }
 
   void ImageCtx::get_thread_pool_instance(CephContext *cct,

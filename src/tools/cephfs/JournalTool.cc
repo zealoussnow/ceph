@@ -45,10 +45,11 @@ void JournalTool::usage()
     << "  cephfs-journal-tool [options] journal <command>\n"
     << "    <command>:\n"
     << "      inspect\n"
-    << "      import <path>\n"
+    << "      import <path> [--force]\n"
     << "      export <path>\n"
     << "      reset [--force]\n"
     << "  cephfs-journal-tool [options] header <get|set <field> <value>\n"
+    << "    <field>: [trimmed_pos|expire_pos|write_pos|pool_id]"
     << "  cephfs-journal-tool [options] event <effect> <selector> <output> [special options]\n"
     << "    <selector>:\n"
     << "      --range=<start>..<end>\n"
@@ -179,9 +180,18 @@ int JournalTool::main_journal(std::vector<const char*> &argv)
   if (command == "inspect") {
     return journal_inspect();
   } else if (command == "export" || command == "import") {
+    bool force = false;
     if (argv.size() >= 2) {
       std::string const path = argv[1];
-      return journal_export(path, command == "import");
+      if (argv.size() == 3) {
+        if (std::string(argv[2]) == "--force") {
+          force = true;
+        } else {
+          std::cerr << "Unknown argument " << argv[1] << std::endl;
+          return -EINVAL;
+        }
+      }
+      return journal_export(path, command == "import", force);
     } else {
       derr << "Missing path" << dendl;
       return -EINVAL;
@@ -277,6 +287,8 @@ int JournalTool::main_header(std::vector<const char*> &argv)
       field = &(js.header->expire_pos);
     } else if (field_name == "write_pos") {
       field = &(js.header->write_pos);
+    } else if (field_name == "pool_id") {
+      field = (uint64_t*)(&(js.header->layout.pool_id));
     } else {
       derr << "Invalid field '" << field_name << "'" << dendl;
       return -EINVAL;
@@ -534,7 +546,7 @@ int JournalTool::journal_inspect()
  * back to manually listing RADOS objects and extracting them, which
  * they can do with the ``rados`` CLI.
  */
-int JournalTool::journal_export(std::string const &path, bool import)
+int JournalTool::journal_export(std::string const &path, bool import, bool force)
 {
   int r = 0;
   JournalScanner js(input, rank);
@@ -566,11 +578,10 @@ int JournalTool::journal_export(std::string const &path, bool import)
       return r;
     }
     if (import) {
-      r = dumper.undump(path.c_str());
+      r = dumper.undump(path.c_str(), force);
     } else {
       r = dumper.dump(path.c_str());
     }
-    dumper.shutdown();
   }
 
   return r;
@@ -595,7 +606,6 @@ int JournalTool::journal_reset(bool hard)
   } else {
     r = resetter.reset(mds_role_t(role_selector.get_ns(), rank));
   }
-  resetter.shutdown();
 
   return r;
 }
@@ -1102,7 +1112,7 @@ void JournalTool::encode_fullbit_as_inode(
   new_inode.xattrs = fb.xattrs;
   new_inode.dirfragtree = fb.dirfragtree;
   new_inode.snap_blob = fb.snapbl;
-  new_inode.symlink = fb.symlink;
+  new_inode.symlink = mempool::mds_co::string(boost::string_view(fb.symlink));
   new_inode.old_inodes = fb.old_inodes;
 
   // Serialize InodeStore

@@ -1059,16 +1059,25 @@ namespace rgw {
 	/* make or re-use handle */
 	RGWFileHandle::Factory prototype(this, parent, fhk,
 					 obj_name, CREATE_FLAGS(flags));
+	uint32_t iflags{cohort::lru::FLAG_INITIAL};
 	fh = static_cast<RGWFileHandle*>(
 	  fh_lru.insert(&prototype,
 			cohort::lru::Edge::MRU,
-			cohort::lru::FLAG_INITIAL));
+			iflags));
 	if (fh) {
 	  /* lock fh (LATCHED) */
 	  if (flags & RGWFileHandle::FLAG_LOCK)
 	    fh->mtx.lock();
-	  /* inserts, releasing latch */
-	  fh_cache.insert_latched(fh, lat, RGWFileHandle::FHCache::FLAG_UNLOCK);
+	  if (likely(! (iflags & cohort::lru::FLAG_RECYCLE))) {
+	    /* inserts at cached insert iterator, releasing latch */
+	    fh_cache.insert_latched(
+	      fh, lat, RGWFileHandle::FHCache::FLAG_UNLOCK);
+	  } else {
+	    /* recycle step invalidates Latch */
+	    fh_cache.insert(
+	      fhk.fh_hk.object, fh, RGWFileHandle::FHCache::FLAG_NONE);
+	    lat.lock->unlock(); /* !LATCHED */
+	  }
 	  get<1>(fhr) |= RGWFileHandle::FLAG_CREATE;
 	  /* ref parent (non-initial ref cannot fail on valid object) */
 	  if (! parent->is_mount()) {
@@ -1325,9 +1334,15 @@ public:
   }
 
   bool eof() {
-    lsubdout(cct, rgw, 15) << "READDIR offset: " << offset
-			   << " is_truncated: " << is_truncated
-			   << dendl;
+    if (unlikely(cct->_conf->subsys.should_gather(ceph_subsys_rgw, 15))) {
+      bool is_offset =
+	unlikely(! get<const char*>(&offset)) ||
+	!! get<const char*>(offset);
+      lsubdout(cct, rgw, 15) << "READDIR offset: " <<
+	((is_offset) ? offset : "(nil)")
+			     << " is_truncated: " << is_truncated
+			     << dendl;
+    }
     return !is_truncated;
   }
 
@@ -1513,10 +1528,16 @@ public:
   }
 
   bool eof() {
-    lsubdout(cct, rgw, 15) << "READDIR offset: " << offset
-			   << " next marker: " << next_marker
-			   << " is_truncated: " << is_truncated
-			   << dendl;
+    if (unlikely(cct->_conf->subsys.should_gather(ceph_subsys_rgw, 15))) {
+      bool is_offset =
+	unlikely(! get<const char*>(&offset)) ||
+	!! get<const char*>(offset);
+      lsubdout(cct, rgw, 15) << "READDIR offset: " <<
+	((is_offset) ? offset : "(nil)")
+			     << " next marker: " << next_marker
+			     << " is_truncated: " << is_truncated
+			     << dendl;
+    }
     return !is_truncated;
   }
 
@@ -2231,6 +2252,9 @@ public:
 			     << " target = " << path << ""
 			     << dendl;
       matched = true;
+      /* match-dir case (trailing '/') */
+      if (name == prefix + "/")
+	exact_matched = true;
       is_dir = true;
       break;
     }
@@ -2506,6 +2530,49 @@ public:
   void send_response() override {}
 
 }; /* RGWSetAttrsRequest */
+
+/*
+ * Send request to get the rados cluster stats
+ */
+class RGWGetClusterStatReq : public RGWLibRequest,
+        public RGWGetClusterStat {
+public:
+  struct rados_cluster_stat_t& stats_req;
+  RGWGetClusterStatReq(CephContext* _cct,RGWUserInfo *_user,
+                       rados_cluster_stat_t& _stats):
+  RGWLibRequest(_cct, _user), stats_req(_stats){
+    op = this;
+  }
+
+  int op_init() override {
+    // assign store, s, and dialect_handler
+    RGWObjectCtx* rados_ctx
+      = static_cast<RGWObjectCtx*>(get_state()->obj_ctx);
+    // framework promises to call op_init after parent init
+    assert(rados_ctx);
+    RGWOp::init(rados_ctx->store, get_state(), this);
+    op = this; // assign self as op: REQUIRED
+    return 0;
+  }
+
+  int header_init() override {
+    struct req_state* s = get_state();
+    s->info.method = "GET";
+    s->op = OP_GET;
+    s->user = user;
+    return 0;
+  }
+
+  int get_params() override { return 0; }
+  bool only_bucket() override { return false; }
+  void send_response() override {
+    stats_req.kb = stats_op.kb;
+    stats_req.kb_avail = stats_op.kb_avail;
+    stats_req.kb_used = stats_op.kb_used;
+    stats_req.num_objects = stats_op.num_objects;
+  }
+}; /* RGWGetClusterStatReq */
+
 
 } /* namespace rgw */
 

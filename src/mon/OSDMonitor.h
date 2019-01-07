@@ -42,6 +42,9 @@ class MOSDMap;
 
 #include "erasure-code/ErasureCodeInterface.h"
 #include "mon/MonOpRequest.h"
+#include <boost/functional/hash.hpp>
+// re-include our assert to clobber the system one; fix dout:
+#include "include/assert.h"
 
 /// information about a particular peer's failure reports for one osd
 struct failure_reporter_t {
@@ -78,7 +81,7 @@ struct failure_info_t {
 			     MonOpRequestRef op) {
     map<int, failure_reporter_t>::iterator p = reporters.find(who);
     if (p == reporters.end()) {
-      if (max_failed_since < failed_since)
+      if (max_failed_since != utime_t() && max_failed_since < failed_since)
 	max_failed_since = failed_since;
       p = reporters.insert(map<int, failure_reporter_t>::value_type(who, failure_reporter_t(failed_since))).first;
     }
@@ -105,6 +108,7 @@ struct failure_info_t {
       return MonOpRequestRef();
     MonOpRequestRef ret = p->second.op;
     reporters.erase(p);
+    max_failed_since = utime_t();
     return ret;
   }
 };
@@ -140,15 +144,17 @@ public:
 
   map<int,double> osd_weight;
 
-  SimpleLRU<version_t, bufferlist> inc_osd_cache;
-  SimpleLRU<version_t, bufferlist> full_osd_cache;
+  using osdmap_key_t = std::pair<version_t, uint64_t>;
+  using osdmap_cache_t = SimpleLRU<osdmap_key_t,
+                                   bufferlist,
+                                   std::less<osdmap_key_t>,
+                                   boost::hash<osdmap_key_t>>;
+  osdmap_cache_t inc_osd_cache;
+  osdmap_cache_t full_osd_cache;
 
   bool check_failures(utime_t now);
   bool check_failure(utime_t now, int target_osd, failure_info_t& fi);
   void force_failure(int target_osd, int by);
-
-  // the time of last msg(MSG_ALIVE and MSG_PGTEMP) proposed without delay
-  utime_t last_attempted_minwait_time;
 
   bool _have_pending_crush();
   CrushWrapper &_get_stable_crush();
@@ -244,8 +250,8 @@ private:
   bool can_mark_in(int o);
 
   // ...
-  MOSDMap *build_latest_full();
-  MOSDMap *build_incremental(epoch_t first, epoch_t last);
+  MOSDMap *build_latest_full(uint64_t features);
+  MOSDMap *build_incremental(epoch_t first, epoch_t last, uint64_t features);
   void send_full(MonOpRequestRef op);
   void send_incremental(MonOpRequestRef op, epoch_t first);
 public:
@@ -300,6 +306,7 @@ private:
   int _prepare_remove_pool(int64_t pool, ostream *ss, bool no_fake);
   int _prepare_rename_pool(int64_t pool, string newname);
 
+  bool enforce_pool_op_caps(MonOpRequestRef op);
   bool preprocess_pool_op (MonOpRequestRef op);
   bool preprocess_pool_op_create (MonOpRequestRef op);
   bool prepare_pool_op (MonOpRequestRef op);
@@ -428,6 +435,9 @@ private:
 
   int load_metadata(int osd, map<string, string>& m, ostream *err);
   void count_metadata(const string& field, Formatter *f);
+
+  void reencode_incremental_map(bufferlist& bl, uint64_t features);
+  void reencode_full_map(bufferlist& bl, uint64_t features);
 public:
   void count_metadata(const string& field, map<string,int> *out);
 protected:
@@ -453,7 +463,8 @@ protected:
   creating_pgs_t creating_pgs;
   mutable std::mutex creating_pgs_lock;
 
-  creating_pgs_t update_pending_pgs(const OSDMap::Incremental& inc);
+  creating_pgs_t update_pending_pgs(const OSDMap::Incremental& inc,
+				    const OSDMap& nextmap);
   void trim_creating_pgs(creating_pgs_t *creating_pgs,
 			 const ceph::unordered_map<pg_t,pg_stat_t>& pgm);
   unsigned scan_for_creating_pgs(
@@ -491,7 +502,9 @@ public:
       const uuid_d& uuid,
       int32_t* existing_id,
       stringstream& ss);
-  void do_osd_create(const int32_t id, const uuid_d& uuid, int32_t* new_id);
+  void do_osd_create(const int32_t id, const uuid_d& uuid,
+		     const string& device_class,
+		     int32_t* new_id);
   int prepare_command_osd_purge(int32_t id, stringstream& ss);
   int prepare_command_osd_destroy(int32_t id, stringstream& ss);
   int _prepare_command_osd_crush_remove(
@@ -531,6 +544,9 @@ public:
   }
 
   int get_version(version_t ver, bufferlist& bl) override;
+  int get_version(version_t ver, uint64_t feature, bufferlist& bl);
+
+  int get_version_full(version_t ver, uint64_t feature, bufferlist& bl);
   int get_version_full(version_t ver, bufferlist& bl) override;
 
   epoch_t blacklist(const entity_addr_t& a, utime_t until);

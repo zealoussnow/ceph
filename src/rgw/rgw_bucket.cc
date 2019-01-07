@@ -567,7 +567,7 @@ int rgw_remove_bucket(RGWRados *store, rgw_bucket& bucket, bool delete_children)
     return ret;
   }
 
-  ret = rgw_bucket_sync_user_stats(store, bucket.tenant, info);
+  ret = rgw_bucket_sync_user_stats(store, info.owner, info);
   if ( ret < 0) {
      dout(1) << "WARNING: failed sync user stats before bucket delete. ret=" <<  ret << dendl;
   }
@@ -728,27 +728,17 @@ int rgw_remove_bucket_bypass_gc(RGWRados *store, rgw_bucket& bucket,
     return ret;
   }
 
-  ret = rgw_bucket_sync_user_stats(store, bucket.tenant, info);
+  ret = rgw_bucket_sync_user_stats(store, info.owner, info);
   if (ret < 0) {
      dout(1) << "WARNING: failed sync user stats before bucket delete. ret=" <<  ret << dendl;
   }
 
   RGWObjVersionTracker objv_tracker;
 
-  ret = rgw_bucket_delete_bucket_obj(store, bucket.tenant, bucket.name, objv_tracker);
+  ret = store->delete_bucket(info, objv_tracker);
   if (ret < 0) {
-    lderr(store->ctx()) << "ERROR: could not remove bucket " << bucket.name << "with ret as " << ret << dendl;
+    lderr(store->ctx()) << "ERROR: could not remove bucket " << bucket.name << dendl;
     return ret;
-  }
-
-  if (!store->is_syncing_bucket_meta(bucket)) {
-    RGWObjVersionTracker objv_tracker;
-    string entry = bucket.get_key();
-    ret = rgw_bucket_instance_remove_entry(store, entry, &objv_tracker);
-    if (ret < 0) {
-      lderr(store->ctx()) << "ERROR: could not remove bucket instance entry" << bucket.name << "with ret as " << ret << dendl;
-      return ret;
-    }
   }
 
   ret = rgw_unlink_bucket(store, info.owner, bucket.tenant, bucket.name, false);
@@ -924,6 +914,27 @@ int RGWBucket::unlink(RGWBucketAdminOpState& op_state, std::string *err_msg)
     set_err_msg(err_msg, "error unlinking bucket" + cpp_strerror(-r));
   }
 
+  return r;
+}
+
+int RGWBucket::set_quota(RGWBucketAdminOpState& op_state, std::string *err_msg)
+{
+  rgw_bucket bucket = op_state.get_bucket();
+  RGWBucketInfo bucket_info;
+  map<string, bufferlist> attrs;
+  RGWObjectCtx obj_ctx(store);
+  int r = store->get_bucket_info(obj_ctx, bucket.tenant, bucket.name, bucket_info, NULL, &attrs);
+  if (r < 0) {
+    set_err_msg(err_msg, "could not get bucket info for bucket=" + bucket.name + ": " + cpp_strerror(-r));
+    return r;
+  }
+
+  bucket_info.quota = op_state.quota;
+  r = store->put_bucket_instance_info(bucket_info, false, real_time(), &attrs);
+  if (r < 0) {
+    set_err_msg(err_msg, "ERROR: failed writing bucket instance info: " + cpp_strerror(-r));
+    return r;
+  }
   return r;
 }
 
@@ -1139,19 +1150,18 @@ int RGWBucket::check_object_index(RGWBucketAdminOpState& op_state,
   while (is_truncated) {
     map<string, rgw_bucket_dir_entry> result;
 
-    int r = store->cls_bucket_list(bucket_info, RGW_NO_SHARD, marker, prefix, 1000, true,
-                                   result, &is_truncated, &marker,
-                                   bucket_object_check_filter);
+    int r = store->cls_bucket_list_ordered(bucket_info, RGW_NO_SHARD,
+					   marker, prefix, 1000, true,
+					   result, &is_truncated, &marker,
+					   bucket_object_check_filter);
     if (r == -ENOENT) {
       break;
     } else if (r < 0 && r != -ENOENT) {
       set_err_msg(err_msg, "ERROR: failed operation r=" + cpp_strerror(-r));
     }
 
-
     dump_bucket_index(result, formatter);
     flusher.flush();
-
   }
 
   formatter->close_section();
@@ -1634,6 +1644,15 @@ int RGWBucketAdminOp::info(RGWRados *store, RGWBucketAdminOpState& op_state,
   return 0;
 }
 
+int RGWBucketAdminOp::set_quota(RGWRados *store, RGWBucketAdminOpState& op_state)
+{
+  RGWBucket bucket;
+
+  int ret = bucket.init(store, op_state);
+  if (ret < 0)
+    return ret;
+  return bucket.set_quota(op_state);
+}
 
 void rgw_data_change::dump(Formatter *f) const
 {
@@ -1787,6 +1806,10 @@ int RGWDataChangesLog::get_log_shard_id(rgw_bucket& bucket, int shard_id) {
 int RGWDataChangesLog::add_entry(rgw_bucket& bucket, int shard_id) {
   if (!store->need_to_log_data())
     return 0;
+
+  if (observer) {
+    observer->on_bucket_changed(bucket.get_key());
+  }
 
   rgw_bucket_shard bs(bucket, shard_id);
 
