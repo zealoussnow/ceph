@@ -5487,7 +5487,6 @@ int BlueStore::mkfs()
   if (r < 0)
     goto out_close_fsid;
 
-<<<<<<< HEAD
   {
     string cache_path = path + "/block.t2ce";
     r = bdev->write_cache_super(cache_path);
@@ -5506,8 +5505,6 @@ int BlueStore::mkfs()
     }
   }
 
-=======
->>>>>>> t2-12.2.10
   // choose min_alloc_size
   if (cct->_conf->bluestore_min_alloc_size) {
     min_alloc_size = cct->_conf->bluestore_min_alloc_size;

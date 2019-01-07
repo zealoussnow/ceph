@@ -116,6 +116,7 @@ void cephd_preload_rados_classes(OSD *osd);
 extern "C" int cephd_osd(int argc, const char **argv)
 #else
 int main(int argc, const char **argv)
+#endif
 {
   vector<const char*> args;
   argv_to_vec(argc, argv, args);
