@@ -398,7 +398,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
   c->sb.last_mount	= sb->last_mount;
   c->bucket_bits		= ilog2(sb->bucket_size); /* log2(1024) = 10 */
   c->block_bits		= ilog2(sb->block_size);  /* log2(1)    = 0 */
-  c->nr_uuids		= bucket_bytes(c) / sizeof(struct uuid_entry); /* 4096 */
+  /*c->nr_uuids		= bucket_bytes(c) / sizeof(struct uuid_entry); [> 4096 <]*/
 
   c->btree_pages		= bucket_pages(c); /* 1024/8 = 128 */
   // tmp close limit, now btree node can using full bucket(512k)
@@ -434,9 +434,9 @@ bch_cache_set_alloc(struct cache_sb *sb)
   // 2. journal
   // 3. bset_sort_state
   // 4. moving_gc_wq
-  if (!(c->devices = T2Molloc(c->nr_uuids * sizeof(void *))) ||
-                        alloc_bucket_pages(c->uuids, c) ||
-                        bch_journal_alloc(c) ||
+  /*if (!(c->devices = T2Molloc(c->nr_uuids * sizeof(void *))) ||*/
+                        /*alloc_bucket_pages(c->uuids, c) ||*/
+    if( bch_journal_alloc(c) ||
                         bch_btree_cache_alloc(c) ||
                         bch_open_buckets_alloc(c) ||
           bch_bset_sort_state_init(&c->sort, ilog2(c->btree_pages))) {
@@ -644,10 +644,10 @@ run_cache_set(struct cache_set *c)
     /* 将节点从链表中移除，并重新初始化该节点的next和prev指针 */
     list_del_init(&c->root->list);
     rw_unlock(true, c->root);
-    err = uuid_read(c, j);
-    if (err) {
-      goto err;
-    }
+    /*err = uuid_read(c, j);*/
+    /*if (err) {*/
+      /*goto err;*/
+    /*}*/
     err = "error in recovery";
     if (bch_btree_check(c)) {
       goto err;
@@ -680,11 +680,11 @@ run_cache_set(struct cache_set *c)
      * before the next journal entry is written:
      */
     /*printf(" j->verison = %d \n", j->version);*/
-    CACHE_INFOLOG(NULL, "j->verison  %u BCACHE_JSET_VERSION_UUID %d \n",
-                        j->version, BCACHE_JSET_VERSION_UUID);
-    if (j->version < BCACHE_JSET_VERSION_UUID) {
-      __uuid_write(c);
-    }
+    /*CACHE_INFOLOG(NULL, "j->verison  %u BCACHE_JSET_VERSION_UUID %d \n",*/
+                        /*j->version, BCACHE_JSET_VERSION_UUID);*/
+    /*if (j->version < BCACHE_JSET_VERSION_UUID) {*/
+      /*__uuid_write(c);*/
+    /*}*/
 
     bch_journal_replay(c, &journal);
   } else {
@@ -712,10 +712,10 @@ run_cache_set(struct cache_set *c)
       bch_prio_write(ca);
     }
     pthread_mutex_unlock(&c->bucket_lock);
-    err = "cannot allocate new UUID bucket";
-    if (__uuid_write(c)) {
-      goto err;
-    }
+    /*err = "cannot allocate new UUID bucket";*/
+    /*if (__uuid_write(c)) {*/
+      /*goto err;*/
+    /*}*/
     err = "cannot allocate new btree root";
     /* 分配btree的根节点 */
     CACHE_DEBUGLOG(NULL,"alloc btree root node\n");
