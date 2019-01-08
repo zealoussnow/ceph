@@ -547,7 +547,7 @@ void bch_sectors_dirty_init(struct cached_dev *dc)
 {
   struct btree_op op;
 
-  bch_btree_op_init(&op, -1);
+  bch_btree_op_init(&op, -1, BTREE_OP_TRAVERSE);
   /*op.inode = d->id; [> 这里的inode就是bcache的从设备号 <]*/
 
   bch_btree_map_keys(&op, dc->c, &KEY(0, 0, 0),

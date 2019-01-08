@@ -1663,7 +1663,7 @@ static void bch_btree_gc(struct cache_set *c)
 
   /*memset(&stats, 0, sizeof(struct gc_stat));*/
   memset(&c->gc_stats, 0, sizeof(struct gc_stat));
-  bch_btree_op_init(&op, SHRT_MAX);
+  bch_btree_op_init(&op, SHRT_MAX, BTREE_OP_TRAVERSE);
 
   btree_gc_start(c);
 
@@ -1895,7 +1895,7 @@ static int bch_btree_check_recurse(struct btree *b, struct btree_op *op)
 int bch_btree_check(struct cache_set *c)
 {
   struct btree_op op;
-  bch_btree_op_init(&op, SHRT_MAX);
+  bch_btree_op_init(&op, SHRT_MAX, BTREE_OP_TRAVERSE);
   return btree_root(check_recurse, c, &op);
 }
 
@@ -2264,7 +2264,7 @@ int bch_btree_insert(struct cache_set *c, struct keylist *keys,
   * 0: means op only lock leaf node
   * SHRT_MAX: means op lock from root
   */
-  bch_btree_op_init(&op.op, 0);
+  bch_btree_op_init(&op.op, 0, BTREE_OP_INSERT);
   /* we don't have rw_sem, so lock from root, this is
   * not a good choice, we should change in the future
   */
@@ -2323,7 +2323,6 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op, struct bkey *f
                             btree_map_nodes_fn *fn, int flags)
 {
   int ret = MAP_CONTINUE;
-  struct btree_insert_op *i_op = container_of(op, struct btree_insert_op, op);
   dump_btree_node("map nodes recurse",b,false);
   dump_bkey("map nodes recurse", from);
   if (b->level) {
@@ -2335,12 +2334,13 @@ bch_btree_map_nodes_recurse(struct btree *b, struct btree_op *op, struct bkey *f
       dump_bkey("map nodes recurse iter next",k);
       ret = btree(map_nodes_recurse, k, b, op, from, fn, flags);
       /*from = NULL;*/
-      if ( from != NULL ) {
+      if ( op->btree_op_type == BTREE_OP_INSERT && from != NULL ) {
+        struct btree_insert_op *i_op = container_of(op, struct btree_insert_op, op);
         SET_KEY_OFFSET(from, KEY_START(i_op->keys->keys));
         dump_bkey("update bkey",from);
       }
       // if has uninsert bkey, we should map_continue
-      if (ret != MAP_CONTINUE) {
+      if (op->btree_op_type == BTREE_OP_INSERT && ret != MAP_CONTINUE) {
         CACHE_DEBUGLOG(CAT_BTREE,"map nodes recurse done ret %d\n", ret);
         return ret;
       }
@@ -2477,7 +2477,7 @@ void bch_refill_keybuf(struct cache_set *c, struct keybuf *buf,
 
   /*cond_resched();*/
 
-  bch_btree_op_init(&refill.op, -1);
+  bch_btree_op_init(&refill.op, -1, BTREE_OP_TRAVERSE);
   refill.nr_found	= 0;
   refill.buf	= buf;
   refill.end	= end;
