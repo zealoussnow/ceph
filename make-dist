@@ -36,7 +36,11 @@ download_boost() {
             exit
         fi
         url=$url_base/$boost_fname
-        wget -c --no-verbose -O $boost_fname $url
+
+        if [ ! -f ${boost_fname} ]; then
+          echo "${boost_fname} not exist, got download!"
+          wget -c --no-verbose -O $boost_fname $url
+        fi
         if [ $? != 0 -o ! -e $boost_fname ]; then
             echo "Download of $url failed"
         elif [ $(md5sum $boost_fname | awk '{print $1}') != $boost_md5 ]; then
