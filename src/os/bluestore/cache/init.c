@@ -1016,7 +1016,7 @@ int cache_sync_read(struct cache *ca, void *data, uint64_t off, uint64_t len)
   struct search s;
 
   memset(&s, 0, sizeof(struct search));
-  bch_btree_op_init(&s.op, -1);
+  bch_btree_op_init(&s.op, -1, BTREE_OP_READ);
   s.data = data;
   s.pos = data;
   s.offset = (off>>9);
@@ -1089,9 +1089,9 @@ traverse_btree_keys_fn(struct btree_op * op, struct btree *b)
 void
 traverse_btree(struct cache * c)
 {
-  struct btree_insert_op op;
-  bch_btree_op_init(&op.op, 0);
-  bch_btree_map_nodes(&op.op,c->set,NULL,traverse_btree_keys_fn);
+  struct btree_op op;
+  bch_btree_op_init(&op, 0, BTREE_OP_TRAVERSE);
+  bch_btree_map_nodes(&op,c->set,NULL,traverse_btree_keys_fn);
 }
 
 int dump_btree_kes_fn(struct btree_op *op, struct btree *b)
@@ -1125,9 +1125,9 @@ int dump_btree_kes_fn(struct btree_op *op, struct btree *b)
 
 void dump_btree_info(struct cache *c)
 {
-  struct btree_insert_op op;
-  bch_btree_op_init(&op.op, 0);
-  bch_btree_map_nodes(&op.op, c->set, NULL, dump_btree_kes_fn);
+  struct btree_op op;
+  bch_btree_op_init(&op, 0, BTREE_OP_TRAVERSE);
+  bch_btree_map_nodes(&op, c->set, NULL, dump_btree_kes_fn);
 }
 
 int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi)
@@ -2357,7 +2357,7 @@ void aio_read_cache(struct ring_item *item){
   item->iou_completion_cb = aio_read_cache_completion;
   atomic_set(&item->seq, -1);
   s.item = item;
-  bch_btree_op_init(&s.op, -1);
+  bch_btree_op_init(&s.op, -1, BTREE_OP_READ);
   /*printf("<%s>: find btree node offset=%lu, len=%lu ------------------\n",*/
                         /*__func__, item->o_offset, item->o_len );*/
   bch_btree_map_keys(&s.op, ca->set, &KEY(0,(s.item->o_offset >> 9),0),
@@ -2499,7 +2499,7 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
 
   atomic_add(1 + (len >> 8) / 2, &ca->set->dc->read_iops);
   s.item = item;
-  bch_btree_op_init(&s.op, -1);
+  bch_btree_op_init(&s.op, -1, BTREE_OP_READ);
   bch_btree_map_keys(&s.op, ca->set, &KEY(0,(s.item->o_offset >> 9),0),
                         read_is_all_cache_fn, MAP_END_KEY);
 
