@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "log.h"
 
@@ -27,6 +28,18 @@ int log_level_notice = 60;
 int log_level_info = 40;
 int log_level_debug = 20;
 int log_level_dump = 130;
+
+char* log_conf_str = "[levels]\n"
+"T2_DUMP   = 130, LOG_DEBUG\n"
+"T2_ERROR  = 100, LOG_ERR\n"
+"T2_WARN   = 80,  LOG_WARNING\n"
+"T2_NOTICE = 60,  LOG_NOTICE\n"
+"T2_INFO   = 40,  LOG_INFO\n"
+"T2_DEBUG  = 20,  LOG_DEBUG\n"
+"[formats]\n"
+"logfile_format = \"[%c] %d.%us %t [%V] %U %m\"\n"
+"[rules]\n"
+"*.* \"%E(LOG_FILENAME)\" ;logfile_format\n";
 
 void set_log_level(int level)
 {
@@ -66,6 +79,7 @@ void log_init(struct cache_context *ctx)
   char log_path[NAME_MAX + 1] = {0};
   const char *log_file = ctx->log_file;
   const char *log_instant = ctx->whoami;
+  int rc;
 
   log_crash_on_nospc = ctx->log_crash_on_nospc;
 
@@ -80,7 +94,13 @@ void log_init(struct cache_context *ctx)
   set_log_level(40);
 
   if (!log_is_init) {
-    int rc = zlog_init(LOG_CONF);
+    // Check log config file exsis.
+    // If not, log init form log_conf_str.
+    if( access( LOG_CONF, F_OK ) != -1 ) {
+      rc = zlog_init(LOG_CONF);
+    } else {
+      rc = zlog_init_from_string(log_conf_str);
+    }
     if (rc)
       assert("log init failed" == 0);
     log_is_init = 1;
@@ -130,7 +150,11 @@ void cache_zlog(const char *cat_type, const char *file,
 int log_reload()
 {
   int rc = 0;
-  rc = zlog_reload(LOG_CONF);
+  if( access( LOG_CONF, F_OK ) != -1 ) {
+    rc = zlog_reload(LOG_CONF);
+  } else {
+    rc = zlog_reload_from_string(log_conf_str);
+  }
   if (rc)
     assert("log reload failed" == 0);
   log_load_level();
