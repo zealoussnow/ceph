@@ -443,6 +443,7 @@ enum alloc_reserve {
 typedef void (*logger_callback_fn)(void *cd, int serial, struct timespec start, struct timespec end);
 
 struct cache {
+  char uuid_str[40];
   logger_callback_fn logger_cb;
   void               *bluestore_cd;
   struct aio_handler  * handler;

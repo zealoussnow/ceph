@@ -15,7 +15,7 @@ int t2store_cache_write_cache_sb(struct cache_context *ctx, const char *dev,
                      unsigned block_size, unsigned bucket_size,
                      bool writeback, bool discard, bool wipe_bcache,
                      unsigned cache_replacement_policy,
-                     uint64_t data_offset, bool bdev)
+                     uint64_t data_offset, bool bdev, const char *uuid_str)
 {
   int ret = 0;
   log_init(ctx);
@@ -23,7 +23,7 @@ int t2store_cache_write_cache_sb(struct cache_context *ctx, const char *dev,
   ret = write_sb(dev, block_size, bucket_size,
                          writeback, discard, wipe_bcache,
                          cache_replacement_policy,
-                         data_offset,bdev);
+                         data_offset,bdev, uuid_str);
   CACHE_INFOLOG(NULL, "write %s super block done \n",dev);
   return ret;
 }
@@ -39,7 +39,7 @@ int t2store_cache_register_cache(struct cache_context *ctx)
   memset(ctx->cache, 0, sizeof(struct cache));
   ((struct cache *)ctx->cache)->fd=ctx->fd_cache;
   ((struct cache *)ctx->cache)->hdd_fd=ctx->fd_direct;
-  ((struct cache *)ctx->cache)->bdev_path = ctx->bdev_path;
+  memcpy(((struct cache *)ctx->cache)->uuid_str, ctx->uuid_str, 40);
 
   ret = init(ctx->cache);
   if (ret < 0 ) {
