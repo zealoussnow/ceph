@@ -173,21 +173,24 @@ void logger_tinc(void *cd, int serial, struct timespec start, struct timespec en
   cache_device->logger->tinc(serial, dur);
 }
 
-int CacheDevice::cache_init(const std::string& path)
+int CacheDevice::init(const std::string& path, const char *fsid)
 {
   int r = 0;
-  bdev_path = path + "/bdev.conf.in";
   cache_ctx.fd_cache=fd_cache;
   cache_ctx.fd_direct=fd_direct;
-  cache_ctx.bdev_path = bdev_path.c_str();
   cache_ctx.whoami = cct->_conf->name.get_id().c_str();
   cache_ctx.log_file = cct->_conf->log_file.c_str();
   cache_ctx.logger_cb = (void*)logger_tinc;
   cache_ctx.bluestore_cd = (void*)this;
   cache_ctx.log_crash_on_nospc = cct->_conf->log_crash_on_nospc;
+  memcpy(cache_ctx.uuid_str, fsid, 40);
 
-  dout(0)<< __func__ << " ceph log file "<< cache_ctx.log_file <<dendl;
-  dout(1)<< __func__ << " lb cache_ctx.registered "<< cache_ctx.registered <<dendl;
+  dout(1)<< __func__ << " cache_ctx fd_cache"<< cache_ctx.fd_cache
+                     << " fd_direct " << cache_ctx.fd_direct
+                     << " whoami " << cache_ctx.whoami
+                     << " logfile" << cache_ctx.log_file
+                     << " log_crash_on_nospc " << cache_ctx.log_crash_on_nospc
+                     << " fsid " << cache_ctx.uuid_str <<dendl;
   if (cache_ctx.registered)
     return r;
 
@@ -243,7 +246,7 @@ void CacheDevice::_shutdown_logger()
   delete logger;
 }
 
-int CacheDevice::write_cache_super(const std::string& path)
+int CacheDevice::mkfs(const std::string& path, const char *uuid_str)
 {
   int r = 0;
   unsigned block_size = 8;
@@ -260,7 +263,7 @@ int CacheDevice::write_cache_super(const std::string& path)
   r = t2store_cache_write_cache_sb(&cache_ctx, path.c_str(),
                         block_size, bucket_size, writeback, discard, 
                         wipe_bcache,cache_replacement_policy,
-                        data_offset,false);
+                        data_offset,false, uuid_str);
   return r;
 }
 int CacheDevice::open(const string& p, const string& c_path)

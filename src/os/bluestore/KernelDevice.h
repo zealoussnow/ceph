@@ -110,10 +110,10 @@ public:
   virtual int open(const std::string& path, const std::string& c_path) override {
     return 0;
   }
-  int write_cache_super(const std::string& path) override {
+  int mkfs(const std::string& path, const char *uuid_str) override {
     return 0;
   }
-  virtual int cache_init(const std::string& path) override { 
+  virtual int init(const std::string& path, const char *fsid) override {
     return 0; 
   }
   void close() override;

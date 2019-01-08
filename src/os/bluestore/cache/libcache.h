@@ -35,11 +35,11 @@ struct cache_context {
   int fd_cache;
   int fd_direct;
   bool registered;
-  const char *bdev_path;
   void *logger_cb;
   const char *whoami;
   const char *log_file;
   bool log_crash_on_nospc;
+  char uuid_str[40];
 };
 
 enum cache_write_strategy {
@@ -140,7 +140,7 @@ CEPH_CACHE_API int t2store_cache_write_cache_sb(struct cache_context *ctx, const
                      unsigned block_size, unsigned bucket_size,
                      bool writeback, bool discard, bool wipe_bcache,
                      unsigned cache_replacement_policy,
-                     uint64_t data_offset, bool bdev);
+                     uint64_t data_offset, bool bdev, const char *uuid_str);
 CEPH_CACHE_API int t2store_cache_register_cache(struct cache_context *ctx);
 CEPH_CACHE_API void t2store_cache_destroy_cache(struct cache_context *ctx);
 CEPH_CACHE_API int t2store_cache_aio_write(struct cache_context * ctx, void *bl, uint64_t off, uint64_t len, void *cb, void *cb_arg);

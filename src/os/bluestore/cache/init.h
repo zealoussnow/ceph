@@ -12,7 +12,7 @@ int cache_aio_writearound_batch(struct cache *ca, struct ring_items * items);
 int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
     bool writeback, bool discard, bool wipe_bcache,
     unsigned cache_replacement_policy,
-    uint64_t data_offset, bool bdev);
+    uint64_t data_offset, bool bdev, const char *uuid_str);
 int cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
                    void (*io_completion)(void *), void *io_arg);
 

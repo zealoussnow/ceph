@@ -31,7 +31,6 @@ class CacheDevice : public BlockDevice, public md_config_obs_t  {
   std::string path;
   std::string cache_path;
   bool aio, dio;
-  string bdev_path;
 
   Mutex debug_lock;
   Mutex queue_lock;
@@ -128,8 +127,8 @@ public:
   int invalidate_region(uint64_t off, uint64_t len) override;
   int open(const std::string& path) override;
   int open(const std::string& path, const std::string& c_path) override;
-  int write_cache_super(const std::string& path) override;
-  int cache_init(const std::string& path) override;
+  int mkfs(const std::string& path, const char *uuid_str) override;
+  int init(const std::string& path, const char *fsid) override;
 
   void close() override;
 

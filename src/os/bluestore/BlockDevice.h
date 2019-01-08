@@ -157,8 +157,8 @@ public:
   virtual int invalidate_region(uint64_t off, uint64_t len) = 0;
   virtual int open(const std::string& path) = 0;
   virtual int open(const std::string& path, const std::string& c_path) = 0;
-  virtual int write_cache_super(const std::string& path){ return 0; };
-  virtual int cache_init(const std::string& path){ return 0; };
+  virtual int mkfs(const std::string& path, const char *uuid_str){ return 0; };
+  virtual int init(const std::string& path, const char *fsid){ return 0; };
   virtual void close() = 0;
 };
 

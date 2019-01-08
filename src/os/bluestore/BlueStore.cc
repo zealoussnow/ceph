@@ -5489,7 +5489,9 @@ int BlueStore::mkfs()
 
   {
     string cache_path = path + "/block.t2ce";
-    r = bdev->write_cache_super(cache_path);
+    char uuid[40] = {0};
+    fsid.print(uuid);
+    r = bdev->mkfs(cache_path, uuid);
     if ( r< 0)
       goto out_close_bdev;
   }
@@ -5668,10 +5670,13 @@ int BlueStore::_mount(bool kv_only)
   r = _open_bdev(false);
   if (r < 0)
     goto out_fsid;
-
-  r = bdev->cache_init(path);
-  if (r < 0)
-    goto out_bdev;
+  {
+    char uuid[40] = {0};
+    fsid.print(uuid);
+    r = bdev->init(path, uuid);
+    if (r < 0)
+      goto out_bdev;
+  }
 
   r = _open_db(false);
   if (r < 0)
