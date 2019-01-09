@@ -201,6 +201,7 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
 
   memcpy(sb->magic,	s->magic, 16);
   memcpy(sb->uuid,	s->uuid, 16);
+  memcpy(sb->set_uuid,	s->set_uuid, 16);
   memcpy(sb->label,	s->label, SB_LABEL_SIZE);
 
   sb->flags		= s->flags;
@@ -290,6 +291,10 @@ static const char *read_super(struct cache_sb *sb, struct cache_sb *s)
                 sb->bucket_size < PAGE_SECTORS) {
         goto err;
       }
+     err = "Bad set UUID";
+     if (bch_is_zero(sb->set_uuid, 16)) {
+         goto err;
+     }
       err = "Bad cache device number in set";
       if (!sb->nr_in_set ||
                 sb->nr_in_set <= sb->nr_this_dev ||
@@ -384,6 +389,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
     return NULL;
   }
 
+  memcpy(c->sb.set_uuid, sb->set_uuid, 16);
   c->sb.block_size	= sb->block_size; /* 一个扇区 */
   c->sb.bucket_size	= sb->bucket_size; /* 1024 */
   c->sb.nr_in_set		= sb->nr_in_set;
@@ -812,6 +818,7 @@ static const char *register_cache_set(struct cache *ca)
   CACHE_INFOLOG(NULL,"register cache seq %llu, cache set seq %llu \n",ca->sb.seq, c->sb.seq);
   if (ca->sb.seq > c->sb.seq) {
     c->sb.version		= ca->sb.version;
+    memcpy(c->sb.set_uuid, ca->sb.set_uuid, 16);
     c->sb.flags             = ca->sb.flags;
     c->sb.seq		= ca->sb.seq;
     CACHE_DEBUGLOG(NULL, "cache set version = %llu", c->sb.version);
@@ -2519,7 +2526,7 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
 {
   int ret = 0;
   int fd;
-  char zeroes[SB_START] = {0};
+  char set_uuid_str[40], zeroes[SB_START] = {0};
   struct cache_sb sb;
   blkid_probe pr;
 
@@ -2563,10 +2570,13 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
     : BCACHE_SB_VERSION_CDEV;
   memcpy(sb.magic, bcache_magic, 16);
 
+  /*memcpy(sb.set_uuid, set_uuid, sizeof(sb.set_uuid));*/
   sb.bucket_size	= bucket_size;
   sb.block_size	= block_size;
 
   uuid_parse(uuid_str, &sb.uuid);
+  uuid_parse(uuid_str, &sb.set_uuid);
+  uuid_unparse(sb.set_uuid, set_uuid_str);
 
   if (SB_IS_BDEV(&sb)) {
     SET_BDEV_CACHE_MODE(
@@ -2576,10 +2586,11 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
       sb.data_offset = data_offset;
     }
     CACHE_INFOLOG(NULL, "\nUUID:			%s\n"
+                        "Set UUID:		%s\n"
                         "version:		%u\n"
                         "block_size:		%u\n"
                         "data_offset:		%ju\n",
-                        uuid_str,
+                        uuid_str, set_uuid_str,
                         (unsigned) sb.version,
                         sb.block_size,
                         data_offset);
@@ -2595,6 +2606,7 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
     SET_CACHE_DISCARD(&sb, discard);
     SET_CACHE_REPLACEMENT(&sb, cache_replacement_policy);
     CACHE_INFOLOG(NULL, "\nUUID:			%s\n"
+                        "Set UUID:		%s\n"
                         "version:		%u\n"
                         "nbuckets:		%ju\n"
                         "block_size:		%u\n"
@@ -2602,7 +2614,7 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
                         "nr_in_set:		%u\n"
                         "nr_this_dev:		%u\n"
                         "first_bucket:		%u\n",
-                        uuid_str,
+                        uuid_str, set_uuid_str,
                         (unsigned) sb.version,
                         sb.nbuckets,
                         sb.block_size,
