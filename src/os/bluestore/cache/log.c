@@ -46,6 +46,32 @@ void set_log_level(int level)
   g_log_level = level;
 }
 
+
+int t2ce_set_log_level(char *level)
+{
+  int log_level;
+
+  if (!strcmp(level, "debug"))
+    log_level = LOG_LEVEL_DEBUG;
+  else if (!strcmp(level, "info"))
+    log_level = LOG_LEVEL_INFO;
+  else if (!strcmp(level, "notice"))
+    log_level = LOG_LEVEL_NOTICE;
+  else if (!strcmp(level, "warn"))
+    log_level = LOG_LEVEL_WARN;
+  else if (!strcmp(level, "error"))
+    log_level = LOG_LEVEL_ERROR;
+  else if (!strcmp(level, "dump"))
+    log_level = LOG_LEVEL_DUMP;
+  else
+    return -1;
+
+  CACHE_INFOLOG(NULL, "set log_level to: %s(%d)\n", level,log_level);
+  set_log_level(log_level);
+  return 0;
+
+}
+
 void log_load_level()
 {
   int i = 0;

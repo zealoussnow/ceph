@@ -5463,9 +5463,9 @@ int BlueStore::mkfs()
     goto out_close_fsid;
   
   if (cct->_conf->backend_type == "t2ce") {
-    r = _setup_block_symlink_or_file("block.t2ce", cct->_conf->t2store_cache_path,
-        cct->_conf->t2store_cache_size,
-        cct->_conf->t2store_cache_create);
+    r = _setup_block_symlink_or_file("block.t2ce", cct->_conf->t2ce_cache_path,
+        cct->_conf->t2ce_cache_size,
+        cct->_conf->t2ce_cache_create);
     if (r < 0)
       goto out_close_fsid;
   }

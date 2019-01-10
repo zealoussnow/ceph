@@ -46,6 +46,7 @@ int t2store_cache_register_cache(struct cache_context *ctx)
     ctx->registered=false;
     return -1;
   }
+
   ((struct cache *)ctx->cache)->set->logger_cb = ctx->logger_cb;
   ((struct cache *)ctx->cache)->set->bluestore_cd = ctx->bluestore_cd;
 
@@ -150,60 +151,17 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
 {
   assert(u_conf != NULL);
   struct cache *ca = (struct cache *)ctx->cache;
-  if (!strcmp(u_conf->opt_name, "t2store_gc_pause")) {
-    set_gc_pause(ctx->cache, atoi(u_conf->val));
+
+  if (!strcmp(u_conf->opt_name, "t2ce_flush_water_level")) {
+    t2ce_set_flush_water_level(ctx->cache, atoi(u_conf->val));
   }
 
-  if (!strcmp(u_conf->opt_name, "t2store_gc_moving_stop")) {
-    set_gc_moving_stop(ctx->cache, atoi(u_conf->val));
+  if (!strcmp(u_conf->opt_name, "t2ce_iobypass_size_kb")) {
+    t2ce_set_iobypass_size(ctx->cache, atoi(u_conf->val));
   }
 
-  if (!strcmp(u_conf->opt_name, "t2store_writeback_stop")) {
-    set_writeback_stop(ctx->cache, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_cache_mode")) {
-    set_cache_mode(ctx->cache, u_conf->val);
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_writeback_percent")) {
-    set_writeback_percent(ctx->cache, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_writeback_rate_update_seconds")) {
-    set_writeback_rate_update_seconds(ctx->cache, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_sequential_cutoff")) {
-    set_sequential_cutoff(ctx->cache, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_cutoff_writeback")) {
-    set_writeback_cutoff(ca->set->dc, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_cutoff_writeback_sync")) {
-    set_writeback_sync_cutoff(ca->set->dc, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_cutoff_cache_add")) {
-    set_cache_add_cutoff(ca->set->dc, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_cutoff_gc")) {
-    set_gc_cutoff(ca->set->dc, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_gc_mode")) {
-    set_gc_mode(ca->set->dc, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_set_max_gc_keys_onetime")) {
-    set_max_gc_keys_onetime(ca->set->dc, atoi(u_conf->val));
-  }
-
-  if (!strcmp(u_conf->opt_name, "t2store_cached_hits")) {
-    set_cached_hits(ctx->cache, atoi(u_conf->val));
+  if (!strcmp(u_conf->opt_name, "t2ce_iobypass_water_level")) {
+    t2ce_set_iobypass_water_level(ca->set->dc, atoi(u_conf->val));
   }
 
   return 0;
@@ -225,33 +183,14 @@ static const char *get_wb_running_state(int state)
   }
 }
 
-static const char *get_cache_mode(int mode)
-{
-  switch (mode) {
-  case CACHE_MODE_WRITEBACK:
-    return "writeback";
-  case CACHE_MODE_WRITEAROUND:
-    return "writearound";
-  case CACHE_MODE_WRITETHROUGH:
-    return "writethrough";
-  case CACHE_MODE_NONE:
-    return "none";
-  default:
-    return "unknown";
-  }
-}
-
 static void get_wb_status(struct cached_dev *dc, struct wb_status *s)
 {
-  s->cache_mode        = get_cache_mode(BDEV_CACHE_MODE(&dc->sb));
   s->wb_running_state  = get_wb_running_state(dc->wb_status);
   s->writeback_stop    = atomic_read(&dc->writeback_stop);
-  s->cached_hits       = atomic_read(&dc->c->cached_hits);
-  s->has_dirty         = atomic_read(&dc->has_dirty);
+  /*s->has_dirty         = atomic_read(&dc->has_dirty);*/
   s->writeback_rate    = dc->writeback_rate.rate;
   s->dirty_sectors     = get_sectors_dirty(dc);
   s->writeback_percent = dc->writeback_percent;
-  s->sequential_cutoff = dc->sequential_cutoff;
   s->writeback_delay   = dc->writeback_delay;
   s->real_wb_delay     = atomic_read(&dc->real_wb_delay);
   s->writeback_rate_d_term = dc->writeback_rate_d_term;
@@ -284,6 +223,7 @@ static void get_gc_status(struct cache_set *c, struct gc_status *s)
 {
   // gc status
   s->gc_mark_in_use    = (c->nbuckets - c->avail_nbuckets) * 100.0 / c->nbuckets;
+  s->in_use    = c->gc_stats.in_use;
   s->sectors_to_gc     = atomic_read(&c->sectors_to_gc);
   s->gc_running_state  = get_gc_running_state(c->gc_stats.status);
   s->invalidate_needs_gc = c->cache[0]->invalidate_needs_gc;
@@ -321,67 +261,77 @@ static void get_gc_status(struct cache_set *c, struct gc_status *s)
       get_gc_running_state(c->gc_stats.status), c->cache[0]->invalidate_needs_gc);
 }
 
-int t2store_wb_status(struct cache_context *ctx, struct wb_status *s)
+
+void get_t2ce_conf(struct cache *ca, struct t2ce_conf *conf)
+{
+  conf->iobypass_size = ca->set->dc->sequential_cutoff;
+  conf->flush_water_level = ca->set->dc->writeback_percent;
+  conf->iobypass_water_level = ca->set->dc->cutoff_writeback;
+}
+
+int t2store_admin_socket_dump_api(struct cache_context *ctx, const char*cmd, void *value) 
 {
   struct cache *ca = (struct cache *)ctx->cache;
-  get_wb_status(ca->set->dc, s);
 
-  return 0;
-}
-
-int t2store_gc_status(struct cache_context *ctx, struct gc_status *s)
-{
-  struct cache *ca = (struct cache *)ctx->cache;
-  get_gc_status(ca->set, s);
-
-  return 0;
-}
-
-int t2store_reload_zlog_config()
-{
-  return log_reload();
-}
-
-int t2store_set_log_level(const char *level)
-{
-  int log_level;
-
-  CACHE_INFOLOG(NULL, "set log_level to: %s\n", level);
-  if (!strcmp(level, "DEBUG"))
-    log_level = LOG_LEVEL_DEBUG;
-  else if (!strcmp(level, "INFO"))
-    log_level = LOG_LEVEL_INFO;
-  else if (!strcmp(level, "NOTICE"))
-    log_level = LOG_LEVEL_NOTICE;
-  else if (!strcmp(level, "WARN"))
-    log_level = LOG_LEVEL_WARN;
-  else if (!strcmp(level, "ERROR"))
-    log_level = LOG_LEVEL_ERROR;
-  else if (!strcmp(level, "DUMP"))
-    log_level = LOG_LEVEL_DUMP;
-  else
+  if (!strcmp(cmd, "t2ce_dump_meta")) {
+    struct t2ce_meta *meta = (struct t2ce_meta *)value;
+    get_t2ce_meta(ctx, meta);
+  } else if (!strcmp(cmd, "t2ce_dump_meta_detail")) {
+    get_t2ce_meta(ctx, NULL);
+  } else if (!strcmp(cmd, "t2ce_dump_wb")) {
+    struct wb_status *ws = (struct wb_status *)value;
+    get_wb_status(ca->set->dc, ws);
+  } else if (!strcmp(cmd, "t2ce_dump_config")) {
+    struct t2ce_conf *conf = (struct t2ce_conf *)value;
+    get_t2ce_conf(ca, conf);
+  } else if (!strcmp(cmd, "t2ce_dump_gc")) {
+    struct gc_status *gs = (struct gc_status *)value;
+    get_gc_status(ca->set, gs);
+  } else {
     return -1;
-  set_log_level(log_level);
+  }
+  return 0;
+}
+int t2store_admin_socket_set_api(struct cache_context *ctx, const char*cmd, void *value)
+{
+  if (!strcmp(cmd, "t2ce_set_gc_moving_skip")) {
+    int *v = (int *)value;
+    set_gc_moving_stop(ctx->cache, *v);
+  } else if (!strcmp(cmd, "t2ce_set_wb_stop")) {
+    int *v = (int *)value;
+    set_writeback_stop(ctx->cache, *v);
+  } else if (!strcmp(cmd, "t2ce_set_gc_stop")) {
+    int *v = (int *)value;
+    set_gc_pause(ctx->cache, *v);
+  } else if (!strcmp(cmd, "t2ce_set_cache_mode")) {
+    char *v = (char *)value;
+    set_cache_mode(ctx->cache, v);
+  } else if (!strcmp(cmd, "t2ce_set_cached_hits")) {
+    int *v = (int *)value;
+    set_cached_hits(ctx->cache, *v);
+  } else if (!strcmp(cmd, "t2ce_wb_rate_update_seconds")) {
+    int *v = (int *)value;
+    set_writeback_rate_update_seconds(ctx->cache, *v);
+  } else if (!strcmp(cmd, "t2ce_log_reload")) {
+    return log_reload();
+  } else if (!strcmp(cmd, "t2ce_set_log_level")) {
+    char *v = (char *)value;
+    return t2ce_set_log_level(v);
+  } else if (!strcmp(cmd, "t2ce_wakeup_gc")) {
+    CACHE_INFOLOG(NULL, "force wakeup gc immeditally\n");
+    struct cache *ca  = (struct cache *)ctx->cache;
+    set_gc_pause(ca, false);
+    ca->invalidate_needs_gc = true;
+    wake_up_gc(ca->set);
+  } else if (!strcmp(cmd, "t2ce_set_expensive_checks")) {
+    int *v = (int *)value;
+    set_cache_expensive_debug_checks(ctx->cache, *v);
+  } else {
+    CACHE_INFOLOG(NULL, "cmd %s set error \n", cmd);
+    return -1;
+  }
 
   return 0;
 }
 
-void t2store_set_gc_pause(struct cache_context *ctx, int pause)
-{
-  set_gc_pause(ctx->cache, pause);
-  CACHE_INFOLOG(NULL, "set gc pause: %d\n", pause);
-}
-
-void t2store_wakeup_gc(struct cache_context *ctx)
-{
-  struct cache *ca  = (struct cache *)ctx->cache;
-  set_gc_pause(ca, false);
-  ca->invalidate_needs_gc = true;
-  wake_up_gc(ca->set);
-  CACHE_INFOLOG(NULL, "force wakeup gc");
-}
-
-void t2store_expensive_debug_checks(struct cache_context *ctx, bool state){
-  set_cache_expensive_debug_checks(ctx->cache, state);
-}
 

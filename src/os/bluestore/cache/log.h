@@ -5,6 +5,7 @@
 #include "libcache.h"
 
 extern int log_reload();
+extern int t2ce_set_log_level(char *level);
 extern void set_log_level(int level);
 extern void log_init(struct cache_context *ctx);
 extern void log_fini();

@@ -22,8 +22,9 @@ int get_cache_strategy(struct cache *ca, struct ring_item *item);
 
 void set_writeback_cutoff(struct cached_dev *dc, int val);
 void set_writeback_sync_cutoff(struct cached_dev *dc, int val);
-void set_cache_add_cutoff(struct cached_dev *dc, int val);
+void t2ce_set_iobypass_water_level(struct cached_dev *dc, int val);
 void set_max_gc_keys_onetime(struct cached_dev *dc, int val);
+void t2ce_set_iobypass_size(struct cache *ca, int sequential_cutoff);
 
 #endif
 
