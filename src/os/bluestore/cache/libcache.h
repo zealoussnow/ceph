@@ -61,6 +61,12 @@ struct update_conf
   const char *val;
 };
 
+struct t2ce_conf {
+  uint64_t iobypass_size;
+  unsigned char flush_water_level;
+  uint64_t iobypass_water_level;
+};
+
 struct wb_status
 {
   int sequential_cutoff;
@@ -77,15 +83,14 @@ struct wb_status
   int cutoff_cache_add;
   int has_dirty;
   int writeback_stop;
-  int cached_hits;
   const char *wb_running_state;
-  const char *cache_mode;
 };
 
 struct gc_status
 {
   // gc status
   double gc_mark_in_use;
+  double in_use;
   int sectors_to_gc;
   const char *gc_running_state;
   unsigned  invalidate_needs_gc;
@@ -120,8 +125,9 @@ struct gc_status
   uint64_t gc_full_buckets;
 };
 
-struct btree_info
+struct t2ce_meta
 {
+  // btree meta
   uint64_t btree_nodes;
   uint64_t btree_nbkeys;
   uint64_t total_size;
@@ -130,6 +136,10 @@ struct btree_info
   uint64_t btree_dirty_nbkeys;
   uint64_t btree_null_nbkeys;
   uint64_t zero_keysize_nbkeys;
+
+  // other meta
+  int cached_hits;
+  const char *cache_mode;
 };
 
 struct ring_items;
@@ -159,14 +169,8 @@ CEPH_CACHE_API int t2store_cache_aio_writearound_batch(struct cache_context * ct
 CEPH_CACHE_API int t2store_cache_aio_thread_init(struct cache_context * ctx);
 CEPH_CACHE_API int t2store_cache_aio_get_cache_strategy(struct cache_context * ctx, struct ring_item *item);
 CEPH_CACHE_API int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_conf);
-CEPH_CACHE_API int t2store_wb_status(struct cache_context *ctx, struct wb_status *s);
-CEPH_CACHE_API int t2store_gc_status(struct cache_context *ctx, struct gc_status *s);
-CEPH_CACHE_API int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi);
-CEPH_CACHE_API int t2store_reload_zlog_config();
-CEPH_CACHE_API int t2store_set_log_level(const char *level);
-CEPH_CACHE_API void t2store_set_gc_pause(struct cache_context *ctx, int pause);
-CEPH_CACHE_API void t2store_wakeup_gc(struct cache_context *ctx);
-CEPH_CACHE_API void t2store_expensive_debug_checks(struct cache_context *ctx, bool state);
+CEPH_CACHE_API int t2store_admin_socket_set_api(struct cache_context *ctx, const char*cmd, void *value);
+CEPH_CACHE_API int t2store_admin_socket_dump_api(struct cache_context *ctx, const char*cmd, void *value);
 
 #ifdef __cplusplus
 }

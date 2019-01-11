@@ -3365,100 +3365,41 @@ std::vector<Option> get_global_options() {
     .set_default(false)
     .set_description("abort when log output failed because of no space left on device"),
     
-    Option("t2store_cache_path", Option::TYPE_STR, Option::LEVEL_DEV)
+    Option("t2ce_cache_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")
     .add_tag("mkfs")
     .set_description("spdk bdev configure file"),
 
-    Option("t2store_cache_size", Option::TYPE_UINT, Option::LEVEL_DEV)
+    Option("t2ce_cache_size", Option::TYPE_UINT, Option::LEVEL_DEV)
     .set_default(10ull * 1024*1024*1024)
     .add_tag("mkfs")
     .set_description("Size of file to create for cache bluestore"),
 
-    Option("t2store_cache_create", Option::TYPE_BOOL, Option::LEVEL_DEV)
+    Option("t2ce_cache_create", Option::TYPE_BOOL, Option::LEVEL_DEV)
     .set_default(true)
     .add_tag("mkfs")
-    .set_description("Create t2store_cache_path if it doesn't exist")
-    .add_see_also("t2store_cache_path").add_see_also("t2store_cache_size"),
+    .set_description("Create t2ce_cache_path if it doesn't exist")
+    .add_see_also("t2ce_cache_path").add_see_also("t2ce_cache_size"),
 
-    Option("t2store_core_mask", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("0x1f")
-    .add_tag("dpdk_env")
-    .set_description("dpdk env core mask"),
-
-    Option("t2store_poll_period", Option::TYPE_UINT, Option::LEVEL_DEV)
-    .set_default(100000)
-    .add_tag("dpdk_env")
-    .set_description("dpdk env poll period(us)"),
-
-    Option("t2store_cache_thread_core_percent", Option::TYPE_FLOAT, Option::LEVEL_BASIC)
-    .set_default(.5)
-    .set_description("cache/backend thead percent"),
-
-    Option("t2store_gc_stop", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("0")
-    .set_enum_allowed({"0", "1"})
-    .set_description("stop gc"),
-
-    Option("t2store_gc_moving_stop", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("0")
-    .set_enum_allowed({"0", "1"})
-    .set_description("stop moving gc"),
-
-    Option("t2store_writeback_stop", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("0")
-    .set_enum_allowed({"0", "1"})
-    .set_description("stop writeback"),
-
-    Option("t2store_cache_mode", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("0")
-    .set_enum_allowed({"writeback", "writearound", "writethrough", "none"})
-    .set_description("cache mode"),
-
-    Option("t2store_cached_hits", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("0")
-    .set_enum_allowed({"0", "1"})
-    .set_description("cached hit data"),
-
-    Option("t2store_writeback_percent", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("10")
-    .set_description("cache mode"),
-
-    Option("t2store_writeback_rate_update_seconds", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("5")
-    .set_description("writeback rate update seconds"),
-
-    Option("t2store_sequential_cutoff", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("512")
-    .set_description("sequential cutoff"),
-
-    Option("t2store_cutoff_writeback", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("80")
-    .set_description("writeback cutoff"),
-
-    Option("t2store_cutoff_writeback_sync", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("90")
-    .set_description("writeback cutoff sync"),
-
-    Option("t2store_cutoff_cache_add", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("95")
-    .set_description("cache add cutoff"),
-
-    Option("t2store_cutoff_gc", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("40")
-    .set_description("gc cutoff"),
-
-    Option("t2store_gc_mode", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("1")
-    .set_description("gc mode"),
-
-    Option("t2store_max_gc_keys_onetime", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("512")
-    .set_description("max gc keys onetime"),
-
-    Option("t2store_dev_flush", Option::TYPE_BOOL, Option::LEVEL_DEV)
+    Option("t2ce_dev_flush", Option::TYPE_BOOL, Option::LEVEL_DEV)
     .set_default(false)
-    .set_description("Enable flush data when matadata write"),
+    .set_description("Enable/Disable O_DIRECT"),
+
+    Option("t2ce_aio_threads", Option::TYPE_UINT, Option::LEVEL_DEV)
+    .set_default(1)
+    .set_description("t2ce aio threas"),
+
+    Option("t2ce_flush_water_level", Option::TYPE_UINT, Option::LEVEL_DEV)
+    .set_default(30)
+    .set_description("t2ce start wb percent"),
+
+    Option("t2ce_iobypass_size_kb", Option::TYPE_UINT, Option::LEVEL_DEV)
+    .set_default(512)
+    .set_description("t2ce io bypass size kb"),
+
+    Option("t2ce_iobypass_water_level", Option::TYPE_UINT, Option::LEVEL_DEV)
+    .set_default(80)
+    .set_description("t2ce io bypass cache water percent"),
 
     Option("bluestore_block_path", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")

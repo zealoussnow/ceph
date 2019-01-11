@@ -646,3 +646,8 @@ uint64_t get_sectors_dirty(struct cached_dev *dc)
   return bcache_dev_sectors_dirty(dc);
 }
 
+void t2ce_set_flush_water_level(struct cache *ca, int percent)
+{
+  ca->set->dc->writeback_percent = percent;
+}
+

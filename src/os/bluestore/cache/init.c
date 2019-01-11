@@ -445,6 +445,8 @@ bch_cache_set_alloc(struct cache_sb *sb)
   c->congested_write_threshold_us	= 20000;
   c->error_limit	= 8 << IO_ERROR_SHIFT;  /* IO_ERROR_SHIFT=20, 8MB */
   c->expensive_debug_checks = false;
+  atomic_set(&c->gc_moving_stop, 0);
+  atomic_set(&c->cached_hits, 1);
 
   return c;
 err:
@@ -1137,7 +1139,7 @@ void dump_btree_info(struct cache *c)
   bch_btree_map_nodes(&op, c->set, NULL, dump_btree_kes_fn);
 }
 
-int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi)
+int get_t2ce_meta(struct cache_context *ctx, struct t2ce_meta *meta)
 {
   struct cache *ca = ctx->cache;
   ca->btree_nodes  =  0;
@@ -1148,16 +1150,18 @@ int t2store_btree_info(struct cache_context *ctx, struct btree_info *bi)
   ca->btree_dirty_nbkeys = 0;
   ca->btree_null_nbkeys = 0;
   ca->zero_keysize_nbkeys = 0;
-  if (bi) {
+  meta->cached_hits       = atomic_read(&ca->set->cached_hits);
+  meta->cache_mode        = get_cache_mode(BDEV_CACHE_MODE(&ca->set->dc->sb));
+  if (meta) {
     dump_btree_info(ca);
-    bi->btree_nodes  = ca->btree_nodes;
-    bi->btree_nbkeys = ca->btree_nbkeys;
-    bi->total_size   = ca->total_size;
-    bi->dirty_size   = ca->dirty_size;
-    bi->btree_bad_nbeys = ca->btree_bad_nbeys;
-    bi->btree_dirty_nbkeys = ca->btree_dirty_nbkeys;
-    bi->btree_null_nbkeys  = ca->btree_null_nbkeys;
-    bi->zero_keysize_nbkeys = ca->zero_keysize_nbkeys;
+    meta->btree_nodes  = ca->btree_nodes;
+    meta->btree_nbkeys = ca->btree_nbkeys;
+    meta->total_size   = ca->total_size;
+    meta->dirty_size   = ca->dirty_size;
+    meta->btree_bad_nbeys = ca->btree_bad_nbeys;
+    meta->btree_dirty_nbkeys = ca->btree_dirty_nbkeys;
+    meta->btree_null_nbkeys  = ca->btree_null_nbkeys;
+    meta->zero_keysize_nbkeys = ca->zero_keysize_nbkeys;
   } else {
     traverse_btree(ca);
   }
@@ -1199,7 +1203,7 @@ void set_max_gc_keys_onetime(struct cached_dev *dc, int val)
   dc->max_gc_keys_onetime = val;
 }
 
-void set_cache_add_cutoff(struct cached_dev *dc, int val)
+void t2ce_set_iobypass_water_level(struct cached_dev *dc, int val)
 {
   dc->cutoff_cache_add = val;
 }
@@ -1214,7 +1218,7 @@ static void set_writeback_cutoffs(struct cached_dev *dc)
 static void bch_gc_conf_init(struct cached_dev *dc)
 {
   dc->cutoff_gc = CUTOFF_WRITEBACK / 2;
-  dc->cutoff_gc_busy = (CUTOFF_WRITEBACK * 3) / 4;
+  dc->cutoff_gc_busy = 100;
   dc->max_gc_keys_onetime = 512;
 }
 
@@ -2642,5 +2646,10 @@ int write_sb(const char *dev, unsigned block_size, unsigned bucket_size,
   close(fd);
 
   return ret;
+}
+
+void t2ce_set_iobypass_size(struct cache *ca, int sequential_cutoff)
+{
+  ca->set->dc->sequential_cutoff = sequential_cutoff << 10;
 }
 

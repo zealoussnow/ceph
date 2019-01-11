@@ -1719,8 +1719,8 @@ static bool gc_should_run(struct cache_set *c)
    *     goto cond wait
   */
 
-  if (c->gc_stats.in_use > c->dc->cutoff_gc)
-    return true;
+  /*if (c->gc_stats.in_use > c->dc->cutoff_gc)*/
+    /*return true;*/
 
   for_each_cache(ca, c, i)
     if (ca->invalidate_needs_gc)
@@ -1749,6 +1749,8 @@ void set_writeback_stop(struct cache *ca, int stop)
 
 void set_cache_mode(struct cache *ca, const char *mode)
 {
+  CACHE_INFOLOG(NULL, "set t2ce cache mode %s\n", mode);
+
   if (!strcmp(mode, "writeback")) {
     SET_BDEV_CACHE_MODE(&ca->set->dc->sb, CACHE_MODE_WRITEBACK);
   } else if (!strcmp(mode, "writearound")) {
@@ -1764,6 +1766,7 @@ void set_cache_mode(struct cache *ca, const char *mode)
 
 void set_cache_expensive_debug_checks(struct cache *ca, bool state)
 {
+  CACHE_INFOLOG(CAT_BTREE, "set cache expensive debug checks %d \n", state);
   if (state)
     CACHE_INFOLOG(CAT_BTREE, "Expensive debug checks on. \n");
   else
@@ -1771,20 +1774,11 @@ void set_cache_expensive_debug_checks(struct cache *ca, bool state)
   ca->set->expensive_debug_checks = state;
 }
 
-void set_writeback_percent(struct cache *ca, int percent)
-{
-  ca->set->dc->writeback_percent = percent;
-}
-
 void set_writeback_rate_update_seconds(struct cache *ca, int wb_rate_update_seconds)
 {
   ca->set->dc->writeback_rate_update_seconds = wb_rate_update_seconds;
 }
 
-void set_sequential_cutoff(struct cache *ca, int sequential_cutoff)
-{
-  ca->set->dc->sequential_cutoff = sequential_cutoff << 10;
-}
 
 static int bch_gc_thread(void *arg)
 {
@@ -2606,3 +2600,21 @@ void bch_keybuf_init(struct keybuf *buf)
   pthread_spin_init(&buf->lock, 0);
   array_allocator_init(&buf->freelist);
 }
+
+const char *get_cache_mode(int mode)
+{
+  switch (mode) {
+  case CACHE_MODE_WRITEBACK:
+    return "writeback";
+  case CACHE_MODE_WRITEAROUND:
+    return "writearound";
+  case CACHE_MODE_WRITETHROUGH:
+    return "writethrough";
+  case CACHE_MODE_NONE:
+    return "none";
+  default:
+    return "unknown";
+  }
+}
+
+

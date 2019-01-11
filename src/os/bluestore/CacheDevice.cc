@@ -54,6 +54,7 @@ static int xdigit2val(unsigned char c) {
   return val;
 }
 
+#if 0
 static int str2cpuset(const char *coremask, cpu_set_t *mask) {
   unsigned int cpu_nums = sysconf(_SC_NPROCESSORS_CONF);
   char c;
@@ -91,6 +92,7 @@ static int str2cpuset(const char *coremask, cpu_set_t *mask) {
   }
   return 0;
 }
+#endif
 
 struct Task {
   CacheDevice *device;
@@ -198,6 +200,17 @@ int CacheDevice::init(const std::string& path, const char *fsid)
   if(r)
     return r;
 
+  struct update_conf u_conf = { 0 };
+  for (const char **key = get_tracked_conf_keys(); *key; ++key) {
+    char *pval = NULL;
+    int r = cct->_conf->get_val(*key, &pval, -1);
+    assert(r >= 0);
+    u_conf.opt_name = *key;
+    u_conf.val = pval;
+    dout(1) << __func__ << " t2ce init config name " << u_conf.opt_name << " val " << u_conf.val << dendl;
+    t2store_handle_conf_change(&cache_ctx, &u_conf);
+  }
+
   r = _aio_start();
   if(r)
     return r;
@@ -272,7 +285,7 @@ int CacheDevice::open(const string& p, const string& c_path)
   cache_path = c_path;
   int r = 0;
   int flgs = O_RDWR | O_DIRECT;
-  if (cct->_conf->t2store_dev_flush){
+  if (cct->_conf->t2ce_dev_flush){
     flgs |= O_DSYNC;
     dout(1) << __func__ << " open device with O_DSYNC flag " << dendl;
   }
@@ -657,6 +670,16 @@ int CacheDevice::_aio_start()
       }
       return r;
     }
+    unsigned num = cct->_conf->t2ce_aio_threads;
+    unsigned i = 0;
+    for ( i = 0; i < num; i++) {
+        char *thread_name = (char*)calloc(17, sizeof(char));
+        sprintf(thread_name, "caio_%u", i);
+        AioCompletionThread *aio_thread = new AioCompletionThread(this);
+        aio_thread->create(thread_name);
+        aio_threads.push_back(aio_thread);
+    }
+#if 0
 
     cpu_set_t mask;
     const char *coremask = cct->_conf->t2store_core_mask.c_str();
@@ -679,6 +702,7 @@ int CacheDevice::_aio_start()
         aio_threads.push_back(aio_thread);
       }
     }
+#endif
   }
 
   return 0;
@@ -844,7 +868,7 @@ void CacheDevice::_aio_thread()
   assert(items_wt !=NULL);
   struct ring_item *item;
 
-  dout(5) << __func__ << " start aio thread" << dendl;
+  dout(1) << __func__ << " start aio thread" << dendl;
   while (true) {
     Task *current_task = t;
     Task *next_task    = nullptr;
@@ -1275,20 +1299,9 @@ int CacheDevice::invalidate_region(uint64_t off, uint64_t len)
 const char** CacheDevice::get_tracked_conf_keys() const
 {
   static const char *KEYS[] = {
-    "t2store_gc_pause",
-    "t2store_gc_moving_stop",
-    "t2store_writeback_stop",
-    "t2store_cache_mode",
-    "t2store_writeback_percent",
-    "t2store_writeback_rate_update_seconds",
-    "t2store_sequential_cutoff",
-    "t2store_cutoff_writeback",
-    "t2store_cutoff_writeback_sync",
-    "t2store_cutoff_cache_add",
-    "t2store_cutoff_gc",
-    "t2store_gc_mode",
-    "t2store_max_gc_keys_onetime",
-    "t2store_cached_hits",
+    "t2ce_flush_water_level",
+    "t2ce_iobypass_size_kb",
+    "t2ce_iobypass_water_level",
     NULL
   };
 
@@ -1308,7 +1321,7 @@ void CacheDevice::handle_conf_change(const struct md_config_t *conf,
       assert(r >= 0);
       u_conf.opt_name = *i;
       u_conf.val = pval;
-      dout(5) << "handle_conf_change " << this << " , opt_name: " << u_conf.opt_name << ", val: " << u_conf.val << dendl;
+      dout(1) << __func__ << " t2ce init config name " << u_conf.opt_name << " val " << u_conf.val << dendl;
       t2store_handle_conf_change(&cache_ctx, &u_conf);
       free(pval);
     }
@@ -1354,137 +1367,241 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
                                string format, ostream& ss)
 {
   std::unique_ptr<Formatter> f(Formatter::create(format, "json-pretty", "json"));
+  string error = "sucessful";
+  bool success = true;
+  int ret = -1;
+
   // dump number of btree nodes and number of bkeys
-  if (command == "dump_btree_info") {
-    struct btree_info bi;
-    t2store_btree_info(&cache_ctx, &bi);
-    f->open_object_section("btree_info");
-    f->dump_unsigned("btree_nodes", bi.btree_nodes);
-    f->dump_unsigned("btree_nbkeys", bi.btree_nbkeys);
-    f->dump_unsigned("btree_bad_bkeys", bi.btree_bad_nbeys);
-    f->dump_unsigned("btree_null_nbkeys", bi.btree_null_nbkeys);
-    f->dump_unsigned("zero_keysize_nbkeys", bi.zero_keysize_nbkeys);
-    f->dump_unsigned("btree_dirty_bkeys", bi.btree_dirty_nbkeys);
-    f->dump_string("total_size", bytes_unit(bi.total_size));
-    f->dump_string("dirty_size", bytes_unit(bi.dirty_size));
+  if (command == "t2ce_dump_meta") {
+    struct t2ce_meta meta = {0};
+    dout(1) << __func__ << " command " << command << dendl;
+    t2store_admin_socket_dump_api(&cache_ctx, "t2ce_dump_meta", &meta);
+    f->open_object_section("meta");
+    f->dump_unsigned("nodes", meta.btree_nodes);
+    f->dump_unsigned("keys", meta.btree_nbkeys);
+    f->dump_unsigned("bad_keys", meta.btree_bad_nbeys);
+    f->dump_unsigned("zero_keys", meta.btree_null_nbkeys);
+    f->dump_unsigned("zero_size_keys", meta.zero_keysize_nbkeys);
+    f->dump_unsigned("dirty_keys", meta.btree_dirty_nbkeys);
+    f->dump_string("total_size", bytes_unit(meta.total_size));
+    f->dump_string("dirty_size", bytes_unit(meta.dirty_size));
+    f->dump_int("cached_hits", meta.cached_hits);
+    f->dump_string("cache mode", meta.cache_mode);
     f->close_section();
+    goto flush;
   }
 
-  if (command == "dump_btree_detail") {
-    int ret = t2store_reload_zlog_config();
-    assert(ret == 0);
-    t2store_btree_info(&cache_ctx, NULL);
+  if (command == "t2ce_dump_meta_detail") {
+    ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_log_reload", NULL);
+    if ( !ret  ) {
+      ret = t2store_admin_socket_dump_api(&cache_ctx, "t2ce_dump_meta", NULL);
+    }
   }
 
-  if (command == "dump_wb_status") {
-    struct wb_status ws;
-    t2store_wb_status(&cache_ctx, &ws);
+  if (command == "t2ce_dump_wb") {
+    dout(1) << __func__ << " command " << command << dendl;
+    struct wb_status ws = {0};
+    t2store_admin_socket_dump_api(&cache_ctx, "t2ce_dump_wb", &ws);
     f->open_object_section("wb_status");
-    f->dump_string("cache_mode", ws.cache_mode);
-    f->dump_string("wb_running_state", ws.wb_running_state);
-    f->dump_int("writeback_stop", ws.writeback_stop);
-    f->dump_int("cached_hits", ws.cached_hits);
-    f->dump_int("has_dirty", ws.has_dirty);
-    f->dump_unsigned("dirty_sectors", ws.dirty_sectors);
-    f->dump_int("sequential_cutoff", ws.sequential_cutoff);
-    f->dump_int("writeback_percent", ws.writeback_percent);
-    f->dump_int("writeback_delay", ws.writeback_delay);
-    f->dump_int("real_wb_delay", ws.real_wb_delay);
-    f->dump_int("writeback_rate", ws.writeback_rate);
-    f->dump_int("writeback_rate_d_term", ws.writeback_rate_d_term);
-    f->dump_int("writeback_rate_p_term_inverse", ws.writeback_rate_p_term_inverse);
-    f->dump_int("writeback_rate_update_seconds", ws.writeback_rate_update_seconds);
-    f->dump_int("cutoff_writeback", ws.cutoff_writeback);
-    f->dump_int("cutoff_writeback_sync", ws.cutoff_writeback_sync);
-    f->dump_int("cutoff_cache_add", ws.cutoff_cache_add);
+    f->dump_string("running status", ws.wb_running_state);
+    f->dump_int("wb status", ws.writeback_stop);
+    f->dump_int("wb_rate_update_seconds", ws.writeback_rate_update_seconds);
+    f->dump_unsigned("dirty size(sectors)", ws.dirty_sectors);
+    f->dump_int("wb schedule rate(sec)", ws.writeback_delay);
+    f->dump_int("wb rate(usec)", ws.real_wb_delay);
     f->close_section();
+    goto flush;
+  }
+  if (command == "t2ce_dump_config") {
+    dout(1) << __func__ << " command " << command << dendl;
+    struct t2ce_conf conf = { 0 };
+    t2store_admin_socket_dump_api(&cache_ctx, "t2ce_dump_config", &conf);
+    f->open_object_section("wb_status");
+    f->dump_int("iobypass size kb", conf.iobypass_size);
+    f->dump_int("iobypass water level", conf.iobypass_water_level);
+    f->dump_int("flush water level", conf.flush_water_level);
+    f->close_section();
+    goto flush;
   }
 
-  if (command == "dump_gc_status") {
+  if (command == "t2ce_dump_gc") {
     struct gc_status gs;
-    t2store_gc_status(&cache_ctx, &gs);
-    f->open_object_section("gc status");
-    f->dump_float("gc_mark_in_use", gs.gc_mark_in_use);
-    f->dump_int("sectors_to_gc", gs.sectors_to_gc);
-    f->dump_string("gc_running_state", gs.gc_running_state);
-    f->dump_int("invalidate_needs_gc", gs.invalidate_needs_gc);
-    f->dump_int("cutoff_gc", gs.cutoff_gc);
-    f->dump_int("cutoff_gc_busy", gs.cutoff_gc_busy);
-    f->dump_int("max_gc_keys_onetime", gs.max_gc_keys_onetime);
+    t2store_admin_socket_dump_api(&cache_ctx, "t2ce_dump_gc", &gs);
+    f->open_object_section("gc");
+    {
+      Formatter *fs = f.get();
+      fs->open_object_section("gc stat");
+      fs->dump_float("real time in_use", gs.gc_mark_in_use);
+      fs->dump_float("gc in_use", gs.in_use);
+      fs->dump_int("sectors threshold(1/16 tataol)", gs.sectors_to_gc);
+      fs->dump_string("running state", gs.gc_running_state);
+      fs->dump_int("moving stop", gs.gc_moving_stop);
+      fs->dump_int("invalidate_needs_gc", gs.invalidate_needs_gc);
+      fs->close_section();
+    }
+    {
+      Formatter *f_all = f.get();
+      f_all->open_object_section("all buckets");
+      f_all->dump_unsigned("buckets", gs.gc_all_buckets);
+      f_all->dump_unsigned("avail buckets", gs.gc_avail_buckets);
+      f_all->dump_unsigned("unavail buckets", gs.gc_unavail_buckets);
+      f_all->close_section();
+    }
+    {
+      Formatter *f_ava = f.get();
+      f_ava->open_object_section("availbale buckets");
+      f_ava->dump_unsigned("init buckets", gs.gc_init_buckets);
+      f_ava->dump_unsigned("reclaimable buckets", gs.gc_reclaimable_buckets);
+      f_ava->close_section();
+    }
+    {
+      Formatter *f_ua = f.get();
+      f_ua->open_object_section("unavailbale buckets");
+      f_ua->dump_unsigned("meta buckets", gs.gc_meta_buckets);
+      f_ua->dump_unsigned("dirty buckets", gs.gc_dirty_buckets);
+      f_ua->close_section();
+    }
+    {
+      Formatter *f_me = f.get();
+      f_me->open_object_section("meta buckets");
+      f_me->dump_unsigned("uuids buckets", gs.gc_uuids_buckets);
+      f_me->dump_unsigned("in writebacking bucket(set dirty)", gs.gc_writeback_dirty_buckets);
+      f_me->dump_unsigned("journal buckets", gs.gc_journal_buckets);
+      f_me->dump_unsigned("prio buckets", gs.gc_prio_buckets);
+      f_me->close_section();
+    }
+    {
+      Formatter *f_mo = f.get();
+      f_mo->open_object_section("moving buckets");
+      f_mo->dump_unsigned("moving buckets(in moving)", gs.gc_moving_buckets);
+      f_mo->dump_unsigned("pin buckets(have ref)", gs.gc_pin_buckets);
+      f_mo->dump_unsigned("empty buckets", gs.gc_empty_buckets);
+      f_mo->dump_unsigned("full buckets", gs.gc_full_buckets);
+      f_mo->close_section();
+    }
+
     f->close_section();
-    f->open_object_section("all buckets");
-    f->dump_unsigned("gc_all_buckets", gs.gc_all_buckets);
-    f->dump_unsigned("gc_avail_buckets", gs.gc_avail_buckets);
-    f->dump_unsigned("gc_unavail_buckets", gs.gc_unavail_buckets);
-    f->close_section();
-    f->open_object_section("availbale buckets");
-    f->dump_unsigned("gc_init_buckets", gs.gc_init_buckets);
-    f->dump_unsigned("gc_reclaimable_buckets", gs.gc_reclaimable_buckets);
-    f->close_section();
-    f->open_object_section("unavailbale buckets");
-    f->dump_unsigned("gc_meta_buckets", gs.gc_meta_buckets);
-    f->dump_unsigned("gc_dirty_buckets", gs.gc_dirty_buckets);
-    f->close_section();
-    f->open_object_section("meta buckets");
-    f->dump_unsigned("gc_uuids_buckets", gs.gc_uuids_buckets);
-    f->dump_unsigned("gc_writeback_dirty_buckets", gs.gc_writeback_dirty_buckets);
-    f->dump_unsigned("gc_journal_buckets", gs.gc_journal_buckets);
-    f->dump_unsigned("gc_prio_buckets", gs.gc_prio_buckets);
-    f->close_section();
-    f->open_object_section("gc moving");
-    f->dump_int("gc_moving_stop", gs.gc_moving_stop);
-    f->dump_unsigned("gc_moving_buckets", gs.gc_moving_buckets);
-    f->dump_unsigned("gc_pin_buckets", gs.gc_pin_buckets);
-    f->dump_unsigned("gc_empty_buckets", gs.gc_empty_buckets);
-    f->dump_unsigned("gc_full_buckets", gs.gc_full_buckets);
-    f->close_section();
+    goto flush;
   }
 
-  if (command == "reload_zlog_config") {
-    int ret = t2store_reload_zlog_config();
-    assert(ret == 0);
+  if (command == "t2ce_set_gc_moving_skip") {
+    int64_t value=-1;
+    cmd_getval(cct, cmdmap, "t2ce_set_gc_moving_skip", value);
+    if ( value == 0 || value ==1 ) {
+      dout(1) << __func__ << " command " << command << " value " << value << dendl;
+      ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_set_gc_moving_skip", (void *)&value);
+    } else {
+      error = "value must be 0 or 1";
+      success = false;
+      goto value_err;
+    }
   }
 
-  if (command == "set_log_level") {
+  if (command == "t2ce_set_wb_stop") {
+    int64_t value= -1;
+    cmd_getval(cct, cmdmap, "t2ce_set_wb_stop", value);
+    if ( value == 0 || value ==1 ) {
+      dout(1) << __func__ << " command " << command << " value " << value << dendl;
+      ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_set_wb_stop", (void *)&value);
+    } else {
+      error = "value must be 0 or 1";
+      success = false;
+      goto value_err;
+    }
+  }
+
+  if (command == "t2ce_set_cached_hits") {
+    int64_t value= -1;
+    cmd_getval(cct, cmdmap, "t2ce_set_cached_hits", value);
+    if ( value == 0 || value ==1 ) {
+      dout(1) << __func__ << " command " << command << " value " << value << dendl;
+      ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_set_cached_hits", (void *)&value);
+    } else {
+      error = "value must be 0 or 1";
+      success = false;
+      goto value_err;
+    }
+  }
+
+  if (command == "t2ce_wb_rate_update_seconds") {
+    int64_t value= -1;
+    cmd_getval(cct, cmdmap, "t2ce_wb_rate_update_seconds", value);
+    dout(1) << __func__ << " command " << command << " value " << value << dendl;
+    ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_wb_rate_update_seconds", (void *)&value);
+  }
+
+  if (command == "t2ce_set_gc_stop") {
+    int64_t value= -1;
+    cmd_getval(cct, cmdmap, "t2ce_set_gc_stop", value);
+    if ( value == 0 || value ==1 ) {
+      dout(1) << __func__ << " command " << command << " value " << value << dendl;
+      ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_set_gc_stop", (void *)&value);
+    } else {
+      error = "value must be 0 or 1";
+      success = false;
+      goto value_err;
+    }
+  }
+
+  if (command == "t2ce_set_cache_mode") {
+    string value;
+    cmd_getval(cct, cmdmap, "t2ce_set_cache_mode", value);
+    dout(1) << __func__ << " command " << command << " value " << value << dendl;
+    ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_set_cache_mode", (void *)value.c_str());
+  }
+
+  if (command == "t2ce_log_reload") {
+    dout(1) << __func__ << " command " << command << dendl;
+    ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_log_reload", NULL);
+  }
+
+  if (command == "t2ce_set_log_level") {
     string log_level;
-    string error;
-    bool success = false;
-    for (auto item : cmdmap)
-      dout(0) << item.first << dendl;
-    if (!cmd_getval(cct, cmdmap, "level", log_level)) {
+    if (!cmd_getval(cct, cmdmap, "t2ce_set_log_level", log_level)) {
       error = "unable to get log level";
       success = false;
+      goto value_err;
     } else {
-      if (t2store_set_log_level(log_level.c_str())) {
-        error = "log level is not specified";
+      transform(log_level.begin(), log_level.end(), log_level.begin(), ::tolower);
+      dout(1) << __func__ << " command " << command << " value " << log_level << dendl;
+      if (t2store_admin_socket_set_api(&cache_ctx, "t2ce_set_log_level", (void*)log_level.c_str())) {
+        error = "set log level";
         success = false;
-      } else
+        goto value_err;
+      } else {
         success = true;
+      }
     }
-    f->open_object_section("result");
-    f->dump_string("error", error);
-    f->dump_bool("success", success);
-    f->close_section();
   }
 
-  if (command == "set_gc_pause") {
-    int64_t pause= 0;
-    cmd_getval(cct, cmdmap, "pause", pause);
-    dout(0) << "set_gc_pause: " << pause << dendl;
-    t2store_set_gc_pause(&cache_ctx, pause);
+  if (command == "t2ce_wakeup_gc") {
+    dout(1) << __func__ << " command " << command << dendl;
+    ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_wakeup_gc", NULL);
   }
 
-  if (command == "wake_up_gc") {
-    t2store_wakeup_gc(&cache_ctx);
+  if (command == "t2ce_set_expensive_checks") {
+    int64_t value= -1;
+    cmd_getval(cct, cmdmap, "t2ce_set_expensive_checks", value);
+    if ( value == 0 || value ==1 ) {
+      dout(1) << __func__ << " command " << command << " value " << value << dendl;
+      ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_set_expensive_checks", (void *)&value);
+    } else {
+      error = "value must be 0 or 1";
+      success = false;
+      goto value_err;
+    }
   }
 
-  if (command == "expensive_debug_checks") {
-    int64_t state = 0;
-    cmd_getval(cct, cmdmap, "state", state);
-    dout(0) << "set expensive_debug_checks: " << state << dendl;
-    t2store_expensive_debug_checks(&cache_ctx, state);
+  if ( ret ) {
+    error = "Error: do cmd failed!";
+    success = false;
   }
-
+value_err:
+  f->open_object_section("result");
+  f->dump_string("error", error);
+  f->dump_bool("success", success);
+  f->close_section();
+flush:
   f->flush(ss);
 
   return true;
@@ -1495,50 +1612,89 @@ void CacheDevice::asok_register()
   AdminSocket *admin_socket = cct->get_admin_socket();
   asok_hook = new CacheSocketHook(this);
 
-  int r = admin_socket->register_command("dump_btree_info", "dump_btree_info",
-                                     asok_hook, "dump btree overview");
+  int r = admin_socket->register_command("t2ce_dump_meta", "t2ce_dump_meta",
+                                     asok_hook, "dump meta overview");
   assert(r == 0);
 
-  r = admin_socket->register_command("dump_btree_detail", "dump_btree_detail",
-                                     asok_hook, "dump btree detail");
+  r = admin_socket->register_command("t2ce_dump_meta_detail", "t2ce_dump_meta_detail",
+                                     asok_hook, "dump meta detail");
   assert(r == 0);
 
-  r = admin_socket->register_command("dump_wb_status", "dump_wb_status",
-                                     asok_hook, "dump writeback status");
+  r = admin_socket->register_command("t2ce_dump_wb", "t2ce_dump_wb",
+                                     asok_hook, "dump writeback detail");
   assert(r == 0);
-  r = admin_socket->register_command("dump_gc_status", "dump_gc_status",
-                                     asok_hook, "dump gc status");
+
+  r = admin_socket->register_command("t2ce_dump_config", "t2ce_dump_config",
+                                     asok_hook, "dump writeback detail");
   assert(r == 0);
-  r = admin_socket->register_command("reload_zlog_config", "reload_zlog_config",
-                                     asok_hook, "reload zlog config");
+
+  r = admin_socket->register_command("t2ce_dump_gc", "t2ce_dump_gc",
+                                     asok_hook, "dump gc detail");
   assert(r == 0);
-  r = admin_socket->register_command("set_log_level",
-                                     "set_log_level name=level,type=CephString",
-                                     asok_hook, "set zlog level");
+
+  r = admin_socket->register_command("t2ce_set_gc_moving_skip",
+                                    "t2ce_set_gc_moving_skip name=t2ce_set_gc_moving_skip,type=CephInt",
+                                     asok_hook, "skipp movinggc");
   assert(r == 0);
-  r = admin_socket->register_command("set_gc_pause",
-                                     "set_gc_pause name=pause,type=CephInt",
-                                     asok_hook, "set gc pause");
+
+  r = admin_socket->register_command("t2ce_set_wb_stop", "t2ce_set_wb_stop name=t2ce_set_wb_stop,type=CephInt",
+                                     asok_hook, "wb stop");
   assert(r == 0);
-  r = admin_socket->register_command("wake_up_gc", "wake_up_gc",
-                                     asok_hook, "forced wakeup gc");
+
+  r = admin_socket->register_command("t2ce_set_gc_stop", "t2ce_set_gc_stop name=t2ce_set_gc_stop,type=CephInt",
+                                     asok_hook, "gc stop");
   assert(r == 0);
-  r = admin_socket->register_command("expensive_debug_checks",
-                                     "expensive_debug_checks name=state,type=CephInt",
+
+  r = admin_socket->register_command("t2ce_set_cache_mode", "t2ce_set_cache_mode name=t2ce_set_cache_mode,type=CephString",
+                                     asok_hook, "cache mode");
+  assert(r == 0);
+
+
+  r = admin_socket->register_command("t2ce_set_cached_hits", "t2ce_set_cached_hits name=t2ce_set_cached_hits,type=CephInt",
+                                     asok_hook, "cached hits");
+  assert(r == 0);
+
+  r = admin_socket->register_command("t2ce_wb_rate_update_seconds",
+                                     "t2ce_wb_rate_update_seconds name=t2ce_wb_rate_update_seconds,type=CephInt",
+                                     asok_hook, "set wb rate update seconds");
+  assert(r == 0);
+
+  r = admin_socket->register_command("t2ce_log_reload", "t2ce_log_reload",
+                                     asok_hook, "reload t2ce log conf");
+  assert(r == 0);
+
+  r = admin_socket->register_command("t2ce_set_log_level",
+                                     "t2ce_set_log_level name=t2ce_set_log_level,type=CephString",
+                                     asok_hook, "set t2ce log level");
+  assert(r == 0);
+
+  r = admin_socket->register_command("t2ce_wakeup_gc", "t2ce_wakeup_gc",
+                                     asok_hook, "forced wakeup gc immeditally");
+  assert(r == 0);
+
+  r = admin_socket->register_command("t2ce_set_expensive_checks",
+                                     "t2ce_set_expensive_checks name=t2ce_set_expensive_checks,type=CephInt",
                                      asok_hook, "expensive debug checks");
   assert(r == 0);
 }
 
 void CacheDevice::asok_unregister()
 {
-  cct->get_admin_socket()->unregister_command("dump_btree_info");
-  cct->get_admin_socket()->unregister_command("dump_btree_detail");
-  cct->get_admin_socket()->unregister_command("dump_wb_status");
-  cct->get_admin_socket()->unregister_command("dump_gc_status");
-  cct->get_admin_socket()->unregister_command("reload_zlog_config");
-  cct->get_admin_socket()->unregister_command("set_log_level");
-  cct->get_admin_socket()->unregister_command("set_gc_pause");
-  cct->get_admin_socket()->unregister_command("wake_up_gc");
+  cct->get_admin_socket()->unregister_command("t2ce_dump_meta");
+  cct->get_admin_socket()->unregister_command("t2ce_dump_meta_detail");
+  cct->get_admin_socket()->unregister_command("t2ce_dump_wb");
+  cct->get_admin_socket()->unregister_command("t2ce_dump_config");
+  cct->get_admin_socket()->unregister_command("t2ce_dump_gc");
+  cct->get_admin_socket()->unregister_command("t2ce_set_gc_moving_skip");
+  cct->get_admin_socket()->unregister_command("t2ce_set_wb_stop");
+  cct->get_admin_socket()->unregister_command("t2ce_set_gc_stop");
+  cct->get_admin_socket()->unregister_command("t2ce_set_cache_mode");
+  cct->get_admin_socket()->unregister_command("t2ce_set_cached_hits");
+  cct->get_admin_socket()->unregister_command("t2ce_wb_rate_update_seconds");
+  cct->get_admin_socket()->unregister_command("t2ce_log_reload");
+  cct->get_admin_socket()->unregister_command("t2ce_set_log_level");
+  cct->get_admin_socket()->unregister_command("t2ce_wakeup_gc");
+  cct->get_admin_socket()->unregister_command("t2ce_set_expensive_checks");
 
   if (asok_hook) {
     delete asok_hook;

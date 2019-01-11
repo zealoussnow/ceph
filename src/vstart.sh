@@ -420,8 +420,8 @@ prepare_conf() {
 
 [global]
         bluestore_bluefs=false
-        t2store_cache_path="/dev/sdc"
-        t2store_block_create=false
+        t2ce_cache_path="/dev/sdc"
+        t2ce_block_create=false
         backend_type="t2ce"
         fsid = $(uuidgen)
         osd pg bits = 3
