@@ -1150,8 +1150,7 @@ int get_t2ce_meta(struct cache_context *ctx, struct t2ce_meta *meta)
   ca->btree_dirty_nbkeys = 0;
   ca->btree_null_nbkeys = 0;
   ca->zero_keysize_nbkeys = 0;
-  meta->cached_hits       = atomic_read(&ca->set->cached_hits);
-  meta->cache_mode        = get_cache_mode(BDEV_CACHE_MODE(&ca->set->dc->sb));
+
   if (meta) {
     dump_btree_info(ca);
     meta->btree_nodes  = ca->btree_nodes;
@@ -1162,6 +1161,8 @@ int get_t2ce_meta(struct cache_context *ctx, struct t2ce_meta *meta)
     meta->btree_dirty_nbkeys = ca->btree_dirty_nbkeys;
     meta->btree_null_nbkeys  = ca->btree_null_nbkeys;
     meta->zero_keysize_nbkeys = ca->zero_keysize_nbkeys;
+    meta->cached_hits       = atomic_read(&ca->set->cached_hits);
+    meta->cache_mode        = get_cache_mode(BDEV_CACHE_MODE(&ca->set->dc->sb));
   } else {
     traverse_btree(ca);
   }

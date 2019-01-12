@@ -1392,6 +1392,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
   }
 
   if (command == "t2ce_dump_meta_detail") {
+    dout(1) << __func__ << " command " << command << dendl;
     ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_log_reload", NULL);
     if ( !ret  ) {
       ret = t2store_admin_socket_dump_api(&cache_ctx, "t2ce_dump_meta", NULL);
@@ -1425,6 +1426,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
   }
 
   if (command == "t2ce_dump_gc") {
+    dout(1) << __func__ << " command " << command << dendl;
     struct gc_status gs;
     t2store_admin_socket_dump_api(&cache_ctx, "t2ce_dump_gc", &gs);
     f->open_object_section("gc");
