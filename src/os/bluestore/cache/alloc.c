@@ -179,7 +179,7 @@ static void bch_invalidate_one_bucket(struct cache *ca, struct bucket *b)
 #define bucket_max_cmp(l, r)    (bucket_prio(l) < bucket_prio(r))
 #define bucket_min_cmp(l, r)    (bucket_prio(l) > bucket_prio(r))
 
-static void invalidate_buckets_lru(struct cache *ca)
+static int invalidate_buckets_lru(struct cache *ca)
 {
   struct bucket *b;
   ssize_t i;
@@ -210,14 +210,16 @@ static void invalidate_buckets_lru(struct cache *ca)
       //TODO
       ca->invalidate_needs_gc = 1;
       wake_up_gc(ca->set); /* 若ca->free_inc未满，则wake_up_gc */
-      return;
+      return -1;
     }
 
     bch_invalidate_one_bucket(ca, b);
   }
+
+  return 0;
 }
 
-static void invalidate_buckets_fifo(struct cache *ca)
+static int invalidate_buckets_fifo(struct cache *ca)
 {
   struct bucket *b;
   size_t checked = 0;
@@ -235,12 +237,13 @@ static void invalidate_buckets_fifo(struct cache *ca)
     if (++checked >= ca->sb.nbuckets) {
       ca->invalidate_needs_gc = 1;
       wake_up_gc(ca->set); //TODO
-      return;
+      return -1;
     }
   }
+  return 0;
 }
 
-static void invalidate_buckets_random(struct cache *ca)
+static int invalidate_buckets_random(struct cache *ca)
 {
   struct bucket *b;
   size_t checked = 0;
@@ -260,41 +263,47 @@ static void invalidate_buckets_random(struct cache *ca)
     if (++checked >= ca->sb.nbuckets / 2) {
       ca->invalidate_needs_gc = 1;
       wake_up_gc(ca->set); //TODO
-      return;
+      return -1;
     }
   }
+  return 0;
 }
 
-static void invalidate_buckets(struct cache *ca)
+static int invalidate_buckets(struct cache *ca)
 {
+  int ret = -1;
   BUG_ON(ca->invalidate_needs_gc);
+
   CACHE_DEBUGLOG(CAT_ALLOC,"cache replacement %d \n",CACHE_REPLACEMENT(&ca->sb));
   switch (CACHE_REPLACEMENT(&ca->sb)) {
   case CACHE_REPLACEMENT_LRU:
-    invalidate_buckets_lru(ca);
+    ret = invalidate_buckets_lru(ca);
     break;
   case CACHE_REPLACEMENT_FIFO:
-    invalidate_buckets_fifo(ca);
+    ret = invalidate_buckets_fifo(ca);
     break;
   case CACHE_REPLACEMENT_RANDOM:
-    invalidate_buckets_random(ca);
+    ret = invalidate_buckets_random(ca);
     break;
   }
+
+  return ret;
 }
 
 #define allocator_wait(ca, cond)                                        \
   do {                                                                  \
     while (1) {                                                         \
+      pthread_mutex_lock(&ca->alloc_mut);                               \
       if (cond)                                                         \
         break;                                                          \
                                                                         \
       pthread_mutex_unlock(&ca->set->bucket_lock);                      \
-      pthread_mutex_lock(&ca->alloc_mut);                               \
-      struct timespec out = time_from_now(0, 500*NSEC_PER_MSEC);        \
+      struct timespec out = time_from_now(0, 50*NSEC_PER_MSEC);         \
       pthread_cond_timedwait(&ca->alloc_cond, &ca->alloc_mut, &out);    \
       pthread_mutex_unlock(&ca->alloc_mut);                             \
       pthread_mutex_lock(&ca->set->bucket_lock);                        \
     }                                                                   \
+    pthread_mutex_unlock(&ca->alloc_mut);                               \
   } while (0)
 
 void wake_up_reserve_cond(struct cache *ca)
@@ -386,8 +395,10 @@ retry_invalidate:
      * invalidate_needs_gc is false mean there is no invalidate bucket taks running
      * so will call invalidate_buckets
      */
-    allocator_wait(ca, ca->set->gc_mark_valid && !ca->invalidate_needs_gc);
-    invalidate_buckets(ca);
+    if ( invalidate_buckets(ca) != 0 ) {
+      allocator_wait(ca, ca->set->gc_mark_valid && !ca->invalidate_needs_gc);
+    }
+    /*invalidate_buckets(ca);*/
 
     /*
      * Now, we write their new gens to disk so we can start writing

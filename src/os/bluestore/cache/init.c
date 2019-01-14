@@ -1233,7 +1233,9 @@ static void update_gc_size_wm(evutil_socket_t fd, short events, void *arg)
                        gs.in_use, ca->wake_up_gc_size_wm);
   if (gs.status == GC_IDLE && (gs.in_use >= WAKE_UP_GC_WM ||
         ca->wake_up_gc_size_wm >= WAKE_UP_GC_SIZE_WM)) {
+    pthread_mutex_lock(&ca->set->bucket_lock);
     ca->invalidate_needs_gc = true;
+    pthread_mutex_unlock(&ca->set->bucket_lock);
     wake_up_gc(ca->set);
     CACHE_DEBUGLOG(NULL, "will wake up gc now...\n");
   }
