@@ -395,7 +395,7 @@ static void do_btree_node_write(struct btree *b)
   // 而&k.key里面记录了本次IO的起始位置
   SET_PTR_OFFSET(&k.key, 0, PTR_OFFSET(&k.key, 0) + bset_sector_offset(&b->keys, i));
   off_t start = PTR_OFFSET(&k.key, 0) << 9;
-  CACHE_INFOLOG(CAT_WRITE,"btree write node fd %d start %lu len %lu, mem %p \n",
+  CACHE_DEBUGLOG(CAT_WRITE,"btree write node fd %d start %lu len %lu, mem %p \n",
                         b->c->fd, start/512, len/512, i);
   if ( sync_write(b->c->fd, i, len, start) == -1 ) {
     CACHE_ERRORLOG(CAT_WRITE,"btree write node error: %s\n", strerror(errno));
@@ -1682,7 +1682,7 @@ static void bch_btree_gc(struct cache_set *c)
     cache_bug_on((ret && ret != -EAGAIN), c, "btree root for gc failed");
   } while (ret);
 
-  CACHE_INFOLOG(CAT_GC, "gc btree_root process(node replacement or coalesce) lat = %lu\n",
+  CACHE_INFOLOG(CAT_GC, "gc btree_root process(node replacement or coalesce) lat = %lu(us)\n",
       (cache_realtime_u64() - time_for_btree_root)/NSEC_PER_USEC);
 
   bch_btree_gc_finish(c);
@@ -1790,13 +1790,16 @@ void set_writeback_rate_update_seconds(struct cache *ca, int wb_rate_update_seco
 static int bch_gc_thread(void *arg)
 {
   struct cache_set *c = arg;
+  const char *alloc_thread_name = "gc thread";
+  const char thread_name[256];
 
-  CACHE_INFOLOG(MOVINGGC, "Moving gc thread start. \n");
+  pthread_setname_np(pthread_self(), alloc_thread_name);
+  pthread_getname_np(pthread_self(),thread_name, 256);
+
+  CACHE_INFOLOG(MOVINGGC, "start gc thread %p(%s)\n", pthread_self(), thread_name);
 
   // take gc thread to his own ioctx, useful for bind core
   aio_thread_init(c->cache[0]);
-
-  pthread_setname_np(pthread_self(), "moving_gc");
 
   while (1) {
     // loop cond wait when no need gc
@@ -1820,14 +1823,17 @@ static int bch_gc_thread(void *arg)
     // start set gc
     c->gc_stats.status = GC_START;
     atomic_inc(&c->gc_seq);
-    CACHE_INFOLOG(CAT_GC, "***** start gc ***** \n");
+    CACHE_INFOLOG(CAT_GC, "***** start gc(gc_seq %d) ***** \n", atomic_read(&c->gc_seq));
     set_gc_sectors(c);
     bch_btree_gc(c);
     atomic_dec(&c->gc_seq);
+    uint64_t wait_for_moving_end = cache_realtime_u64();
+    CACHE_INFOLOG(CAT_GC, "***** waiting for movinggc start (gc_seq %d) ***** \n", atomic_read(&c->gc_seq));
     while (atomic_read(&c->gc_seq)) {
       pthread_yield();
     }
-    CACHE_INFOLOG(CAT_GC, "***** end gc ***** \n");
+    CACHE_INFOLOG(CAT_GC, "***** end gc(gc_seq %d waiting for movinggc end lat %lu(us)) ***** \n", 
+                atomic_read(&c->gc_seq), ((cache_realtime_u64()-wait_for_moving_end)/NSEC_PER_USEC));
     c->gc_stats.status = GC_IDLE;
   }
 
@@ -2031,7 +2037,7 @@ btree_split(struct btree *b, struct btree_op *op, struct keylist *insert_keys,
 
   dump_btree_node("btree split origin", b, false);
   if (btree_check_reserve(b, op)) {
-    CACHE_WARNLOG(CAT_BTREE,"check reserve failed return -EINTR\n");
+    CACHE_DEBUGLOG(CAT_BTREE,"check reserve failed return -EINTR\n");
     return -EINTR;
     if (!b->level){
       return -EINTR;
@@ -2047,7 +2053,7 @@ btree_split(struct btree *b, struct btree_op *op, struct keylist *insert_keys,
   }
   dump_btree_node("btree split new replacement(from origin)", n1, false);
   split = set_blocks(btree_bset_first(n1), block_bytes(n1->c)) > (btree_blocks(b) * 4) / 5;
-  CACHE_INFOLOG(CAT_BTREE,"btree split %d\n", split);
+  CACHE_DEBUGLOG(CAT_BTREE,"btree split %d\n", split);
   if (split) {
     unsigned keys = 0;
     //trace_bcache_btree_node_split(b, btree_bset_first(n1)->keys);
