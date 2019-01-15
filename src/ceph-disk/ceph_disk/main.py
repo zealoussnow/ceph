@@ -2621,7 +2621,7 @@ class PrepareBlueStoreCache(PrepareSpace):
     def get_space_size(self):
         block_size = get_conf(
             cluster=self.args.cluster,
-            variable='t2store_cache_size',
+            variable='t2ce_cache_size',
         )
 
         if block_size is None:
