@@ -2103,7 +2103,7 @@ aio_read_completion(struct ring_item *item)
       _write_cache_miss(item);
       return;
     } else {
-      CACHE_ERRORLOG(NULL,"cache should not hits by strategy \n");
+      CACHE_DEBUGLOG(NULL,"cache should not hits by strategy \n");
       pthread_rwlock_unlock(&ca->set->dc->writeback_lock);
     }
   }
