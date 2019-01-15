@@ -1293,11 +1293,11 @@ init(struct cache * ca)
   set_writeback_cutoffs(ca->set->dc);
   bch_gc_conf_init(ca->set->dc);
 
-  struct timeval tv;
-  evutil_timerclear(&tv);
-  tv.tv_sec = UPDATE_GC_SIZE_WM_SECONDS;
-  delayed_work_assign(&ca->ev_update_gc_wm, ca->set->ev_base, update_gc_size_wm, (void*)ca, EV_PERSIST);
-  delayed_work_add(&ca->ev_update_gc_wm, &tv);
+  /*struct timeval tv;*/
+  /*evutil_timerclear(&tv);*/
+  /*tv.tv_sec = UPDATE_GC_SIZE_WM_SECONDS;*/
+  /*delayed_work_assign(&ca->ev_update_gc_wm, ca->set->ev_base, update_gc_size_wm, (void*)ca, EV_PERSIST);*/
+  /*delayed_work_add(&ca->ev_update_gc_wm, &tv);*/
 
   free(sb);
 
