@@ -46,6 +46,11 @@ void set_log_level(int level)
   g_log_level = level;
 }
 
+int inline log_enable(int level)
+{
+  return level >= g_log_level;
+}
+
 
 int t2ce_set_log_level(char *level)
 {

@@ -65,6 +65,7 @@ static void read_completion(void *arg){
   struct keybuf_key *w = (struct keybuf_key *)item->io_arg;
   struct cache *ca = (struct cache *)item->ca_handler;
   struct cache_set *c = ca->set;
+  uint64_t s_offset = PTR_OFFSET(&w->key, 0);
   int ret;
   int i;
 
@@ -105,7 +106,14 @@ static void read_completion(void *arg){
     item->iou_arg = item;
     item->type = ITEM_MOVINGGC;
 
-    pdump_bkey(WRITEBACK, __func__, &w->key);
+
+
+    CACHE_DEBUGLOG(MOVINGGC, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx) cache move "
+        "cache=%lu(0x%lx) to cache=%lu(0x%lx)) \n",
+        item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len,
+        s_offset, s_offset << 9, item->io.offset >> 9, item->io.offset);
+
+    pdump_bkey(MOVINGGC, __func__, &w->key);
     ret = aio_enqueue(CACHE_THREAD_CACHE, c->cache[0]->handler, item);
     if (ret < 0) {
       assert( "dirty aio_enqueue read error  " == 0);
@@ -128,7 +136,7 @@ static void begin_io_read(struct keybuf_key *w, struct cache_set *c)
   int ret;
   uint64_t len = KEY_SIZE(&w->key) << 9;
   void *data = malloc(len);
-  uint64_t offset = PTR_OFFSET(&w->key, 0) << 9;
+  uint64_t offset = KEY_START(&w->key) << 9;
   struct ring_item *item = get_ring_item(data, offset, len);
   /*struct moving_item *d = malloc(sizeof(struct moving_item));*/
 
@@ -144,7 +152,7 @@ static void begin_io_read(struct keybuf_key *w, struct cache_set *c)
 
   item->io.type=CACHE_IO_TYPE_READ;
   item->io.pos = item->data;
-  item->io.offset = item->o_offset;
+  item->io.offset = PTR_OFFSET(&w->key, 0) << 9;
   item->io.len = item->o_len;
   item->type = ITEM_AIO_READ;
 

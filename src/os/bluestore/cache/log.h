@@ -12,6 +12,7 @@ extern void log_fini();
 extern void cache_zlog(const char *cat_type, const char *file,
         size_t filelen, const char *func, size_t funclen,
         long line, const int level, const char *format, ...);
+int log_enable(int level);
 
 extern int log_level_error;
 extern int log_level_warn;
@@ -75,6 +76,10 @@ extern int log_level_dump;
         cache_zlog(cat_type, __FILE__, sizeof(__FILE__)-1, __func__, sizeof(__func__)-1, __LINE__, \
         LOG_LEVEL_DUMP, format, ##args)
 
+#define ENABLE_DEBUG_LOG \
+if (log_enable(LOG_LEVEL_DEBUG)) {
+
+#define END_LOG }
 #endif
 
 
