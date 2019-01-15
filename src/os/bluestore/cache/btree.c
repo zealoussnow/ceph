@@ -315,10 +315,15 @@ static void btree_complete_write(struct btree *b, struct btree_write *w)
    * note: when alloc thread refill free_inc, then needed write prio, and will cond wait when btree
    *       node prio_blocked  is exists
    */
+  struct cache *ca = b->c->cache[0];
+
+  pthread_mutex_lock(&ca->alloc_mut);
   if (w->prio_blocked &&
       !atomic_sub_return(w->prio_blocked, &b->c->prio_blocked)) {
+    pthread_mutex_unlock(&ca->alloc_mut);
     wake_up_allocators(b->c);
   }
+  pthread_mutex_unlock(&ca->alloc_mut);
 
   if (w->journal) {
     atomic_dec_bug(w->journal);
@@ -1569,7 +1574,6 @@ void bch_btree_gc_finish(struct cache_set *c)
 
   set_gc_sectors(c);
   /*CACHE_INFOLOG(NULL," update gc sectors = %d \n", atomic_read(&c->sectors_to_gc));*/
-  c->gc_mark_valid = 1;
   c->need_gc	= 0;
 
   c->gc_stats.gc_journal_buckets = 0;
@@ -1601,7 +1605,6 @@ void bch_btree_gc_finish(struct cache_set *c)
   for_each_cache(ca, c, i) {
     uint64_t *i;
 
-    ca->invalidate_needs_gc = 0;
 
     for (i = ca->sb.d; i < ca->sb.d + ca->sb.keys; i++) {
       SET_GC_MARK(ca->buckets + *i, GC_MARK_METADATA);
@@ -1649,7 +1652,11 @@ void bch_btree_gc_finish(struct cache_set *c)
       }
     }
   }
-
+  ca = c->cache[0];
+  pthread_mutex_lock(&ca->alloc_mut);
+  c->gc_mark_valid = 1;
+  ca->invalidate_needs_gc = 0;
+  pthread_mutex_unlock(&ca->alloc_mut);
   pthread_mutex_unlock(&c->bucket_lock);
 }
 

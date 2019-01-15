@@ -285,16 +285,16 @@ static void invalidate_buckets(struct cache *ca)
 #define allocator_wait(ca, cond)                                        \
   do {                                                                  \
     while (1) {                                                         \
+      pthread_mutex_lock(&ca->alloc_mut);                               \
       if (cond)                                                         \
         break;                                                          \
                                                                         \
       pthread_mutex_unlock(&ca->set->bucket_lock);                      \
-      pthread_mutex_lock(&ca->alloc_mut);                               \
-      struct timespec out = time_from_now(0, 500*NSEC_PER_MSEC);        \
-      pthread_cond_timedwait(&ca->alloc_cond, &ca->alloc_mut, &out);    \
+      pthread_cond_wait(&ca->alloc_cond, &ca->alloc_mut);               \
       pthread_mutex_unlock(&ca->alloc_mut);                             \
       pthread_mutex_lock(&ca->set->bucket_lock);                        \
     }                                                                   \
+    pthread_mutex_unlock(&ca->alloc_mut);                               \
   } while (0)
 
 void wake_up_reserve_cond(struct cache *ca)
