@@ -1180,9 +1180,9 @@ void set_writeback_sync_cutoff(struct cached_dev *dc, int val)
   dc->cutoff_writeback_sync = val;
 }
 
-void set_gc_cutoff(struct cached_dev *dc, int val)
+void set_read_water_level(struct cached_dev *dc, int val)
 {
-  dc->cutoff_gc = val;
+  dc->read_water_level = val;
 }
 
 void set_gc_mode(struct cached_dev *dc, int val)
@@ -1206,19 +1206,20 @@ void set_max_gc_keys_onetime(struct cached_dev *dc, int val)
 
 void t2ce_set_iobypass_water_level(struct cached_dev *dc, int val)
 {
-  dc->cutoff_cache_add = val;
+  dc->iobypass_water_level = val;
+  set_read_water_level(dc, dc->iobypass_water_level/2);
 }
 
 static void set_writeback_cutoffs(struct cached_dev *dc)
 {
   dc->cutoff_writeback      = CUTOFF_WRITEBACK;
   dc->cutoff_writeback_sync = CUTOFF_WRITEBACK_SYNC;
-  dc->cutoff_cache_add      = CUTOFF_CACHE_ADD;
+  dc->iobypass_water_level      = CUTOFF_CACHE_ADD;
 }
 
 static void bch_gc_conf_init(struct cached_dev *dc)
 {
-  dc->cutoff_gc = CUTOFF_WRITEBACK / 2;
+  dc->read_water_level = CUTOFF_WRITEBACK / 2;
   dc->cutoff_gc_busy = 100;
   dc->max_gc_keys_onetime = 512;
 }
@@ -1800,7 +1801,7 @@ static bool check_should_bypass(struct cached_dev *dc, struct ring_item *item)
 
   struct current_thread *task = NULL;
 
-  if (c->gc_stats.in_use > dc->cutoff_cache_add)
+  if (c->gc_stats.in_use > dc->iobypass_water_level)
     goto skip;
 
   if (mode == CACHE_MODE_NONE || mode == CACHE_MODE_WRITEAROUND)
@@ -1901,11 +1902,11 @@ int get_cache_strategy(struct cache *ca, struct ring_item *item)
   struct bkey end = KEY(0, (item->o_offset >> 9) + (item->o_len >> 9), 0);
 
   bool bypass = false;
-  bool writeback = false;
+  bool writeback = true;
 
   // 判断io是否可以绕过cache，
   // 条件：
-  // 1. cache盘的使用量达到阈值CUTOFF_CACHE_ADD
+  // 1. cache盘的使用量达到阈值iobypass_water_level
   // 2. cache模式是none或者around
   // 3. io在同一个线程内的一段时间内是否连续
   bypass = check_should_bypass(dc, item);
@@ -1921,10 +1922,10 @@ int get_cache_strategy(struct cache *ca, struct ring_item *item)
   }
 
   // 如果cache使用量没超过回刷的水位线并且模式是writeback模式的情况，返回true
-  if (should_writeback(dc, mode, bypass)) {
-    bypass = false;
-    writeback = true;
-  }
+  /*if (should_writeback(dc, mode, bypass)) {*/
+    /*bypass = false;*/
+    /*writeback = true;*/
+  /*}*/
 
   if (bypass) {
     return CACHE_MODE_WRITEAROUND;

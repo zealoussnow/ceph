@@ -367,9 +367,9 @@ struct cached_dev {
   // control writeback cutoffs
   int                   cutoff_writeback;
   int                   cutoff_writeback_sync;
-  int                   cutoff_cache_add;
+  int                   iobypass_water_level;
 
-  unsigned              cutoff_gc;
+  unsigned              read_water_level;
   unsigned              cutoff_gc_busy;
   unsigned              max_gc_keys_onetime;
 
@@ -569,6 +569,8 @@ struct gc_stat {
 
   // moving is need to read and write to new
   uint64_t              gc_moving_buckets;
+  uint64_t              gc_moving_bkeys;
+  uint64_t              gc_moving_bkey_size;
   uint64_t              gc_pin_buckets;
   uint64_t              gc_empty_buckets;
   uint64_t              gc_full_buckets;
@@ -1127,7 +1129,7 @@ void bch_open_buckets_free(struct cache_set *);
 int bch_cache_allocator_start(struct cache *ca);
 void dump_stack();
 void set_gc_mode(struct cached_dev *dc, int val);
-void set_gc_cutoff(struct cached_dev *dc, int val);
+void set_read_water_level(struct cached_dev *dc, int val);
 void set_cached_hits(struct cache *ca, int val);
 
 #endif /* _BCACHE_H */

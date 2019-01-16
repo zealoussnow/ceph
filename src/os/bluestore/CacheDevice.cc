@@ -1476,6 +1476,8 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
       Formatter *f_mo = f.get();
       f_mo->open_object_section("moving buckets");
       f_mo->dump_unsigned("moving buckets(in moving)", gs.gc_moving_buckets);
+      f_mo->dump_unsigned("moving bkeys(in moving)", gs.gc_moving_bkeys);
+      f_mo->dump_string("moving size(in moving bkeys)", bytes_unit(gs.gc_moving_bkey_size*512));
       f_mo->dump_unsigned("pin buckets(have ref)", gs.gc_pin_buckets);
       f_mo->dump_unsigned("empty buckets", gs.gc_empty_buckets);
       f_mo->dump_unsigned("full buckets", gs.gc_full_buckets);

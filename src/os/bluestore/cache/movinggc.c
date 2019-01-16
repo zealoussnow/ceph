@@ -153,6 +153,7 @@ static void begin_io_read(struct keybuf_key *w, struct cache_set *c)
   if (ret < 0) {
     atomic_dec(&c->gc_seq);
     bch_keybuf_del(&c->moving_gc_keys, w);
+    CACHE_ERRORLOG(MOVINGGC, "Movinggc read io error (offset %lu len %lu)\n",item->io.offset, item->io.len);
     assert( "dirty aio_enqueue read error  " == 0);
   }
 }
@@ -162,7 +163,6 @@ static void read_moving(struct cache_set *c)
 {
   struct keybuf_key       *w;
 
-  CACHE_INFOLOG(MOVINGGC, "start moving gc\n");
   while (!test_bit(CACHE_SET_STOPPING, &c->flags)) {
     /*
      * 填充moving_gc_keys
@@ -183,8 +183,11 @@ static void read_moving(struct cache_set *c)
     }
 
     begin_io_read(w, c);
+    c->gc_stats.gc_moving_bkeys++;
+    c->gc_stats.gc_moving_bkey_size += KEY_SIZE(&w->key);
   }
-  CACHE_INFOLOG(MOVINGGC, "end of moving gc\n");
+  /*KEY_SIZE*/
+  CACHE_INFOLOG(MOVINGGC, "Movinggc submit bkeys %lu size %lu\n", c->gc_stats.gc_moving_bkeys, c->gc_stats.gc_moving_bkey_size);
 }
 
 static bool bucket_cmp(struct bucket *l, struct bucket *r)
@@ -231,6 +234,8 @@ void bch_moving_gc(struct cache_set *c)
   CACHE_DEBUGLOG(MOVINGGC, "Begin moving gc. \n");
 
   c->gc_stats.gc_moving_buckets = 0;
+  c->gc_stats.gc_moving_bkeys = 0;
+  c->gc_stats.gc_moving_bkey_size = 0;
   c->gc_stats.gc_pin_buckets = 0;
   c->gc_stats.gc_empty_buckets = 0;
   c->gc_stats.gc_full_buckets = 0;
@@ -273,20 +278,24 @@ void bch_moving_gc(struct cache_set *c)
        * 统计哪些bucket可以通过移动来合并bucket的使用
        * 标记这些bucket为SET_GC_MOVE(b, 1);
        */
-      CACHE_INFOLOG(MOVINGGC, "moving dirty gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
-
       while (heap_pop(&ca->heap, b, bucket_dirty_cmp)) {
         SET_GC_MOVE(b, 1);
         b->move_dirty_only = true;
         c->gc_stats.gc_moving_buckets++;
       }
-      CACHE_INFOLOG(MOVINGGC, " need to gc dirty moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
+      CACHE_DEBUGLOG(MOVINGGC, " need to gc dirty moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
     }
   } else {
     for_each_cache(ca, c, i) {
       unsigned sectors_to_move = 0;
       unsigned reserve_sectors = ca->sb.bucket_size *
         fifo_used(&ca->free[RESERVE_MOVINGGC]);
+
+      if ( reserve_sectors == 0 ) {
+        CACHE_INFOLOG(MOVINGGC, "reserve movinggc bucket not enough(%d)\n", fifo_used(&ca->free[RESERVE_MOVINGGC]));
+        pthread_mutex_unlock(&c->bucket_lock);
+        return ;
+      }
 
       ca->heap.used = 0;
 
@@ -322,21 +331,21 @@ void bch_moving_gc(struct cache_set *c)
        * 统计哪些bucket可以通过移动来合并bucket的使用
        * 标记这些bucket为SET_GC_MOVE(b, 1);
        */
-      CACHE_INFOLOG(MOVINGGC, "moving gc heap size %d , heap used %d \n", ca->heap.size, ca->heap.used);
-
       while (heap_pop(&ca->heap, b, bucket_cmp)) {
         SET_GC_MOVE(b, 1);
         b->move_dirty_only = false;
         c->gc_stats.gc_moving_buckets++;
       }
-      CACHE_INFOLOG(MOVINGGC, " need to gc moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
+      if (!c->gc_stats.gc_moving_buckets++) {
+        pthread_mutex_unlock(&c->bucket_lock);
+        return 0;
+      }
+      CACHE_DEBUGLOG(MOVINGGC, "Movinggc moving_buckets %lu \n", c->gc_stats.gc_moving_buckets);
     }
   }
 
   pthread_mutex_unlock(&c->bucket_lock);
-
   c->moving_gc_keys.last_scanned = ZERO_KEY;
-
   read_moving(c);
 }
 

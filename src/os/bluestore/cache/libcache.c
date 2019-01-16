@@ -198,7 +198,7 @@ static void get_wb_status(struct cached_dev *dc, struct wb_status *s)
   s->writeback_rate_update_seconds = dc->writeback_rate_update_seconds;
   s->cutoff_writeback      = dc->cutoff_writeback;
   s->cutoff_writeback_sync = dc->cutoff_writeback_sync;
-  s->cutoff_cache_add      = dc->cutoff_cache_add;
+  s->iobypass_water_level      = dc->iobypass_water_level;
 }
 
 static const char *get_gc_running_state(int state)
@@ -227,7 +227,7 @@ static void get_gc_status(struct cache_set *c, struct gc_status *s)
   s->sectors_to_gc     = atomic_read(&c->sectors_to_gc);
   s->gc_running_state  = get_gc_running_state(c->gc_stats.status);
   s->invalidate_needs_gc = c->cache[0]->invalidate_needs_gc;
-  s->cutoff_gc = c->dc->cutoff_gc;
+  s->cutoff_gc = c->dc->read_water_level;
   s->cutoff_gc_busy = c->dc->cutoff_gc_busy;
   s->max_gc_keys_onetime = c->dc->max_gc_keys_onetime;
 
@@ -254,6 +254,8 @@ static void get_gc_status(struct cache_set *c, struct gc_status *s)
   // moving
   s->gc_moving_stop    = atomic_read(&c->gc_moving_stop);
   s->gc_moving_buckets = c->gc_stats.gc_moving_buckets;
+  s->gc_moving_bkeys = c->gc_stats.gc_moving_bkeys;
+  s->gc_moving_bkey_size = c->gc_stats.gc_moving_bkey_size;
   s->gc_empty_buckets = c->gc_stats.gc_empty_buckets;
   s->gc_full_buckets = c->gc_stats.gc_full_buckets;
 
