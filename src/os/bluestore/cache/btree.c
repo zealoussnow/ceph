@@ -1694,19 +1694,13 @@ static void bch_btree_gc(struct cache_set *c)
   c->gc_stats.key_bytes *= sizeof(uint64_t);
   c->gc_stats.data	<<= 9;
   bch_update_bucket_in_use(c, &c->gc_stats);
-  /*stats.key_bytes *= sizeof(uint64_t);*/
-  /*stats.key_bytes *= sizeof(uint64_t);*/
-  /*stats.data	<<= 9;*/
-  /*bch_update_bucket_in_use(c, &stats);*/
-  /*memcpy(&c->gc_stats, &stats, sizeof(struct gc_stat));*/
-
   //trace_bcache_gc_end(c);
-
   c->gc_stats.status = GC_READ_MOVING;
-  if (!atomic_read(&c->gc_moving_stop))
+  if (!atomic_read(&c->gc_moving_stop)) {
     bch_moving_gc(c);
-  else
+  } else {
     CACHE_WARNLOG(CAT_GC, "Skip gc moving!!!\n");
+  }
 }
 
 static bool gc_should_run(struct cache_set *c)
@@ -1726,8 +1720,9 @@ static bool gc_should_run(struct cache_set *c)
    *     goto cond wait
   */
 
-  /*if (c->gc_stats.in_use > c->dc->cutoff_gc)*/
-    /*return true;*/
+  if (c->gc_stats.in_use > c->dc->read_water_level) {
+    return true;
+  }
 
   for_each_cache(ca, c, i)
     if (ca->invalidate_needs_gc)
@@ -1807,6 +1802,19 @@ static int bch_gc_thread(void *arg)
       // if gc needed, out loop cond
       // if gc_pause == true always loop cond
       c->gc_stats.status = GC_IDLE;
+      /* gc线程工作的条件
+       *  1. alloc线程没有可用的bucket缓存了(通过设置invalidate_bucket，并立即唤醒gc)
+       *  2. 缓存空间每消耗完总区间的1/16，则进行一次gc(sectors_to_gc<0)
+       *  3. 缓存为写预留的空间小于可用空间(为读写区间的按比例从iobypass的水位线里面切换)
+       *     或者也可用说in_use的区间超过了读区间，那么此时，提高gc的回刷速率，让gc处于一个
+       *     为写区间服务的状态，此时wb线程也应该加速回刷，否则有可能导致gc进入无效的工作流程
+       *  4. 整套区间以缓存数据为目标，因此，movinggc选择以热度(GC_SECTORS_USED)选择需要保留
+       *     在缓存上的数据
+       */
+      if (c->gc_stats.in_use > c->dc->read_water_level) {
+        break;
+      }
+
       struct timespec out = time_from_now(5, 0);
       pthread_mutex_lock(&c->gc_wait_mut);
       pthread_cond_timedwait(&c->gc_wait_cond, &c->gc_wait_mut, &out);
@@ -1818,17 +1826,16 @@ static int bch_gc_thread(void *arg)
       if (gc_should_run(c) && !atomic_read(&c->gc_pause)) {
         break;
       }
-
     }
     // start set gc
     c->gc_stats.status = GC_START;
     atomic_inc(&c->gc_seq);
-    CACHE_INFOLOG(CAT_GC, "***** start gc(gc_seq %d) ***** \n", atomic_read(&c->gc_seq));
+    CACHE_DEBUGLOG(CAT_GC, "***** start gc(gc_seq %d) ***** \n", atomic_read(&c->gc_seq));
     set_gc_sectors(c);
     bch_btree_gc(c);
     atomic_dec(&c->gc_seq);
     uint64_t wait_for_moving_end = cache_realtime_u64();
-    CACHE_INFOLOG(CAT_GC, "***** waiting for movinggc start (gc_seq %d) ***** \n", atomic_read(&c->gc_seq));
+    CACHE_DEBUGLOG(CAT_GC, "***** waiting for movinggc start (gc_seq %d) ***** \n", atomic_read(&c->gc_seq));
     while (atomic_read(&c->gc_seq)) {
       pthread_yield();
     }
@@ -2595,7 +2602,7 @@ struct keybuf_key *bch_keybuf_next_rescan(struct cache_set *c,
       break;
 
     if (bkey_cmp(&buf->last_scanned, end) >= 0) {
-      CACHE_DEBUGLOG(CAT_GC, "scan finished\n");
+      CACHE_DEBUGLOG(CAT_GC, "Movinggc btree scan finished\n");
       break;
     }
 

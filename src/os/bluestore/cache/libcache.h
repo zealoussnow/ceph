@@ -80,7 +80,7 @@ struct wb_status
   int writeback_rate_update_seconds;
   int cutoff_writeback;
   int cutoff_writeback_sync;
-  int cutoff_cache_add;
+  int iobypass_water_level;
   int has_dirty;
   int writeback_stop;
   const char *wb_running_state;
@@ -120,6 +120,8 @@ struct gc_status
   // moving
   int gc_moving_stop;
   uint64_t gc_moving_buckets;
+  uint64_t gc_moving_bkeys;
+  uint64_t gc_moving_bkey_size;
   uint64_t gc_pin_buckets;
   uint64_t gc_empty_buckets;
   uint64_t gc_full_buckets;
