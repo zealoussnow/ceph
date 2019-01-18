@@ -372,7 +372,7 @@ struct btree_insert_op {
   atomic_t      *journal_ref;
   struct bkey   *replace_key;
 };
-void set_gc_pause(struct cache *ca, int pause);
+void set_gc_stop(struct cache *ca, int pause);
 void set_gc_moving_stop(struct cache *ca, int stop);
 void set_writeback_stop(struct cache *ca, int stop);
 void set_cache_mode(struct cache *ca, const char *mode);

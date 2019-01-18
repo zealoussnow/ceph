@@ -604,6 +604,8 @@ struct cache_set {
   void               *bluestore_cd;
   struct event_base     *ev_base;
 
+  bool wakeup_gc_immeditally;
+
   struct list_head      list;
   //struct kobject              kobj;
   //struct kobject              internal;
@@ -729,7 +731,7 @@ struct cache_set {
   pthread_t             gc_thread;
   pthread_mutex_t       gc_wait_mut;
   pthread_cond_t        gc_wait_cond;
-  atomic_t              gc_pause;
+  atomic_t              gc_stop;
   atomic_t              gc_thread_stop;
   atomic_t              gc_moving_stop;
 

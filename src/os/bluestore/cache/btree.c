@@ -1564,6 +1564,41 @@ void bch_btree_gc_stats_gc_mark(struct cache_set *c, struct bucket *b)
   }
 }
 
+void calc_bucket_state(struct cache *ca, struct cache_set *c, struct bucket *b)
+{
+  if (GC_SECTORS_USED(b) == ca->sb.bucket_size)
+    c->gc_stats.gc_full_buckets++;
+  if (!GC_SECTORS_USED(b))
+    c->gc_stats.gc_empty_buckets++;
+}
+
+void gc_stats_init(struct cache_set *c)
+{
+  c->gc_stats.gc_journal_buckets = 0;
+  c->gc_stats.gc_uuids_buckets = 0;
+  c->gc_stats.gc_writeback_dirty_buckets = 0;
+  c->gc_stats.gc_prio_buckets = 0;
+  c->gc_stats.gc_full_buckets = 0;
+
+  c->gc_stats.gc_all_buckets = 0;
+  c->gc_stats.gc_pin_buckets = 0;
+  c->gc_stats.gc_unavail_buckets = 0;
+  c->gc_stats.gc_avail_buckets = 0;
+
+  // unavail_buckets include below
+  c->gc_stats.gc_meta_buckets = 0;
+  c->gc_stats.gc_dirty_buckets = 0;
+  c->gc_stats.gc_empty_buckets = 0;
+
+  // avail_bucket include below
+  c->gc_stats.gc_init_buckets = 0;
+  c->gc_stats.gc_reclaimable_buckets = 0;
+
+  c->gc_stats.gc_moving_buckets = 0;
+  c->gc_stats.gc_moving_bkeys = 0;
+  c->gc_stats.gc_moving_bkey_size = 0;
+}
+
 void bch_btree_gc_finish(struct cache_set *c)
 {
   struct bucket *b;
@@ -1573,15 +1608,7 @@ void bch_btree_gc_finish(struct cache_set *c)
   pthread_mutex_lock(&c->bucket_lock);
 
   set_gc_sectors(c);
-  /*CACHE_INFOLOG(NULL," update gc sectors = %d \n", atomic_read(&c->sectors_to_gc));*/
-  c->need_gc	= 0;
-
-  c->gc_stats.gc_journal_buckets = 0;
-  c->gc_stats.gc_uuids_buckets = 0;
-  c->gc_stats.gc_writeback_dirty_buckets = 0;
-  c->gc_stats.gc_prio_buckets = 0;
-
-
+  c->need_gc = 0;
   for (i = 0; i < KEY_PTRS(&c->uuid_bucket); i++) {
     SET_GC_MARK(PTR_BUCKET(c, &c->uuid_bucket, i), GC_MARK_METADATA);
     c->gc_stats.gc_uuids_buckets++;
@@ -1591,7 +1618,6 @@ void bch_btree_gc_finish(struct cache_set *c)
   struct cached_dev *dc = c->dc;
   struct keybuf_key *w, *n;
   unsigned j;
-
   pthread_spin_lock(&dc->writeback_keys.lock);
   rbtree_postorder_for_each_entry_safe(w, n, &dc->writeback_keys.keys, node) {
     for (j = 0; j < KEY_PTRS(&w->key); j++) {
@@ -1604,44 +1630,24 @@ void bch_btree_gc_finish(struct cache_set *c)
 
   for_each_cache(ca, c, i) {
     uint64_t *i;
-
-
     for (i = ca->sb.d; i < ca->sb.d + ca->sb.keys; i++) {
       SET_GC_MARK(ca->buckets + *i, GC_MARK_METADATA);
       c->gc_stats.gc_journal_buckets++;
     }
-
     for (i = ca->prio_buckets; i<ca->prio_buckets+prio_buckets(ca)*2; i++) {
       SET_GC_MARK(ca->buckets + (*i), GC_MARK_METADATA);
       c->gc_stats.gc_prio_buckets++;
     }
-
     c->avail_nbuckets = 0;
-
-    c->gc_stats.gc_all_buckets = 0;
-    c->gc_stats.gc_pin_buckets = 0;
-    c->gc_stats.gc_unavail_buckets = 0;
-    c->gc_stats.gc_avail_buckets = 0;
-
-    // unavail_buckets include below
-    c->gc_stats.gc_meta_buckets = 0;
-    c->gc_stats.gc_dirty_buckets = 0;
-
-    // avail_bucket include below
-    c->gc_stats.gc_init_buckets = 0;
-    c->gc_stats.gc_reclaimable_buckets = 0;
-
     for_each_bucket(b, ca) {
+      calc_bucket_state(ca, c, b);
       c->gc_stats.gc_all_buckets++;
       c->need_gc = max(c->need_gc, bucket_gc_gen(b));
-
       if (atomic_read(&b->pin)) {
         c->gc_stats.gc_pin_buckets++;
         continue;
       }
-
       BUG_ON(!GC_MARK(b) && GC_SECTORS_USED(b));
-
       if (!GC_MARK(b) || GC_MARK(b) == GC_MARK_RECLAIMABLE) {
         c->avail_nbuckets++;
         c->gc_stats.gc_avail_buckets++;
@@ -1652,11 +1658,13 @@ void bch_btree_gc_finish(struct cache_set *c)
       }
     }
   }
+
   ca = c->cache[0];
   pthread_mutex_lock(&ca->alloc_mut);
   c->gc_mark_valid = 1;
   ca->invalidate_needs_gc = 0;
   pthread_mutex_unlock(&ca->alloc_mut);
+
   pthread_mutex_unlock(&c->bucket_lock);
 }
 
@@ -1739,9 +1747,9 @@ void set_gc_moving_stop(struct cache *ca, int stop)
   atomic_set(&ca->set->gc_moving_stop, stop);
 }
 
-void set_gc_pause(struct cache *ca, int pause)
+void set_gc_stop(struct cache *ca, int pause)
 {
-  atomic_set(&ca->set->gc_pause, pause);
+  atomic_set(&ca->set->gc_stop, pause);
 }
 
 void set_writeback_stop(struct cache *ca, int stop)
@@ -1787,6 +1795,7 @@ static int bch_gc_thread(void *arg)
   struct cache_set *c = arg;
   const char *alloc_thread_name = "gc thread";
   const char thread_name[256];
+  struct timespec out = time_from_now(5, 0);
 
   pthread_setname_np(pthread_self(), alloc_thread_name);
   pthread_getname_np(pthread_self(),thread_name, 256);
@@ -1800,30 +1809,34 @@ static int bch_gc_thread(void *arg)
     // loop cond wait when no need gc
     for (;;) {
       // if gc needed, out loop cond
-      // if gc_pause == true always loop cond
+      // if gc_stop == true always loop cond
       c->gc_stats.status = GC_IDLE;
-      /* gc线程工作的条件
+      /* gc工作的主要目的是：
+       *  1. 标记gc_mark（经过一段时间的writeback之后，又可以释放一部分的空间）
+       *  2. 对于btree node进行整理（删除无用的bkey，合并btree node，减少元数据的数量）
+       *  3. movinggc，搬移有空洞的bucket(可以选择不搬移，默认是搬移）
+       *
+       * gc线程工作的条件
        *  1. alloc线程没有可用的bucket缓存了(通过设置invalidate_bucket，并立即唤醒gc)
        *  2. 缓存空间每消耗完总区间的1/16，则进行一次gc(sectors_to_gc<0)
        *  3. 缓存为写预留的空间小于可用空间(为读写区间的按比例从iobypass的水位线里面切换)
-       *     或者也可用说in_use的区间超过了读区间，那么此时，提高gc的回刷速率，让gc处于一个
-       *     为写区间服务的状态，此时wb线程也应该加速回刷，否则有可能导致gc进入无效的工作流程
-       *  4. 整套区间以缓存数据为目标，因此，movinggc选择以热度(GC_SECTORS_USED)选择需要保留
-       *     在缓存上的数据
+       *     或者也可用说in_use的区间超过了读区间
        */
-      if (c->gc_stats.in_use > c->dc->read_water_level) {
-        break;
-      }
 
-      struct timespec out = time_from_now(5, 0);
       pthread_mutex_lock(&c->gc_wait_mut);
       pthread_cond_timedwait(&c->gc_wait_cond, &c->gc_wait_mut, &out);
       pthread_mutex_unlock(&c->gc_wait_mut);
 
-      if (atomic_read(&c->gc_thread_stop))
+      if (atomic_read(&c->gc_thread_stop)) {
         goto out;
+      }
 
-      if (gc_should_run(c) && !atomic_read(&c->gc_pause)) {
+      if (c->wakeup_gc_immeditally) {
+        c->wakeup_gc_immeditally = false;
+        break;
+      }
+
+      if (gc_should_run(c) && !atomic_read(&c->gc_stop)) {
         break;
       }
     }
@@ -1852,8 +1865,9 @@ int bch_gc_thread_start(struct cache_set *c)
 {
   int err;
 
-  atomic_set(&c->gc_pause, 0);
+  atomic_set(&c->gc_stop, 0);
   atomic_set(&c->gc_thread_stop, 0);
+  c->wakeup_gc_immeditally = false;
 
   err = pthread_create(&c->gc_thread, NULL, (void *)bch_gc_thread, (void *)c);
   if (err != 0) {

@@ -304,7 +304,7 @@ int t2store_admin_socket_set_api(struct cache_context *ctx, const char*cmd, void
     set_writeback_stop(ctx->cache, *v);
   } else if (!strcmp(cmd, "t2ce_set_gc_stop")) {
     int *v = (int *)value;
-    set_gc_pause(ctx->cache, *v);
+    set_gc_stop(ctx->cache, *v);
   } else if (!strcmp(cmd, "t2ce_set_cache_mode")) {
     char *v = (char *)value;
     set_cache_mode(ctx->cache, v);
@@ -320,11 +320,15 @@ int t2store_admin_socket_set_api(struct cache_context *ctx, const char*cmd, void
     char *v = (char *)value;
     return t2ce_set_log_level(v);
   } else if (!strcmp(cmd, "t2ce_wakeup_gc")) {
-    CACHE_INFOLOG(NULL, "force wakeup gc immeditally\n");
     struct cache *ca  = (struct cache *)ctx->cache;
-    set_gc_pause(ca, false);
-    ca->invalidate_needs_gc = true;
-    wake_up_gc(ca->set);
+    if (ca->set->gc_stats.status == GC_IDLE) {
+      CACHE_INFOLOG(NULL, "force wakeup gc immeditally\n");
+      set_gc_stop(ca, false);
+      ca->set->wakeup_gc_immeditally = true;
+      wake_up_gc(ca->set);
+    } else {
+      CACHE_INFOLOG(NULL, "gc is running\n");
+    }
   } else if (!strcmp(cmd, "t2ce_set_expensive_checks")) {
     int *v = (int *)value;
     set_cache_expensive_debug_checks(ctx->cache, *v);

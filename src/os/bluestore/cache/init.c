@@ -445,7 +445,7 @@ bch_cache_set_alloc(struct cache_sb *sb)
   c->congested_write_threshold_us	= 20000;
   c->error_limit	= 8 << IO_ERROR_SHIFT;  /* IO_ERROR_SHIFT=20, 8MB */
   c->expensive_debug_checks = false;
-  atomic_set(&c->gc_moving_stop, 0);
+  atomic_set(&c->gc_moving_stop, 1);
   atomic_set(&c->cached_hits, 1);
 
   return c;
@@ -1220,7 +1220,8 @@ static void set_writeback_cutoffs(struct cached_dev *dc)
 static void bch_gc_conf_init(struct cached_dev *dc)
 {
   dc->read_water_level = CUTOFF_WRITEBACK / 2;
-  dc->cutoff_gc_busy = 100;
+  /*dc->cutoff_gc_busy = 100;*/
+  dc->cutoff_gc_busy = 80;
   dc->max_gc_keys_onetime = 512;
 }
 
@@ -1230,12 +1231,13 @@ static void update_gc_size_wm(evutil_socket_t fd, short events, void *arg)
   struct gc_stat gs;;
   bch_update_bucket_in_use(ca->set, &gs);
 
-  CACHE_DEBUGLOG(NULL, "update_gc_size_wm, gc.in_use: %u, gc_size_wm: %lu\n",
-                       gs.in_use, ca->wake_up_gc_size_wm);
+  CACHE_DEBUGLOG(NULL, "update_gc_size_wm, gc.in_use: %u, gc_size_wm: %lu(M)\n",
+                       gs.in_use, ca->wake_up_gc_size_wm/1024/1024);
   if (gs.status == GC_IDLE && (gs.in_use >= WAKE_UP_GC_WM ||
         ca->wake_up_gc_size_wm >= WAKE_UP_GC_SIZE_WM)) {
-    ca->invalidate_needs_gc = true;
-    wake_up_gc(ca->set);
+    // 不能通过invalidate_needs_gc来控制唤醒gc之后立马工作
+    /*ca->invalidate_needs_gc = true;*/
+    /*wake_up_gc(ca->set);*/
     CACHE_DEBUGLOG(NULL, "will wake up gc now...\n");
   }
   ca->wake_up_gc_size_wm = 0;
@@ -1294,6 +1296,9 @@ init(struct cache * ca)
   set_writeback_cutoffs(ca->set->dc);
   bch_gc_conf_init(ca->set->dc);
 
+  /*
+   * 暂时先关闭这个逻辑
+   */
   /*struct timeval tv;*/
   /*evutil_timerclear(&tv);*/
   /*tv.tv_sec = UPDATE_GC_SIZE_WM_SECONDS;*/
@@ -1698,15 +1703,19 @@ cache_aio_writeback_batch(struct cache *ca, struct ring_items * items)
     item->strategy = CACHE_MODE_WRITEBACK;
     item->io.type=CACHE_IO_TYPE_WRITE;
     item->start = cache_clock_now();
-    if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0)
+    if (atomic_sub_return((item->o_len >> 9), &ca->set->sectors_to_gc) < 0) {
+      CACHE_WARNLOG(CAT_WRITE, "wakeup gc \n");
       wake_up_gc(ca->set);
+    }
     if (_prep_writeback(item) < 0) {
-      assert( " prep_writeback error  " == 0);
+      CACHE_ERRORLOG(CAT_WRITE, "prep writeback error \n");
+      assert("prep_writeback error" == 0);
     }
   }
 
   if (aio_enqueue_batch(CACHE_THREAD_CACHE, ca->handler, items) < 0) {
-    assert( "writeback aio_enqueue error  " == 0);
+    CACHE_ERRORLOG(CAT_WRITE, "aio_enqueue_batch error \n");
+    assert("writeback aio_enqueue error" == 0);
   }
   return 0;
 }
@@ -1878,6 +1887,7 @@ rescale:
   bch_rescale_priorities(c, item->o_len >> 9);
   return false;
 skip:
+  // 此处需要统计下bypass的io数据量（其他wb的数据量也要统计下）
   return true;
 }
 

@@ -3249,7 +3249,7 @@ std::vector<Option> get_global_options() {
     .set_description(""),
 
     Option("cache_aio_write_batch", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
-    .set_default(true)
+    .set_default(false)
     .set_description(""),
 
     Option("cache_aio_write_batch_max_size", Option::TYPE_INT, Option::LEVEL_ADVANCED)
@@ -3386,7 +3386,7 @@ std::vector<Option> get_global_options() {
     .set_description("Enable/Disable O_DIRECT"),
 
     Option("t2ce_aio_threads", Option::TYPE_UINT, Option::LEVEL_DEV)
-    .set_default(1)
+    .set_default(2)
     .set_description("t2ce aio threas"),
 
     Option("t2ce_flush_water_level", Option::TYPE_UINT, Option::LEVEL_DEV)

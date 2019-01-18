@@ -212,138 +212,84 @@ static unsigned bucket_heap_top_keys(struct cache *ca)
   return (b = heap_peek(&ca->heap)) ? b->dirty_keys : 0;
 }
 
-void calc_bucket_state(struct cache *ca, struct cache_set *c, struct bucket *b)
+
+bool dirty_filter(struct bucket *b, struct cache *ca)
 {
-  if (GC_SECTORS_USED(b) == ca->sb.bucket_size)
-    c->gc_stats.gc_full_buckets++;
-  if (!GC_SECTORS_USED(b))
-    c->gc_stats.gc_empty_buckets++;
+  bool ret = GC_MARK(b) == GC_MARK_METADATA ||
+            !GC_SECTORS_USED(b) ||
+            !b->dirty_keys ||
+            atomic_read(&b->pin);
+  return ret;
 }
 
-/* 根据bucket的标志位做实际回收  */
+bool used_filter(struct bucket *b, struct cache *ca)
+{
+  bool ret = GC_MARK(b) == GC_MARK_METADATA ||
+             !GC_SECTORS_USED(b) ||
+             GC_SECTORS_USED(b) == ca->sb.bucket_size ||
+             atomic_read(&b->pin);
+  return ret;
+}
+
 void bch_moving_gc(struct cache_set *c)
 {
   struct cache *ca;
   struct bucket *b;
   unsigned i;
 
-  /*if (!c->copy_gc_enabled)*/
-  /*return;*/
-
   pthread_mutex_lock(&c->bucket_lock);
   CACHE_DEBUGLOG(MOVINGGC, "Begin moving gc. \n");
-
-  c->gc_stats.gc_moving_buckets = 0;
-  c->gc_stats.gc_moving_bkeys = 0;
-  c->gc_stats.gc_moving_bkey_size = 0;
-  c->gc_stats.gc_pin_buckets = 0;
-  c->gc_stats.gc_empty_buckets = 0;
-  c->gc_stats.gc_full_buckets = 0;
-
-  if (c->gc_stats.in_use > c->dc->cutoff_gc_busy) {
-    for_each_cache(ca, c, i) {
-      unsigned keys_to_move = 0;
-      unsigned reserve_keys = c->dc->max_gc_keys_onetime;
-
-      ca->heap.used = 0;
-
-      /* 遍历cached disk的bucket */
-      for_each_bucket(b, ca) {
-        /* 如果为元数据或数据占用量为bucket_size，则continue */
-
-        calc_bucket_state(ca, c, b);
-        if (GC_MARK(b) == GC_MARK_METADATA ||
-            !GC_SECTORS_USED(b) ||
-            !b->dirty_keys ||
-            atomic_read(&b->pin))
-          continue;
-
-        if (!heap_full(&ca->heap)) {
-          keys_to_move += b->dirty_keys;
-          heap_add(&ca->heap, b, bucket_dirty_cmp);
-        } else if (bucket_dirty_cmp(b, heap_peek(&ca->heap))) {
-          keys_to_move -= bucket_heap_top_keys(ca);
-          keys_to_move += b->dirty_keys;
-
-          ca->heap.data[0] = b;
-          heap_sift(&ca->heap, 0, bucket_dirty_cmp);
-        }
-      }
-
-      while (keys_to_move > reserve_keys) {
-        heap_pop(&ca->heap, b, bucket_cmp);
-        keys_to_move -= b->dirty_keys;
-      }
-      /*
-       * 统计哪些bucket可以通过移动来合并bucket的使用
-       * 标记这些bucket为SET_GC_MOVE(b, 1);
-       */
-      while (heap_pop(&ca->heap, b, bucket_dirty_cmp)) {
-        SET_GC_MOVE(b, 1);
-        b->move_dirty_only = true;
-        c->gc_stats.gc_moving_buckets++;
-      }
-      CACHE_DEBUGLOG(MOVINGGC, " need to gc dirty moving_buckets = %lu \n", c->gc_stats.gc_moving_buckets);
+  /*
+   * movinggc主要目的是整理空洞，如果bucket 上面有数据被删除了，为了保持整个bucket的完整性，则将这类型的bucket
+   * 的合法数据进行搬移，实际上效果并不好，后期可以考虑在一定条件下，只搬移dirty的数据，这样在wb来不及处理的时候，
+   * 可以通过movinggc释放一部分的区间
+   */
+  bool busy = (c->gc_stats.in_use > c->dc->cutoff_gc_busy);
+  bool (*bucket_filter)(struct bucket *, struct cache *) = busy? dirty_filter : used_filter;
+  bool (*cmp)() = busy ? bucket_dirty_cmp: bucket_cmp;
+  for_each_cache(ca, c, i) {
+    unsigned sectors_to_move = 0;
+    unsigned reserve_sectors = ca->sb.bucket_size *
+      fifo_used(&ca->free[RESERVE_MOVINGGC]);
+    if ( reserve_sectors == 0 ) {
+      CACHE_INFOLOG(MOVINGGC, "reserve movinggc bucket not enough(%d)\n", fifo_used(&ca->free[RESERVE_MOVINGGC]));
+      pthread_mutex_unlock(&c->bucket_lock);
+      return ;
     }
-  } else {
-    for_each_cache(ca, c, i) {
-      unsigned sectors_to_move = 0;
-      unsigned reserve_sectors = ca->sb.bucket_size *
-        fifo_used(&ca->free[RESERVE_MOVINGGC]);
-
-      if ( reserve_sectors == 0 ) {
-        CACHE_INFOLOG(MOVINGGC, "reserve movinggc bucket not enough(%d)\n", fifo_used(&ca->free[RESERVE_MOVINGGC]));
-        pthread_mutex_unlock(&c->bucket_lock);
-        return ;
+    ca->heap.used = 0;
+    // 遍历一次所有的bucket进行一次统计过滤，大约耗时300us
+    // 1. 先找到所有复合条件的bucket
+    for_each_bucket(b, ca) {
+      if (bucket_filter(b, ca)) {
+        continue;
       }
-
-      ca->heap.used = 0;
-
-      /* 遍历cached disk的bucket */
-      for_each_bucket(b, ca) {
-        /* 如果为元数据或数据占用量为bucket_size，则continue */
-
-        calc_bucket_state(ca, c, b);
-        if (GC_MARK(b) == GC_MARK_METADATA ||
-            !GC_SECTORS_USED(b) ||
-            GC_SECTORS_USED(b) == ca->sb.bucket_size ||
-            atomic_read(&b->pin))
-          continue;
-
-        if (!heap_full(&ca->heap)) {
-          sectors_to_move += GC_SECTORS_USED(b);
-          heap_add(&ca->heap, b, bucket_cmp);
-        } else if (bucket_cmp(b, heap_peek(&ca->heap))) {
-          sectors_to_move -= bucket_heap_top(ca);
-          sectors_to_move += GC_SECTORS_USED(b);
-
-          ca->heap.data[0] = b;
-          heap_sift(&ca->heap, 0, bucket_cmp);
-        }
+      if (!heap_full(&ca->heap)) {
+        sectors_to_move += GC_SECTORS_USED(b);
+        heap_add(&ca->heap, b, cmp);
+      } else if (cmp(b, heap_peek(&ca->heap))) {
+        sectors_to_move -= bucket_heap_top(ca);
+        sectors_to_move += GC_SECTORS_USED(b);
+        ca->heap.data[0] = b;
+        heap_sift(&ca->heap, 0, cmp);
       }
-
-      while (sectors_to_move > reserve_sectors) {
-        heap_pop(&ca->heap, b, bucket_cmp);
-        sectors_to_move -= GC_SECTORS_USED(b);
-      }
-
-      /*
-       * 统计哪些bucket可以通过移动来合并bucket的使用
-       * 标记这些bucket为SET_GC_MOVE(b, 1);
-       */
-      while (heap_pop(&ca->heap, b, bucket_cmp)) {
-        SET_GC_MOVE(b, 1);
-        b->move_dirty_only = false;
-        c->gc_stats.gc_moving_buckets++;
-      }
-      if (!c->gc_stats.gc_moving_buckets++) {
-        pthread_mutex_unlock(&c->bucket_lock);
-        return 0;
-      }
-      CACHE_DEBUGLOG(MOVINGGC, "Movinggc moving_buckets %lu \n", c->gc_stats.gc_moving_buckets);
     }
+    // 2.再看下剩余的bucket是否够用
+    while (sectors_to_move > reserve_sectors) {
+      heap_pop(&ca->heap, b, cmp);
+      sectors_to_move -= GC_SECTORS_USED(b);
+    }
+    // 3.确定哪些bucket要搬移之后，设置这些bucket为gc_move
+    while (heap_pop(&ca->heap, b, cmp)) {
+      SET_GC_MOVE(b, 1);
+      b->move_dirty_only = false;
+      c->gc_stats.gc_moving_buckets++;
+    }
+    if (!c->gc_stats.gc_moving_buckets++) {
+      pthread_mutex_unlock(&c->bucket_lock);
+      return 0;
+    }
+    CACHE_DEBUGLOG(MOVINGGC, "Movinggc busy %d moving_buckets %lu \n", busy, c->gc_stats.gc_moving_buckets);
   }
-
   pthread_mutex_unlock(&c->bucket_lock);
   c->moving_gc_keys.last_scanned = ZERO_KEY;
   read_moving(c);
