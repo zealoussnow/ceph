@@ -284,7 +284,7 @@ static void invalidate_buckets(struct cache *ca)
 
 #define allocator_wait(ca, cond)                                        \
   do {                                                                  \
-    while (1) {                                                         \
+    while(1) {                                                          \
       pthread_mutex_lock(&ca->alloc_mut);                               \
       if (cond)                                                         \
         break;                                                          \
@@ -657,8 +657,9 @@ pick_data_bucket(struct cache_set *c, const struct bkey *search,
   }
 
   ret = eq_task?:(gt_task?: zero_task);
-  if (ret)
+  if (ret) {
     goto found;
+  }
 
   // must make sure the bucket not used by other thread
   if (min_bkt->wait)
@@ -679,8 +680,8 @@ found:
   }
   if (!ret->sectors_free) {
     ret->wait = true;
-    *last =  ret;
-    CACHE_DEBUGLOG(CAT_ALLOC, "last open_ bucket: %p, sectors_free=%u, wait %d\n",
+    *last = ret;
+    CACHE_DEBUGLOG(CAT_ALLOC, "last open_bucket: %p, sectors_free=%u, wait %d\n",
         *last, (*last)->sectors_free, (*last)->wait);
     ret = NULL;
   }

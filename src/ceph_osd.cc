@@ -101,7 +101,7 @@ static void usage()
 void reload_log(){
     std::string response;
     AdminSocketClient client(g_conf->admin_socket);
-    client.do_request("{\"prefix\":\"reload_zlog_config\"}", &response);
+    client.do_request("{\"prefix\":\"t2ce_log_reload\"}", &response);
 }
 
 void osd_sighup_handler(int signum)

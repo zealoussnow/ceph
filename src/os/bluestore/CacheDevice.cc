@@ -1437,51 +1437,53 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
       fs->dump_float("gc in_use", gs.in_use);
       fs->dump_int("sectors threshold(1/16 tataol)", gs.sectors_to_gc);
       fs->dump_string("running state", gs.gc_running_state);
-      fs->dump_int("moving stop", gs.gc_moving_stop);
+      fs->dump_int("skip moving", gs.gc_moving_stop);
       fs->dump_int("invalidate_needs_gc", gs.invalidate_needs_gc);
       fs->close_section();
     }
     {
       Formatter *f_all = f.get();
-      f_all->open_object_section("all buckets");
-      f_all->dump_unsigned("buckets", gs.gc_all_buckets);
-      f_all->dump_unsigned("avail buckets", gs.gc_avail_buckets);
-      f_all->dump_unsigned("unavail buckets", gs.gc_unavail_buckets);
+      f_all->open_object_section("all bts");
+      f_all->dump_unsigned("all", gs.gc_all_buckets);
+      f_all->dump_unsigned("in use(!pin: fifo cache or bkey ref)", gs.gc_pin_buckets);
+      f_all->dump_unsigned("avail(init or reclaimable)", gs.gc_avail_buckets);
+      f_all->dump_unsigned("unavail(meta or dirty)", gs.gc_unavail_buckets);
       f_all->close_section();
     }
     {
       Formatter *f_ava = f.get();
-      f_ava->open_object_section("availbale buckets");
-      f_ava->dump_unsigned("init buckets", gs.gc_init_buckets);
-      f_ava->dump_unsigned("reclaimable buckets", gs.gc_reclaimable_buckets);
+      f_ava->open_object_section("avail bts");
+      f_ava->dump_unsigned("init", gs.gc_init_buckets);
+      f_ava->dump_unsigned("reclaimable", gs.gc_reclaimable_buckets);
       f_ava->close_section();
     }
     {
       Formatter *f_ua = f.get();
-      f_ua->open_object_section("unavailbale buckets");
-      f_ua->dump_unsigned("meta buckets", gs.gc_meta_buckets);
-      f_ua->dump_unsigned("dirty buckets", gs.gc_dirty_buckets);
+      f_ua->open_object_section("unavail bts");
+      f_ua->dump_unsigned("meta", gs.gc_meta_buckets);
+      f_ua->dump_unsigned("dirty(in wb or dirty)", gs.gc_dirty_buckets);
       f_ua->close_section();
     }
     {
       Formatter *f_me = f.get();
-      f_me->open_object_section("meta buckets");
-      f_me->dump_unsigned("uuids buckets", gs.gc_uuids_buckets);
-      f_me->dump_unsigned("in writebacking bucket(set dirty)", gs.gc_writeback_dirty_buckets);
-      f_me->dump_unsigned("journal buckets", gs.gc_journal_buckets);
-      f_me->dump_unsigned("prio buckets", gs.gc_prio_buckets);
+      f_me->open_object_section("meta/dirty bts");
+      f_me->dump_unsigned("uuids", gs.gc_uuids_buckets);
+      f_me->dump_unsigned("in wb", gs.gc_writeback_dirty_buckets);
+      f_me->dump_unsigned("journal", gs.gc_journal_buckets);
+      f_me->dump_unsigned("prio", gs.gc_prio_buckets);
       f_me->close_section();
     }
     {
-      Formatter *f_mo = f.get();
-      f_mo->open_object_section("moving buckets");
-      f_mo->dump_unsigned("moving buckets(in moving)", gs.gc_moving_buckets);
-      f_mo->dump_unsigned("moving bkeys(in moving)", gs.gc_moving_bkeys);
-      f_mo->dump_string("moving size(in moving bkeys)", bytes_unit(gs.gc_moving_bkey_size*512));
-      f_mo->dump_unsigned("pin buckets(have ref)", gs.gc_pin_buckets);
-      f_mo->dump_unsigned("empty buckets", gs.gc_empty_buckets);
-      f_mo->dump_unsigned("full buckets", gs.gc_full_buckets);
-      f_mo->close_section();
+      if (!gs.gc_moving_stop) {
+        Formatter *f_mo = f.get();
+        f_mo->open_object_section("moving bts");
+        f_mo->dump_unsigned("in moving", gs.gc_moving_buckets);
+        f_mo->dump_unsigned("in moving bkeys", gs.gc_moving_bkeys);
+        f_mo->dump_string("in moving size", bytes_unit(gs.gc_moving_bkey_size*512));
+        f_mo->dump_unsigned("empty", gs.gc_empty_buckets);
+        f_mo->dump_unsigned("full", gs.gc_full_buckets);
+        f_mo->close_section();
+      }
     }
 
     f->close_section();

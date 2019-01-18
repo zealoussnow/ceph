@@ -116,7 +116,8 @@ static unsigned writeback_delay(struct cached_dev *dc, unsigned sectors)
     return 0;
 
   delay = bch_next_delay(&dc->writeback_rate, sectors);
-  return delay + dc->read_wait;
+  /*return delay + dc->read_wait;*/
+  return delay;
 }
 
 struct dirty_item {
@@ -476,7 +477,6 @@ static int bch_writeback_thread(void *arg)
   bch_ratelimit_reset(&dc->writeback_rate);
 
   while (!dc->writeback_should_stop) {
-    /*printf("<%s>: start writeback\n", __func__);*/
     pthread_rwlock_wrlock(&dc->writeback_lock);
 
     /* 如果不为dirty或者writeback机制未运行时，该线程让出CPU控制权 */
@@ -512,6 +512,7 @@ static int bch_writeback_thread(void *arg)
 
     if (searched_full_index) {
 sleep:
+      CACHE_INFOLOG(WRITEBACK, "Writeback goto sleep \n");
       sleep(dc->writeback_delay);
     }
   }
