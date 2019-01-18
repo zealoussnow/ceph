@@ -326,6 +326,10 @@
 
 /* Define if you need use urcu */
 #cmakedefine WITH_URCU
+
+/* Define if enable check the version of erasure code plugin */
+#cmakedefine WITH_EC_VERSION_CHECK
+
 /* Defined if boost::context is available */
 #cmakedefine HAVE_BOOST_CONTEXT
 

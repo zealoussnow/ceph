@@ -231,6 +231,7 @@ endif()
 find_package(Libevent 2.1.8 REQUIRED)
 
 option(WITH_URCU "use urcu" ON)
+option(WITH_EC_VERSION_CHECK "check EC version" ON)
 
 option(WITH_SPDK "Enable SPDK" OFF)
 if(WITH_SPDK)
@@ -556,6 +557,24 @@ if (WITH_SYSTEM_ROCKSDB)
   find_package(rocksdb REQUIRED)
 endif()
 
+# Boost library options
+set(USE_BOOST_SHARED_LIB OFF)
+set(BOOST_LIB_COMPONENTS
+  atomic
+  container
+  context
+  coroutine
+  date_time
+  filesystem
+  iostreams
+  program_options
+  python
+  random
+  regex
+  system
+  thread
+)
+
 # Boost
 option(WITH_SYSTEM_BOOST "require and build with system Boost" OFF)
 
@@ -575,12 +594,25 @@ endif()
 set(Boost_USE_MULTITHREADED ON)
 # require minimally the bundled version
 if(WITH_SYSTEM_BOOST)
-  if(ENABLE_SHARED)
+  if(USE_BOOST_SHARED_LIB)
     set(Boost_USE_STATIC_LIBS OFF)
   else()
     set(Boost_USE_STATIC_LIBS ON)
   endif()
   find_package(Boost 1.66 COMPONENTS ${BOOST_COMPONENTS} REQUIRED)
+  foreach(c ${BOOST_LIB_COMPONENTS})
+    string(TOUPPER ${c} upper_c)
+    if(Boost_USE_STATIC_LIBS)
+      add_library(Boost::${c} STATIC IMPORTED)
+    else()
+      add_library(Boost::${c} SHARED IMPORTED)
+    endif()
+    set_target_properties(Boost::${c} PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${Boost_INCLUDE_DIRS}"
+      IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
+      IMPORTED_LOCATION "${Boost_${upper_c}_LIBRARY}")
+    list(APPEND Boost_LIBRARIES ${Boost_${upper_c}_LIBRARY})
+  endforeach()
 else()
   set(BOOST_J 1 CACHE STRING
     "max jobs for Boost build") # override w/-DBOOST_J=<n>
