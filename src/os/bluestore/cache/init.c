@@ -945,10 +945,9 @@ bch_data_insert_keys(struct cache_set *c_set,
     CACHE_ERRORLOG(NULL, "no bkeys insert\n");
     assert(bch_keylist_nkeys(insert_keys) != 0);
   }
-  journal_ref = bch_journal(c_set, insert_keys);
-  if (!journal_ref) {
-    CACHE_ERRORLOG(CAT_JOURNAL,"write journal error\n");
-    assert("write journal error" == 0);
+  if (replace_key){
+    journal_ref = bch_journal(c_set, insert_keys);
+    cache_bug_on(!journal_ref, c_set, "write journal error\n");
   }
   c_set->logger_cb(c_set->bluestore_cd, l_bluestore_cachedevice_t2cache_journal_write, start, cache_clock_now());
 
