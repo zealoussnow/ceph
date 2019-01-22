@@ -281,10 +281,10 @@ void bch_moving_gc(struct cache_set *c)
     // 3.确定哪些bucket要搬移之后，设置这些bucket为gc_move
     while (heap_pop(&ca->heap, b, cmp)) {
       SET_GC_MOVE(b, 1);
-      b->move_dirty_only = false;
+      b->move_dirty_only = busy;
       c->gc_stats.gc_moving_buckets++;
     }
-    if (!c->gc_stats.gc_moving_buckets++) {
+    if (!c->gc_stats.gc_moving_buckets) {
       pthread_mutex_unlock(&c->bucket_lock);
       return 0;
     }
