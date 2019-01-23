@@ -156,6 +156,11 @@ int t2store_handle_conf_change(struct cache_context *ctx, struct update_conf *u_
     t2ce_set_flush_water_level(ctx->cache, atoi(u_conf->val));
   }
 
+  if (!strcmp(u_conf->opt_name, "t2ce_gc_moving_skip")) {
+    bool skip = strcmp("true", u_conf->val) ? false : true;
+    t2ce_set_gc_moving_skip(ctx->cache, skip);
+  }
+
   if (!strcmp(u_conf->opt_name, "t2ce_iobypass_size_kb")) {
     t2ce_set_iobypass_size(ctx->cache, atoi(u_conf->val));
   }
@@ -252,7 +257,7 @@ static void get_gc_status(struct cache_set *c, struct gc_status *s)
   s->gc_prio_buckets    = c->gc_stats.gc_prio_buckets;
 
   // moving
-  s->gc_moving_stop    = atomic_read(&c->gc_moving_stop);
+  s->gc_moving_skip    = atomic_read(&c->gc_moving_skip);
   s->gc_moving_buckets = c->gc_stats.gc_moving_buckets;
   s->gc_moving_bkeys = c->gc_stats.gc_moving_bkeys;
   s->gc_moving_bkey_size = c->gc_stats.gc_moving_bkey_size;
@@ -269,6 +274,7 @@ void get_t2ce_conf(struct cache *ca, struct t2ce_conf *conf)
   conf->iobypass_size = ca->set->dc->sequential_cutoff;
   conf->flush_water_level = ca->set->dc->writeback_percent;
   conf->iobypass_water_level = ca->set->dc->cutoff_writeback;
+  conf->gc_moving_skip    = atomic_read(&ca->set->gc_moving_skip);
 }
 
 int t2store_admin_socket_dump_api(struct cache_context *ctx, const char*cmd, void *value) 
@@ -296,10 +302,7 @@ int t2store_admin_socket_dump_api(struct cache_context *ctx, const char*cmd, voi
 }
 int t2store_admin_socket_set_api(struct cache_context *ctx, const char*cmd, void *value)
 {
-  if (!strcmp(cmd, "t2ce_set_gc_moving_skip")) {
-    int *v = (int *)value;
-    set_gc_moving_stop(ctx->cache, *v);
-  } else if (!strcmp(cmd, "t2ce_set_wb_stop")) {
+  if (!strcmp(cmd, "t2ce_set_wb_stop")) {
     int *v = (int *)value;
     set_writeback_stop(ctx->cache, *v);
   } else if (!strcmp(cmd, "t2ce_set_gc_stop")) {

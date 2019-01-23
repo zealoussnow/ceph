@@ -65,6 +65,7 @@ struct t2ce_conf {
   uint64_t iobypass_size;
   unsigned char flush_water_level;
   uint64_t iobypass_water_level;
+  uint32_t gc_moving_skip;
 };
 
 struct wb_status
@@ -118,7 +119,7 @@ struct gc_status
   uint64_t gc_prio_buckets;
 
   // moving
-  int gc_moving_stop;
+  int gc_moving_skip;
   uint64_t gc_moving_buckets;
   uint64_t gc_moving_bkeys;
   uint64_t gc_moving_bkey_size;

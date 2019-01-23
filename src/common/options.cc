@@ -3385,6 +3385,10 @@ std::vector<Option> get_global_options() {
     .set_default(false)
     .set_description("Enable/Disable O_DIRECT"),
 
+    Option("t2ce_gc_moving_skip", Option::TYPE_BOOL, Option::LEVEL_DEV)
+    .set_default(true)
+    .set_description("Skip gc moving"),
+
     Option("t2ce_aio_threads", Option::TYPE_UINT, Option::LEVEL_DEV)
     .set_default(2)
     .set_description("t2ce aio threas"),

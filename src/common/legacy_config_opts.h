@@ -1034,6 +1034,7 @@ OPTION(t2ce_aio_threads, OPT_U64)
 OPTION(t2ce_flush_water_level, OPT_U32)
 OPTION(t2ce_iobypass_size_kb, OPT_U64)
 OPTION(t2ce_iobypass_water_level, OPT_U32)
+OPTION(t2ce_gc_moving_skip, OPT_BOOL)
 
 OPTION(bluestore_block_path, OPT_STR)
 OPTION(bluestore_block_size, OPT_U64)  // 10gb for testing
