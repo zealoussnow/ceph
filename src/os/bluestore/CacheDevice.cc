@@ -1299,6 +1299,7 @@ int CacheDevice::invalidate_region(uint64_t off, uint64_t len)
 const char** CacheDevice::get_tracked_conf_keys() const
 {
   static const char *KEYS[] = {
+    "t2ce_gc_moving_skip",
     "t2ce_flush_water_level",
     "t2ce_iobypass_size_kb",
     "t2ce_iobypass_water_level",
@@ -1421,6 +1422,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
     f->dump_int("iobypass size kb", conf.iobypass_size);
     f->dump_int("iobypass water level", conf.iobypass_water_level);
     f->dump_int("flush water level", conf.flush_water_level);
+    f->dump_int("skip moving", conf.gc_moving_skip);
     f->close_section();
     goto flush;
   }
@@ -1437,7 +1439,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
       fs->dump_float("gc in_use", gs.in_use);
       fs->dump_int("sectors threshold(1/16 tataol)", gs.sectors_to_gc);
       fs->dump_string("running state", gs.gc_running_state);
-      fs->dump_int("skip moving", gs.gc_moving_stop);
+      fs->dump_int("skip moving", gs.gc_moving_skip);
       fs->dump_int("invalidate_needs_gc", gs.invalidate_needs_gc);
       fs->close_section();
     }
@@ -1474,7 +1476,7 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
       f_me->close_section();
     }
     {
-      if (!gs.gc_moving_stop) {
+      if (!gs.gc_moving_skip) {
         Formatter *f_mo = f.get();
         f_mo->open_object_section("moving bts");
         f_mo->dump_unsigned("in moving", gs.gc_moving_buckets);
@@ -1488,19 +1490,6 @@ bool CacheDevice::asok_command(string command, cmdmap_t& cmdmap,
 
     f->close_section();
     goto flush;
-  }
-
-  if (command == "t2ce_set_gc_moving_skip") {
-    int64_t value=-1;
-    cmd_getval(cct, cmdmap, "t2ce_set_gc_moving_skip", value);
-    if ( value == 0 || value ==1 ) {
-      dout(1) << __func__ << " command " << command << " value " << value << dendl;
-      ret = t2store_admin_socket_set_api(&cache_ctx, "t2ce_set_gc_moving_skip", (void *)&value);
-    } else {
-      error = "value must be 0 or 1";
-      success = false;
-      goto value_err;
-    }
   }
 
   if (command == "t2ce_set_wb_stop") {
@@ -1638,11 +1627,6 @@ void CacheDevice::asok_register()
                                      asok_hook, "dump gc detail");
   assert(r == 0);
 
-  r = admin_socket->register_command("t2ce_set_gc_moving_skip",
-                                    "t2ce_set_gc_moving_skip name=t2ce_set_gc_moving_skip,type=CephInt",
-                                     asok_hook, "skipp movinggc");
-  assert(r == 0);
-
   r = admin_socket->register_command("t2ce_set_wb_stop", "t2ce_set_wb_stop name=t2ce_set_wb_stop,type=CephInt",
                                      asok_hook, "wb stop");
   assert(r == 0);
@@ -1691,7 +1675,6 @@ void CacheDevice::asok_unregister()
   cct->get_admin_socket()->unregister_command("t2ce_dump_wb");
   cct->get_admin_socket()->unregister_command("t2ce_dump_config");
   cct->get_admin_socket()->unregister_command("t2ce_dump_gc");
-  cct->get_admin_socket()->unregister_command("t2ce_set_gc_moving_skip");
   cct->get_admin_socket()->unregister_command("t2ce_set_wb_stop");
   cct->get_admin_socket()->unregister_command("t2ce_set_gc_stop");
   cct->get_admin_socket()->unregister_command("t2ce_set_cache_mode");

@@ -1718,7 +1718,7 @@ static void bch_btree_gc(struct cache_set *c)
   bch_update_bucket_in_use(c, &c->gc_stats);
   //trace_bcache_gc_end(c);
   c->gc_stats.status = GC_READ_MOVING;
-  if (!atomic_read(&c->gc_moving_stop)) {
+  if (!atomic_read(&c->gc_moving_skip)) {
     bch_moving_gc(c);
   } else {
     CACHE_WARNLOG(CAT_GC, "Skip gc moving!!!\n");
@@ -1756,9 +1756,9 @@ static bool gc_should_run(struct cache_set *c)
   return false;
 }
 
-void set_gc_moving_stop(struct cache *ca, int stop)
+void t2ce_set_gc_moving_skip(struct cache *ca, int skip)
 {
-  atomic_set(&ca->set->gc_moving_stop, stop);
+  atomic_set(&ca->set->gc_moving_skip, skip);
 }
 
 void set_gc_stop(struct cache *ca, int pause)

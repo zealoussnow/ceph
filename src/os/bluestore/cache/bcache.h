@@ -733,7 +733,7 @@ struct cache_set {
   pthread_cond_t        gc_wait_cond;
   atomic_t              gc_stop;
   atomic_t              gc_thread_stop;
-  atomic_t              gc_moving_stop;
+  atomic_t              gc_moving_skip;
 
   atomic_t              cached_hits;
   //struct list_head    moving_gc_keys;
