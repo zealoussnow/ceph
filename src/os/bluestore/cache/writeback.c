@@ -16,6 +16,8 @@
 
 /* Rate limiting */
 
+#define BUFFER_SIZE 4096
+
 static void __update_writeback_rate(struct cached_dev *dc)
 {
   struct cache_set *c = dc->c;
@@ -168,7 +170,11 @@ static void write_completion(void *arg){
 static void dirty_io_write(struct dirty_item *d){
   struct ring_item *item = d->item;
   struct cached_dev *dc = d->dc;
+  struct keybuf_key *w;
   int ret, i;
+  char buf[BUFFER_SIZE]={0};
+  char* next = buf;
+
 
   dc->wb_status = WB_WRITING_DIRTY;
   item->io.offset = item->o_offset;
@@ -176,14 +182,25 @@ static void dirty_io_write(struct dirty_item *d){
   item->io.pos = item->data;
   item->io.type = CACHE_IO_TYPE_WRITE;
   item->iou_completion_cb = write_completion;
+  ENABLE_DEBUG_LOG
+  for (i = 0; i < d->nk; i++){
+    w = d->keys[i];
+    uint64_t s_offset = PTR_OFFSET(&w->key, 0);
+    uint64_t s_len = KEY_SIZE(&w->key);
+    ret = sprintf(next, " cache=%lu(0x%lx)-%lu(%lx)",
+        s_offset, s_offset << 9, s_len, s_len << 9);
+    next += ret;
+    cache_bug_on(next > buf + BUFFER_SIZE - 1, dc->c, "buf not enough for log");
+  }
+  CACHE_DEBUGLOG(WRITEBACK, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx) from %s) \n",
+      item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len, buf);
+  END_LOG
 
-  CACHE_DEBUGLOG(WRITEBACK, "Item(%p) o_offset=%lu, o_len=%lu, data=%p, io offset=%lu, len=%lu, pos=%p\n",
-                 item, item->o_offset, item->o_len, item->data, item->io.offset, item->io.len, item->io.pos);
   ret = aio_enqueue(CACHE_THREAD_BACKEND, dc->c->cache[0]->handler, item);
   if (ret < 0) {
     for (i = 0; i < d->nk; i++)
       bch_keybuf_del(&dc->writeback_keys, d->keys[i]);
-    assert( "dirty aio_enqueue read error  " == 0);
+    cache_bug_on(1, dc->c, "dirty aio_enqueue read error\n");
   }
 
 }

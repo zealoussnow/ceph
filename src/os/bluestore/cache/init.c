@@ -35,6 +35,9 @@
 #include "log.h"
 #include "libcache.h"
 
+#define BUFFER_SIZE 4096
+#define IO_LOG_LINE 100
+
 /*struct cache_set bch_cache_sets;*/
 T2_LIST_HEAD(bch_cache_sets);
 /*struct mutex bch_register_lock;*/
@@ -1577,6 +1580,8 @@ _prep_writearound(struct ring_item * item)
   item->iou_arg = item;
   item->iou_completion_cb = aio_write_completion;
   item->type = ITEM_AIO_WRITE;
+  CACHE_DEBUGLOG(CAT_WRITE, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx)) \n",
+      item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
   bch_keylist_push(insert_keys);
   item->insert_keys = insert_keys;
@@ -1659,6 +1664,10 @@ int _prep_writeback(struct ring_item * item){
   item->iou_arg = item;
   item->iou_completion_cb = aio_write_completion;
   item->type = ITEM_AIO_WRITE;
+  CACHE_DEBUGLOG(CAT_WRITE, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx)) "
+      "write cache=%lu(0x%lx)\n",
+      item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len,
+      item->io.offset >> 9, item->io.offset);
 
   bch_keylist_push(insert_keys);
   if (bch_keylist_nkeys(insert_keys) != 3) {
@@ -1736,6 +1745,8 @@ _prep_writethrough(struct ring_item * item)
   item->iou_completion_cb = aio_write_completion;
   item->insert_keys = insert_keys;
   item->type = ITEM_AIO_WRITE;
+  CACHE_DEBUGLOG(CAT_WRITE, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx)) \n",
+      item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
   return 0;
 err:
@@ -2096,7 +2107,7 @@ void
 aio_read_completion(struct ring_item *item)
 {
   struct cache *ca = item->ca_handler;
-  CACHE_DEBUGLOG(CAT_WRITE, "free item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+  CACHE_DEBUGLOG(CAT_READ, "free item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
                  item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
   if (item->io.type != CACHE_IO_TYPE_READ ) {
@@ -2167,6 +2178,8 @@ int _do_read_cache(struct ring_item *item){
   struct keylist *backends = NULL;
   int io_num = 0;
   int ret;
+  char buf[BUFFER_SIZE]={0};
+  char* next = buf;
 
 
   caches = calloc(1, sizeof(struct keylist));
@@ -2183,7 +2196,7 @@ int _do_read_cache(struct ring_item *item){
   bch_keylist_init(caches);
   bch_keylist_init(backends);
 
-  CACHE_DEBUGLOG(CAT_WRITE, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+  CACHE_DEBUGLOG(CAT_READ, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
                  item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
   SAFE_FREE_INC(item);
 
@@ -2234,12 +2247,30 @@ int _do_read_cache(struct ring_item *item){
 
   for (new_bkey = caches->keys; new_bkey != caches->top; new_bkey = bkey_next(new_bkey)){
     set_item_io(item, new_bkey);
+
+    // note: log not large than IO_LOG_LINE
+    ENABLE_DEBUG_LOG
+    ret = sprintf(next, "cache=%lu(0x%lx)-%lu(%lx),",
+        item->io.offset >> 9, item->io.offset, item->io.len >> 9, item->io.len);
+    cache_bug_on(ret > IO_LOG_LINE, ca->set, "pre io log large than IO_LOG_LINE");
+    cache_bug_on(next > buf + BUFFER_SIZE - 1, ca->set, "buf not enough for log");
+    next += ret;
+    // check buffer space for next log
+    if (next > buf + BUFFER_SIZE - IO_LOG_LINE){
+      CACHE_DEBUGLOG(CAT_READ, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx) from %s) \n",
+          item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len, buf);
+      next = buf;
+    }
+    END_LOG
+
     ret = aio_enqueue(CACHE_THREAD_CACHE, ca->handler, item);
     if (ret < 0) {
       CACHE_ERRORLOG(CAT_READ, "read cache aio_enqueue error  \n");
       assert("read cache aio_enqueue error  " == 0);
     }
   }
+  CACHE_DEBUGLOG(CAT_READ, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx) from cache %s) \n",
+      item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len, buf);
 
   for (new_bkey = backends->keys; new_bkey != backends->top; new_bkey = bkey_next(new_bkey)){
     item->io.len = KEY_SIZE(new_bkey) << 9;
@@ -2362,7 +2393,7 @@ void aio_read_cache_completion(void *cb)
 void aio_read_cache(struct ring_item *item){
   struct cache *ca = item->ca_handler;
   struct search s;
-  CACHE_DEBUGLOG(CAT_WRITE, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+  CACHE_DEBUGLOG(CAT_READ, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
                  item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
   if (item->io.type != CACHE_IO_TYPE_READ ) {
@@ -2390,7 +2421,7 @@ void
 aio_read_backend_completion(void *cb)
 {
   struct ring_item *item = cb;
-  CACHE_DEBUGLOG(CAT_WRITE, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+  CACHE_DEBUGLOG(CAT_READ, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
                  item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
   if (item->need_read_cache)
     aio_read_cache(item);
@@ -2406,7 +2437,7 @@ aio_read_backend(struct ring_item *item)
   int ret = 0;
   struct cache *ca = item->ca_handler;
 
-  CACHE_DEBUGLOG(CAT_WRITE, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
+  CACHE_DEBUGLOG(CAT_READ, "item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
                  item, item->o_offset/512, item->o_offset, item->o_len/512, item->o_len);
 
   item->io.offset = item->o_offset;
@@ -2414,7 +2445,7 @@ aio_read_backend(struct ring_item *item)
   item->io.len = item->o_len;
   item->iou_completion_cb = aio_read_backend_completion;
 
-  CACHE_DEBUGLOG(CAT_AIO,"aio_enqueue backend (start=%lu, len=%lu)\n",
+  CACHE_DEBUGLOG(CAT_READ, "aio_enqueue backend (start=%lu, len=%lu)\n",
                  item->o_offset >> 9, item->o_len >> 9);
   // read hdd first
   ret = aio_enqueue(CACHE_THREAD_BACKEND, ca->handler, item);
@@ -2490,14 +2521,12 @@ int
 cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
                    io_completion_fn io_completion, void *io_arg)
 {
-  CACHE_DEBUGLOG(NULL,"cache_aio_read IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
+  CACHE_DEBUGLOG(CAT_READ, "cache_aio_read IO(start=%lu(0x%lx),len=%lu(%lx)) \n", offset/512, offset, len/512, len);
   struct ring_item *item;
   struct search s;
   int ret = 0;
 
   item = get_ring_item(data, offset, len);
-  CACHE_DEBUGLOG(CAT_WRITE, "calloc item(%p) IO(start=%lu(0x%lx),len=%lu(%lx))\n",
-                 item, offset/512, offset, len/512, len);
   item->io.offset = offset;
   item->io.len = 0;
   item->io.type = CACHE_IO_TYPE_READ;
@@ -2523,6 +2552,11 @@ cache_aio_read(struct cache*ca, void *data, uint64_t offset, uint64_t len,
   bch_btree_op_init(&s.op, -1, BTREE_OP_READ);
   bch_btree_map_keys(&s.op, ca->set, &KEY(0,(s.item->o_offset >> 9),0),
                         read_is_all_cache_fn, MAP_END_KEY);
+
+  CACHE_DEBUGLOG(CAT_READ, "calloc item(%p) IO(start=%lu(0x%lx),len=%lu(%lx)) %s %s\n",
+                 item, offset/512, offset, len/512, len,
+                 item->need_read_backend ? "need_backend": "",
+                 item->need_read_cache? "need_cache": "");
 
   if (item->need_read_backend)
     aio_read_backend(item);
