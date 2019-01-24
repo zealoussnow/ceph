@@ -1377,16 +1377,6 @@ static unsigned btree_gc_count_keys(struct btree *b)
   return ret;
 }
 
-static bool should_fast_gc(struct cache_set *c)
-{
-  struct cache *ca = c->cache[0];
-
-  if (fifo_empty(&ca->free_inc))
-    return true;
-  else
-    return false;
-}
-
 static int btree_gc_recurse(struct btree *b, struct btree_op *op,
                             struct gc_stat *gc)
 {
@@ -1396,7 +1386,6 @@ static int btree_gc_recurse(struct btree *b, struct btree_op *op,
   struct btree_iter iter;
   struct gc_merge_info r[GC_MERGE_NODES];
   struct gc_merge_info *i, *last = r + ARRAY_SIZE(r) - 1;
-  struct cache *ca = b->c->cache[0];
 
   bch_btree_iter_init(&b->keys, &iter, &b->c->gc_done);
 
@@ -1414,13 +1403,11 @@ static int btree_gc_recurse(struct btree *b, struct btree_op *op,
         break;
       }
 
-      if (!should_fast_gc(b->c)) {
-        r->keys = btree_gc_count_keys(r->b);
+      r->keys = btree_gc_count_keys(r->b);
 
-        ret = btree_gc_coalesce(b, op, gc, r);
-        if (ret)
-          break;
-      }
+      ret = btree_gc_coalesce(b, op, gc, r);
+      if (ret)
+        break;
     }
 
     if (!last->b)
@@ -1428,7 +1415,7 @@ static int btree_gc_recurse(struct btree *b, struct btree_op *op,
 
     if (!IS_ERR(last->b)) {
       should_rewrite = btree_gc_mark_node(last->b, gc);
-      if (should_rewrite && !should_fast_gc(b->c)) {
+      if (should_rewrite) {
         ret = btree_gc_rewrite_node(b, op, last->b);
         if (ret)
           break;
@@ -1482,10 +1469,9 @@ static int bch_btree_gc_root(struct btree *b, struct btree_op *op,
   int ret = 0;
   bool should_rewrite;
   uint64_t start_time = cache_realtime_u64();
-  struct cache *ca = b->c->cache[0];
 
   should_rewrite = btree_gc_mark_node(b, gc);
-  if (should_rewrite && !should_fast_gc(b->c)) {
+  if (should_rewrite) {
     n = btree_node_alloc_replacement(b, NULL);
 
     if (!IS_ERR_OR_NULL(n)) {
