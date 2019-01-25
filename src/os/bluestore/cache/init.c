@@ -947,7 +947,7 @@ bch_data_insert_keys(struct cache_set *c_set,
     CACHE_ERRORLOG(NULL, "no bkeys insert\n");
     assert(bch_keylist_nkeys(insert_keys) != 0);
   }
-  if (replace_key){
+  if (!replace_key){
     journal_ref = bch_journal(c_set, insert_keys);
     cache_bug_on(!journal_ref, c_set, "write journal error\n");
   }
