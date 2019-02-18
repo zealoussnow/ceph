@@ -3517,7 +3517,7 @@ int OSD::shutdown()
   osdmap = OSDMapRef();
   service.shutdown();
 
-  std::lock_guard lock(osd_lock);
+  osd_lock.Lock();
   store->umount();
   delete store;
   store = nullptr;
@@ -3535,6 +3535,7 @@ int OSD::shutdown()
   hb_back_server_messenger->shutdown();
 
   peering_wq.clear();
+  osd_lock.Unlock();
 
   return r;
 }
