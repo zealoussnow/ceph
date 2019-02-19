@@ -1795,7 +1795,6 @@ static int bch_gc_thread(void *arg)
   struct cache_set *c = arg;
   const char *alloc_thread_name = "gc thread";
   const char thread_name[256];
-  struct timespec out = time_from_now(5, 0);
 
   pthread_setname_np(pthread_self(), alloc_thread_name);
   pthread_getname_np(pthread_self(),thread_name, 256);
@@ -1822,6 +1821,7 @@ static int bch_gc_thread(void *arg)
        *  3. 缓存为写预留的空间小于可用空间(为读写区间的按比例从iobypass的水位线里面切换)
        *     或者也可用说in_use的区间超过了读区间
        */
+      struct timespec out = time_from_now(5, 0);
 
       pthread_mutex_lock(&c->gc_wait_mut);
       pthread_cond_timedwait(&c->gc_wait_cond, &c->gc_wait_mut, &out);
