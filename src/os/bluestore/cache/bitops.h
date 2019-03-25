@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "acconfig.h"
 #include "types.h"
 //#include "bcache.h"
 
@@ -14,7 +15,17 @@
 #define min(a,b)  ((a)<=(b) ? (a):(b))
 #define max(a,b)  ((a)>=(b) ? (a):(b))
 
+#define _BITOPS_LONG_SHIFT 	6
+#define BITS_PER_LONG 		64
+#define BITS_PER_BYTE 		8
 
+#if defined(__aarch64__)
+#define BIT_WORD(nr)            ((nr) / BITS_PER_LONG)
+#define BIT_MASK(nr)            (1UL << ((nr) % BITS_PER_LONG))
+#endif
+
+
+#if defined(__i386__) || defined(__x86_64__)
 /**
  * __ffs - find first set bit in word
  * @word: The word to search
@@ -36,6 +47,46 @@ static __always_inline unsigned long ffz(unsigned long word)
                 : "r" (~word));
         return word;
 }
+#else
+static __always_inline unsigned long __ffs(unsigned long word)
+{
+        int num = 0;
+
+#if BITS_PER_LONG == 64
+        if ((word & 0xffffffff) == 0) {
+                num += 32;
+                word >>= 32;
+        }
+#endif
+        if ((word & 0xffff) == 0) {
+                num += 16;
+                word >>= 16;
+        }
+        if ((word & 0xff) == 0) {
+                num += 8;
+                word >>= 8;
+        }
+        if ((word & 0xf) == 0) {
+                num += 4;
+                word >>= 4;
+        }
+        if ((word & 0x3) == 0) {
+                num += 2;
+                word >>= 2;
+        }
+        if ((word & 0x1) == 0)
+                num += 1;
+        return num;
+}
+
+/*
+ * ffz - find first zero in word.
+ * @word: The word to search
+ *
+ * Undefined if no zero exists, so code should check against ~0UL first.
+ */
+#define ffz(x)  __ffs(~(x))
+#endif
 
 # define likely(x)  __builtin_expect(!!(x), 1)
 # define unlikely(x) __builtin_expect(!!(x), 0)
@@ -50,10 +101,6 @@ static __always_inline unsigned long ffz(unsigned long word)
 
 #define LOCK_PREFIX LOCK_PREFIX_HERE "\n\tlock; "
 
-# define _BITOPS_LONG_SHIFT 6
-#define BITS_PER_LONG 64
-
-#define BITS_PER_BYTE           8
 #define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
 #define BITMAP_FIRST_WORD_MASK(start) (~0UL << ((start) & (BITS_PER_LONG - 1)))
 #define BITMAP_LAST_WORD_MASK(nbits) (~0UL >> (-(nbits) & (BITS_PER_LONG - 1)))
@@ -85,6 +132,7 @@ unsigned long find_next_bit(const unsigned long *addr, unsigned long size,
 
 unsigned long find_first_zero_bit(const unsigned long *addr, unsigned long size);
 
+#if defined(__i386__) || defined(__x86_64__)
 static __always_inline bool constant_test_bit(long nr, const volatile unsigned long *addr)
 {
         return ((1UL << (nr & (BITS_PER_LONG-1))) &
@@ -108,6 +156,17 @@ static __always_inline bool variable_test_bit(long nr, volatile const unsigned l
 (__builtin_constant_p(nr) ? \
  constant_test_bit((nr),(addr)) : \
  variable_test_bit((nr),(addr)))
+#else
+/**
+ * test_bit - Determine whether a bit is set
+ * @nr: bit number to test
+ * @addr: Address to start counting from
+ */
+static inline int test_bit(int nr, const volatile unsigned long *addr)
+{
+	return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+}
+#endif
 
 
 #if __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 1)
@@ -127,20 +186,6 @@ static __always_inline bool variable_test_bit(long nr, volatile const unsigned l
 #define CONST_MASK_ADDR(nr, addr)	BITOP_ADDR((char *)(addr) + ((nr)>>3))
 #define CONST_MASK(nr)			(1 << ((nr) & 7))
 
-static __always_inline void
-clear_bit(long nr, volatile unsigned long *addr)
-{
-	if (IS_IMMEDIATE(nr)) {
-		asm volatile(LOCK_PREFIX "andb %1,%0"
-			: CONST_MASK_ADDR(nr, addr)
-			: "iq" ((u8)~CONST_MASK(nr)));
-	} else {
-		asm volatile(LOCK_PREFIX "btr %1,%0"
-			: BITOP_ADDR(addr)
-			: "Ir" (nr));
-	}
-}
-
 #define small_const_nbits(nbits) \
         (__builtin_constant_p(nbits) && (nbits) <= BITS_PER_LONG)
 
@@ -158,6 +203,7 @@ static inline void bitmap_zero(unsigned long *dst, unsigned int nbits)
 }
 
 
+#if defined(__i386__) || defined(__x86_64__)
 /**
  * set_bit - Atomically set a bit in memory
  * @nr: the bit to set
@@ -224,5 +270,51 @@ static __always_inline void change_bit(long nr, volatile unsigned long *addr)
         }
 }
 
+static __always_inline void
+clear_bit(long nr, volatile unsigned long *addr)
+{
+	if (IS_IMMEDIATE(nr)) {
+		asm volatile(LOCK_PREFIX "andb %1,%0"
+			: CONST_MASK_ADDR(nr, addr)
+			: "iq" ((u8)~CONST_MASK(nr)));
+	} else {
+		asm volatile(LOCK_PREFIX "btr %1,%0"
+			: BITOP_ADDR(addr)
+			: "Ir" (nr));
+	}
+}
+#else
+
+#ifdef WITH_URCU
+#include <urcu/uatomic.h>
+#define clear_bit(n, v)		(uatomic_clear_bit(n, v))
+#define set_bit(n, v)		(uatomic_set_bit(n, v))
+#define change_bit(n, v)	(uatomic_change_bit(n, v))
+
+static inline void __set_bit(int nr, unsigned long *addr)
+{
+        addr[nr / BITS_PER_LONG] |= 1UL << (nr % BITS_PER_LONG);
+}
+
+static inline void uatomic_set_bit(int nr, unsigned long *addr)
+{
+	uatomic_or(addr + nr / BITS_PER_LONG, 1UL << (nr % BITS_PER_LONG));
+}
+
+static inline void uatomic_clear_bit(int nr, unsigned long *addr)
+{
+	uatomic_and(addr + nr / BITS_PER_LONG, ~(1UL << (nr % BITS_PER_LONG)));
+}
+
+static inline void uatomic_change_bit(int nr, unsigned long *addr)
+{
+	uatomic_set(addr, __sync_xor_and_fetch(addr + nr / BITS_PER_LONG, 1ULL << (nr % BITS_PER_LONG)));
+}
+
+#else
+#error "We aren't implement it without urcu"
+#endif
+
+#endif
 
 #endif
