@@ -59,6 +59,7 @@ def _get_distro(distro, use_rhceph=False):
 
     distro = _normalized_distro_name(distro)
     distributions = {
+        'kylin': debian,
         'alpine': alpine,
         'arch': arch,
         'debian': debian,
@@ -103,6 +104,8 @@ def _normalized_distro_name(distro):
         return 'gentoo'
     elif distro.startswith('virtuozzo'):
         return 'virtuozzo'
+    elif distro.startswith('kylin'):
+        return 'debian'
     return distro
 
 
