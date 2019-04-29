@@ -71,7 +71,8 @@ static void cache_io_completion_cb(struct iocb *iocb, long res,
   item->io.success = true;
   switch (item->type) {
     case ITEM_AIO_WRITE:
-      bch_prep_journal(item->iou_arg);
+      //bch_prep_journal(item->iou_arg);
+      item->iou_completion_cb(item->iou_arg);
       break;
     case ITEM_AIO_READ:
     case ITEM_WRITEBACK:

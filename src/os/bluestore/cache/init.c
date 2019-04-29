@@ -1405,7 +1405,7 @@ void aio_write_completion(void *cb)
           /*assert(bch_keylist_nkeys(item->insert_keys) == 2);*/
         /*}*/
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
-        /*ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);*/
+        ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);
         break;
       case CACHE_MODE_WRITETHROUGH:
         // write through 写完hhd之后，开始写ssd
@@ -1452,7 +1452,7 @@ void aio_write_completion(void *cb)
         /*}*/
         /*assert(bch_keylist_nkeys(item->insert_keys) == 3);*/
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_libaio_write_lat, item->aio_start, insert_start);
-        /*ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);*/
+        ret = bch_data_insert_keys(ca->set, item->insert_keys, NULL);
         ca->set->logger_cb(ca->set->bluestore_cd, l_bluestore_cachedevice_t2cache_insert_keys, insert_start, cache_clock_now());
         bch_writeback_add(ca->set->dc);
         break;
