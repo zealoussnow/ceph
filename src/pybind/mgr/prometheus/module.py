@@ -78,6 +78,9 @@ PG_STATES = [
 
 DF_CLUSTER = ['total_bytes', 'total_used_bytes', 'total_objects']
 
+CLUSTER_PERF = ['read_op_per_sec', 'read_bytes_sec', 'write_op_per_sec', 'write_bytes_sec',
+                   'recovering_objects_per_sec', 'recovering_bytes_per_sec']
+
 DF_POOL = ['max_avail', 'bytes_used', 'raw_bytes_used', 'objects', 'dirty',
            'quota_bytes', 'quota_objects', 'rd', 'rd_bytes', 'wr', 'wr_bytes']
 
@@ -305,6 +308,13 @@ class Module(MgrModule):
                 path,
                 'DF {}'.format(state),
             )
+        for state in CLUSTER_PERF:
+            path = 'cluster_{}'.format(state)
+            metrics[path] = Metric(
+                'gauge',
+                path,
+                'PER SEC {}'.format(state),
+            )
         for state in DF_POOL:
             path = 'pool_{}'.format(state)
             metrics[path] = Metric(
@@ -388,6 +398,12 @@ class Module(MgrModule):
 
         # Set total count of PGs, first
         self.metrics['pg_total'].set(pg_status['num_pgs'])
+
+        for stat in CLUSTER_PERF:
+            if stat in pg_status:
+                self.metrics['cluster_{}'.format(stat)].set(pg_status[stat])
+            else:
+                self.metrics['cluster_{}'.format(stat)].set(0)
 
         reported_states = {}
         for pg in pg_status['pgs_by_state']:
