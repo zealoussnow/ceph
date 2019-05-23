@@ -84,6 +84,16 @@ CLUSTER_PERF = ['read_op_per_sec', 'read_bytes_sec', 'write_op_per_sec', 'write_
 DF_POOL = ['max_avail', 'bytes_used', 'raw_bytes_used', 'objects', 'dirty',
            'quota_bytes', 'quota_objects', 'rd', 'rd_bytes', 'wr', 'wr_bytes']
 
+OSD_POOL_RECOVERY_RATE_STATS = ('recovering_objects_per_sec', 'recovering_bytes_per_sec',
+                  'recovering_keys_per_sec', 'num_objects_recovered',
+                  'num_bytes_recovered', 'num_bytes_recovered')
+
+OSD_POOL_CLIENT_IO_STATS = ('read_bytes_sec', 'write_op_per_sec',
+                  'write_bytes_sec', 'read_op_per_sec')
+
+OSD_POOL_RECOVERY_STATS = ('degraded_objects', 'degraded_ratio',
+                  'degraded_total')
+
 OSD_FLAGS = ('noup', 'nodown', 'noout', 'noin', 'nobackfill', 'norebalance',
              'norecover', 'noscrub', 'nodeep-scrub')
 
@@ -294,6 +304,34 @@ class Module(MgrModule):
                 'OSD stat {}'.format(stat),
                 ('ceph_daemon',)
             )
+
+        for stat in OSD_POOL_RECOVERY_RATE_STATS:
+            path = 'pool_{}'.format(stat)
+            metrics[path] = Metric(
+                'gauge',
+                path,
+                "OSD pool recovery rate stats: {}".format(stat),
+                ('pool_id', 'pool_name')
+            )
+
+        for stat in OSD_POOL_CLIENT_IO_STATS:
+            path = 'pool_{}'.format(stat)
+            metrics[path] = Metric(
+                'gauge',
+                path,
+                "OSD pool client io stats: {}".format(stat),
+                ('pool_id', 'pool_name')
+            )
+
+        for stat in OSD_POOL_RECOVERY_STATS:
+            path = 'pool_{}'.format(stat)
+            metrics[path] = Metric(
+                'gauge',
+                path,
+                "OSD pool recovery stats: {}".format(stat),
+                ('pool_id', 'pool_name')
+            )
+
         for state in PG_STATES:
             path = 'pg_{}'.format(state)
             metrics[path] = Metric(
@@ -338,6 +376,29 @@ class Module(MgrModule):
         self.metrics['health_status'].set(
             health_status_to_number(health['status'])
         )
+
+    def get_pool_stats(self):
+        # retrieve pool stats to provide per pool recovery metrics
+        # (osd_pool_stats moved to mgr in Mimic)
+        pstats = self.get('osd_pool_stats')
+        for pool in pstats['pool_stats']:
+            for stat in OSD_POOL_RECOVERY_RATE_STATS:
+                self.metrics['pool_{}'.format(stat)].set(
+                    pool['recovery_rate'].get(stat, 0),
+                    (pool['pool_id'], pool['pool_name'])
+                )
+
+            for stat in OSD_POOL_CLIENT_IO_STATS:
+                self.metrics['pool_{}'.format(stat)].set(
+                    pool['client_io_rate'].get(stat, 0),
+                    (pool['pool_id'], pool['pool_name'])
+                )
+
+            for stat in OSD_POOL_RECOVERY_STATS:
+                self.metrics['pool_{}'.format(stat)].set(
+                    pool['recovery'].get(stat, 0),
+                    (pool['pool_id'], pool['pool_name'])
+                )
 
     def get_df(self):
         # maybe get the to-be-exported metrics from a config?
@@ -547,6 +608,7 @@ class Module(MgrModule):
 
         self.get_health()
         self.get_df()
+        self.get_pool_stats()
         self.get_fs()
         self.get_osd_stats()
         self.get_quorum_status()
