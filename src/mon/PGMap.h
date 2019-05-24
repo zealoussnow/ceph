@@ -455,6 +455,13 @@ public:
     PGMapDigest::dump_pool_stats_full(osd_map, ss, f, verbose);
   }
 
+  /*
+  * Dump client io rate, recovery io rate, cache io rate and recovery information.
+  * this function is used by "ceph osd pool stats" command
+  */
+  void dump_pool_stats_and_io_rate(int64_t poolid, const OSDMap &osd_map, ceph::Formatter *f,
+				   std::stringstream *ss) const;
+
   void dump_pg_stats_plain(
     ostream& ss,
     const mempool::pgmap::unordered_map<pg_t, pg_stat_t>& pg_stats,
