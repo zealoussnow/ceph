@@ -107,9 +107,15 @@ MON_METADATA = ('ceph_daemon', 'hostname', 'public_addr', 'rank', 'ceph_version'
 OSD_METADATA = ('ceph_daemon', 'cluster_addr', 'device_class', 'hostname',
                 'public_addr', 'ceph_version')
 
+PG_METADATA = ('pgid', 'state', 'up', 'acting')
+
 OSD_STATUS = ['weight', 'up', 'in']
 
 OSD_STATS = ['apply_latency_ms', 'commit_latency_ms']
+
+OSD_CAPACITY_STATS = ['kb', 'kb_used', 'kb_avail']
+
+OSD_RATE = ('op_w', 'op_r', 'op_in_bytes', 'op_out_bytes', 'op_r_latency', 'op_w_latency')
 
 POOL_METADATA = ('pool_id', 'name')
 
@@ -250,6 +256,12 @@ class Module(MgrModule):
             'OSD Metadata',
             OSD_METADATA
         )
+        metrics['pg_metadata'] = Metric(
+            'untyped',
+            'pg_metadata',
+            'PG Metadata',
+            PG_METADATA
+        )
 
         # The reason for having this separate to OSD_METADATA is
         # so that we can stably use the same tag names that
@@ -303,6 +315,24 @@ class Module(MgrModule):
                 path,
                 'OSD stat {}'.format(stat),
                 ('ceph_daemon',)
+            )
+
+        for stat in OSD_CAPACITY_STATS:
+            path = 'osd_capacity_{}'.format(stat)
+            metrics[path] = Metric(
+                'gauge',
+                path,
+                'OSD capacity stat {}'.format(stat),
+                ('osd_id',)
+            )
+
+        for stat in OSD_RATE:
+            path = 'osd_rate_{}'.format(stat)
+            metrics[path] = Metric(
+                'gauge',
+                path,
+                'OSD rate stat {}'.format(stat),
+                ('osd_id',)
             )
 
         for stat in OSD_POOL_RECOVERY_RATE_STATS:
@@ -494,6 +524,9 @@ class Module(MgrModule):
                 self.metrics['osd_{}'.format(stat)].set(val, (
                     'osd.{}'.format(id_),
                 ))
+            for stat in OSD_CAPACITY_STATS:
+                val = osd[stat]
+                self.metrics['osd_capacity_{}'.format(stat)].set(val, (id_,))
 
     def get_service_list(self):
         ret = {}
@@ -601,6 +634,26 @@ class Module(MgrModule):
             stat = 'num_objects_{}'.format(obj)
             self.metrics[stat].set(pg_sum[stat])
 
+    def get_pg_dump(self):
+        pg_stats = self.get('pg_dump')['pg_stats']
+        for pg in pg_stats:
+            self.metrics['pg_metadata'].set(1, (
+                pg['pgid'],
+                pg['state'],
+                ','.join(str(pg['up'])),
+                ','.join(str(pg['acting']))
+            ))
+
+    def get_osd_rate(self):
+        osd_map = self.get('osd_map')
+        for osd in osd_map['osds']:
+            # id can be used to link osd metrics and metadata
+            osd_id = osd['osd']
+            for rate in OSD_RATE:
+              val = self.get_rate("osd", osd_id.__str__(), "osd.{}".format(rate))
+              path = 'osd_rate_{}'.format(rate)
+              self.metrics[path].set(val, (osd_id,))
+
     def collect(self):
         # Clear the metrics before scraping
         for k in self.metrics.keys():
@@ -615,6 +668,8 @@ class Module(MgrModule):
         self.get_metadata_and_osd_status()
         self.get_pg_status()
         self.get_num_objects()
+        self.get_pg_dump()
+        self.get_osd_rate()
 
         for daemon, counters in self.get_all_perf_counters().items():
             for path, counter_info in counters.items():
