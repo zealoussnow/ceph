@@ -107,7 +107,7 @@ MON_METADATA = ('ceph_daemon', 'hostname', 'public_addr', 'rank', 'ceph_version'
 OSD_METADATA = ('ceph_daemon', 'cluster_addr', 'device_class', 'hostname',
                 'public_addr', 'ceph_version')
 
-PG_METADATA = ('pgid', 'state', 'up', 'acting')
+PG_METADATA = ('pgid', 'state', 'osd_id')
 
 OSD_STATUS = ['weight', 'up', 'in']
 
@@ -637,12 +637,12 @@ class Module(MgrModule):
     def get_pg_dump(self):
         pg_stats = self.get('pg_dump')['pg_stats']
         for pg in pg_stats:
-            self.metrics['pg_metadata'].set(1, (
-                pg['pgid'],
-                pg['state'],
-                ','.join(str(pg['up'])),
-                ','.join(str(pg['acting']))
-            ))
+            for osd in pg['acting']:
+                self.metrics['pg_metadata'].set(1, (
+                    pg['pgid'],
+                    pg['state'],
+                    str(osd)
+                ))
 
     def get_osd_rate(self):
         osd_map = self.get('osd_map')
