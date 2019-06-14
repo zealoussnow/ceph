@@ -117,6 +117,10 @@ OSD_CAPACITY_STATS = ['kb', 'kb_used', 'kb_avail']
 
 OSD_RATE = ('op_w', 'op_r', 'op_in_bytes', 'op_out_bytes', 'op_r_latency', 'op_w_latency')
 
+OSD_LATENCY = ('op_r_latency', 'op_w_latency')
+
+LATENCY = ('read_lat', 'write_lat')
+
 POOL_METADATA = ('pool_id', 'name')
 
 RGW_METADATA = ('ceph_daemon', 'hostname', 'ceph_version')
@@ -335,6 +339,23 @@ class Module(MgrModule):
                 ('osd_id',)
             )
 
+        for lat in LATENCY:
+            path = 'cluster_{}'.format(lat)
+            metrics[path] = Metric(
+                'gauge',
+                path,
+                'Cluster rate stat {}'.format(lat),
+            )
+
+        for lat in LATENCY:
+            path = 'pool_{}'.format(lat)
+            metrics[path] = Metric(
+                'gauge',
+                path,
+                'Pool rate stat {}'.format(lat),
+                ('pool_id',)
+            )
+
         for stat in OSD_POOL_RECOVERY_RATE_STATS:
             path = 'pool_{}'.format(stat)
             metrics[path] = Metric(
@@ -406,6 +427,21 @@ class Module(MgrModule):
         self.metrics['health_status'].set(
             health_status_to_number(health['status'])
         )
+
+    def get_pool_osds(self):
+        osds = dict(map(lambda x: (x['osd'], []), self.get('osd_map')['osds']))
+        pools = dict(map(lambda x: (x['pool'], x), self.get('osd_map')['pools']))
+        crush_rules = self.get('osd_map_crush')['rules']
+
+        osds_by_pool = {}
+        for pool_id, pool in pools.items():
+            pool_osds = None
+            for rule in [r for r in crush_rules if r['rule_id'] == pool['crush_rule']]:
+                if rule['min_size'] <= pool['size'] <= rule['max_size']:
+                    pool_osds = self.crush_rule_osds(self.get('osd_map_tree')['nodes'], rule)
+
+            osds_by_pool[pool_id] = pool_osds
+        return osds_by_pool
 
     def get_pool_stats(self):
         # retrieve pool stats to provide per pool recovery metrics
@@ -644,15 +680,52 @@ class Module(MgrModule):
                     str(osd)
                 ))
 
-    def get_osd_rate(self):
+    def get_cluster_rate(self):
         osd_map = self.get('osd_map')
+        read_lat_sum = 0
+        read_count = 0
+        write_lat_sum = 0
+        write_count = 0
         for osd in osd_map['osds']:
             # id can be used to link osd metrics and metadata
+            #get cluster rate
             osd_id = osd['osd']
+            read_lat_sum += self.get_osd_lat_sum("osd", osd_id.__str__(), "osd.op_r_latency")
+            read_count += self.get_osd_count_sum("osd", osd_id.__str__(), "osd.op_r_latency")
+            write_lat_sum += self.get_osd_lat_sum("osd", osd_id.__str__(), "osd.op_w_latency")
+            write_count += self.get_osd_count_sum("osd", osd_id.__str__(), "osd.op_w_latency")
+            #set osd rate
             for rate in OSD_RATE:
-              val = self.get_rate("osd", osd_id.__str__(), "osd.{}".format(rate))
-              path = 'osd_rate_{}'.format(rate)
-              self.metrics[path].set(val, (osd_id,))
+                if rate in OSD_LATENCY:
+                    val = self.get_osd_lat("osd", osd_id.__str__(), "osd.{}".format(rate))
+                    val = val/1000
+                else:
+                    val = self.get_rate("osd", osd_id.__str__(), "osd.{}".format(rate))
+                path = 'osd_rate_{}'.format(rate)
+                self.metrics[path].set(val, (osd_id,))
+
+        cluster_read_lat = read_lat_sum/(float(read_count)*1000) if read_count else 0
+        self.metrics['cluster_read_lat'].set(cluster_read_lat)
+        cluster_write_lat = write_lat_sum/(float(write_count)*1000) if write_count else 0
+        self.metrics['cluster_write_lat'].set(cluster_write_lat)
+
+    def get_pool_lat(self):
+        pools = self.get_pool_osds()
+
+        for pool_id, osds in pools.items():
+            read_lat_sum = 0
+            read_count = 0
+            write_lat_sum = 0
+            write_count = 0
+            for osd_id in osds:
+                read_lat_sum += self.get_osd_lat_sum("osd", osd_id.__str__(), "osd.op_r_latency")
+                read_count += self.get_osd_count_sum("osd", osd_id.__str__(), "osd.op_r_latency")
+                write_lat_sum += self.get_osd_lat_sum("osd", osd_id.__str__(), "osd.op_w_latency")
+                write_count += self.get_osd_count_sum("osd", osd_id.__str__(), "osd.op_w_latency")
+            pool_read_lat = read_lat_sum/(float(read_count)*1000) if read_count else 0
+            self.metrics['pool_read_lat'].set(pool_read_lat, (pool_id,))
+            pool_write_lat = write_lat_sum/(float(write_count)*1000) if write_count else 0
+            self.metrics['pool_write_lat'].set(pool_write_lat, (pool_id,))
 
     def collect(self):
         # Clear the metrics before scraping
@@ -669,7 +742,8 @@ class Module(MgrModule):
         self.get_pg_status()
         self.get_num_objects()
         self.get_pg_dump()
-        self.get_osd_rate()
+        self.get_cluster_rate()
+        self.get_pool_lat()
 
         for daemon, counters in self.get_all_perf_counters().items():
             for path, counter_info in counters.items():
