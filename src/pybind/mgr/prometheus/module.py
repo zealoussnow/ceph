@@ -428,21 +428,6 @@ class Module(MgrModule):
             health_status_to_number(health['status'])
         )
 
-    def get_pool_osds(self):
-        osds = dict(map(lambda x: (x['osd'], []), self.get('osd_map')['osds']))
-        pools = dict(map(lambda x: (x['pool'], x), self.get('osd_map')['pools']))
-        crush_rules = self.get('osd_map_crush')['rules']
-
-        osds_by_pool = {}
-        for pool_id, pool in pools.items():
-            pool_osds = None
-            for rule in [r for r in crush_rules if r['rule_id'] == pool['crush_rule']]:
-                if rule['min_size'] <= pool['size'] <= rule['max_size']:
-                    pool_osds = self.crush_rule_osds(self.get('osd_map_tree')['nodes'], rule)
-
-            osds_by_pool[pool_id] = pool_osds
-        return osds_by_pool
-
     def get_pool_stats(self):
         # retrieve pool stats to provide per pool recovery metrics
         # (osd_pool_stats moved to mgr in Mimic)
@@ -708,6 +693,23 @@ class Module(MgrModule):
         self.metrics['cluster_read_lat'].set(cluster_read_lat)
         cluster_write_lat = write_lat_sum/(float(write_count)*1000) if write_count else 0
         self.metrics['cluster_write_lat'].set(cluster_write_lat)
+
+    def get_pool_osds(self):
+        osdmap = self.get_osdmap()
+        crush = osdmap.get_crush()
+
+        pools = dict(map(lambda x: (x['pool'], x), self.get('osd_map')['pools']))
+        crush_rules = self.get('osd_map_crush')['rules']
+
+        osds_by_pool = {}
+        for pool_id, pool in pools.items():
+            pool_osds = None
+            for rule in [r for r in crush_rules if r['rule_id'] == pool['crush_rule']]:
+                for step in rule.get('steps'):
+                    if step['op'] == 'take':
+                        pool_osds = crush.get_pool_osds(step.get('item_name'))['osds']
+            osds_by_pool[pool_id] = pool_osds
+        return osds_by_pool
 
     def get_pool_lat(self):
         pools = self.get_pool_osds()
