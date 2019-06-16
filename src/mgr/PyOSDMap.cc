@@ -504,6 +504,23 @@ static PyObject *crush_get_item_name(BasePyCRUSH *self, PyObject *args)
   return PyString_FromString(self->crush->get_item_name(item));
 }
 
+static PyObject *crush_get_pool_osds(BasePyCRUSH *self, PyObject *args)
+{
+  char *bucket_name = NULL;
+  if (!PyArg_ParseTuple(args, "s:ceph_state_get", &bucket_name)) {
+    return NULL;
+  }
+  PyFormatter f;
+  set<int> osds;
+  self->crush->get_leaves(bucket_name, &osds);
+  f.open_array_section("osds");
+  for (auto &i : osds) {
+    f.dump_int("osd", i);
+  }
+  f.close_section();
+  return f.get();
+}
+
 static PyObject *crush_get_item_weight(BasePyCRUSH *self, PyObject *args)
 {
   int item;
@@ -557,6 +574,8 @@ PyMethodDef BasePyCRUSH_methods[] = {
   {"_dump", (PyCFunction)crush_dump, METH_NOARGS, "Dump map"},
   {"_get_item_name", (PyCFunction)crush_get_item_name, METH_VARARGS,
     "Get item name"},
+  {"_get_pool_osds", (PyCFunction)crush_get_pool_osds, METH_VARARGS,
+    "Get pool osds"},
   {"_get_item_weight", (PyCFunction)crush_get_item_weight, METH_VARARGS,
     "Get item weight"},
   {"_find_takes", (PyCFunction)crush_find_takes, METH_NOARGS,
