@@ -107,7 +107,7 @@ MON_METADATA = ('ceph_daemon', 'hostname', 'public_addr', 'rank', 'ceph_version'
 OSD_METADATA = ('ceph_daemon', 'cluster_addr', 'device_class', 'hostname',
                 'public_addr', 'ceph_version')
 
-PG_METADATA = ('pgid', 'state', 'osd_id')
+PG_METADATA = ('pgid', 'state', 'osd_id', 'pool_id')
 
 OSD_STATUS = ['weight', 'up', 'in']
 
@@ -662,7 +662,8 @@ class Module(MgrModule):
                 self.metrics['pg_metadata'].set(1, (
                     pg['pgid'],
                     pg['state'],
-                    str(osd)
+                    str(osd),
+                    pg['pgid'].split('.')[0]
                 ))
 
     def get_cluster_rate(self):
