@@ -1118,11 +1118,10 @@ def allocate_osd_id(
                 '--cluster', cluster,
                 '--name', 'client.bootstrap-osd',
                 '--keyring', keyring,
-                '-i', '-',
                 'osd', 'new',
                 fsid,
             ] + id_arg,
-            secrets.get_json()
+            None
         )
     except subprocess.CalledProcessError as e:
         raise Error('ceph osd create failed', e, e.output)
