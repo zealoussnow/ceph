@@ -3822,7 +3822,9 @@ def main_activate(args):
         LOG.info('suppressed activate request on %s', args.path)
         return
 
-    with activate_lock:
+    #with activate_lock:
+    # XXX For testing deploy 1000 osds
+    if True:
         mode = os.stat(args.path).st_mode
         if stmode_is_diskdevice(mode):
             if (is_partition(args.path) and
