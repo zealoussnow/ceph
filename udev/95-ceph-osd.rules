@@ -56,6 +56,7 @@ ACTION=="add", SUBSYSTEM=="block", \
   RUN+="/usr/sbin/ceph-disk --log-stdout -v trigger /dev/$name"
 ACTION=="change", SUBSYSTEM=="block", \
   ENV{ID_PART_ENTRY_TYPE}=="9edda69e-d60c-4db5-ab3b-5f2f9a8e8362", \
+  OWNER="ceph", GROUP="ceph", MODE="660"
  
 
 # LOCKBOX_UUID
