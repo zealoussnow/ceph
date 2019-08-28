@@ -1143,7 +1143,6 @@ def get_osd_id(path):
 
 
 def get_ceph_user():
-    return 'root'
     global CEPH_PREF_USER
 
     if CEPH_PREF_USER is not None:
@@ -1162,7 +1161,6 @@ def get_ceph_user():
 
 
 def get_ceph_group():
-    return 'root'
     global CEPH_PREF_GROUP
 
     if CEPH_PREF_GROUP is not None:
