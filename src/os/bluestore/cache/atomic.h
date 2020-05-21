@@ -86,7 +86,12 @@ static __always_inline void __write_once_size(volatile void *p, void *res, int s
 #define atomic_inc_bug(v, i)          BUG_ON(atomic_inc_return(v) <= i)
 #define atomic_long_add(i, v)         (uatomic_add(v, i))
 #define cmpxchg(v, o, n)              (uatomic_cmpxchg(v, o, n))
-#else
+#else // WITHOUT URCU
+
+#if defined(__arm__) || defined(__aarch64__) || defined(__powerpc__) || defined(__ppc__)
+#error "We aren't implement atomic on other platform with userspace rcu"
+#endif
+
 #define CONFIG_64BIT
 static __always_inline void atomic_set(atomic_t *v, int i)
 {

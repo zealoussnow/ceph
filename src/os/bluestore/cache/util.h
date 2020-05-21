@@ -56,6 +56,9 @@ static uint64_t cache_realtime_u64()
 }
 
 /* PAGE_SIZE is defined in sys/user.h */
+#ifndef PAGE_SIZE
+#define PAGE_SIZE 4096
+#endif
 #define PAGE_SECTORS		(PAGE_SIZE / 512)
 
 #define DECLARE_HEAP(type, name)                                \
