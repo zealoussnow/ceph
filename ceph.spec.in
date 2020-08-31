@@ -195,15 +195,9 @@ BuildRequires:	python-prettytable
 BuildRequires:	python-sphinx
 %endif
 # python34-... for RHEL, python3-... for all other supported distros
-%if 0%{?rhel}
-BuildRequires:	python34-devel
-BuildRequires:	python34-setuptools
-BuildRequires:	python34-Cython
-%else
-BuildRequires:	python3-devel
-BuildRequires:	python3-setuptools
-BuildRequires:	python3-Cython
-%endif
+BuildRequires: python3-devel
+BuildRequires: python3-setuptools
+BuildRequires: python36-Cython
 # lttng and babeltrace for rbd-replay-prep
 %if %{with lttng}
 %if 0%{?fedora} || 0%{?rhel}

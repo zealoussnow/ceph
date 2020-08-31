@@ -1126,7 +1126,7 @@ int CacheDevice::aio_write(
 {
   uint64_t len = bl.length();
 
-  dout(5) << __func__ << " ioc(" << ioc << " num_pending "
+  dout(20) << __func__ << " ioc(" << ioc << " num_pending "
       << ioc->num_pending << " num_running " << ioc->num_running
       <<") 0x" << std::hex << off << "~" << len << std::dec
       << (buffered ? " (buffered)" : " (direct)")
