@@ -19,6 +19,7 @@ static int last_errcode = 0;
 
 #define LOG_PAT_LEN 24
 #define LOG_PAT "%s/ceph-cache.osd.%s.log"
+#define DEFAULT_LOG_PATH "/var/log/ceph"
 
 int g_log_level = 40;
 
@@ -114,8 +115,13 @@ void log_init(struct cache_context *ctx)
 
   log_crash_on_nospc = ctx->log_crash_on_nospc;
 
-  long path_nsep = strrchr(log_file, '/') - log_file;
-  strncpy(log_path, log_file, path_nsep);
+  char *log_file_prefix = strrchr(log_file, '/');
+  if (log_file_prefix == NULL) {
+    strncpy(log_path, DEFAULT_LOG_PATH, strlen(DEFAULT_LOG_PATH));
+  } else {
+    long path_nsep =  log_file_prefix - log_file;
+    strncpy(log_path, log_file, path_nsep);
+  }
 
   if (strlen(log_path) > NAME_MAX - LOG_PAT_LEN)
     assert("log path too long" == 0);
