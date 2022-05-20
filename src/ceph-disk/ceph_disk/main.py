@@ -1045,17 +1045,14 @@ def write_one_line(parent, name, text):
 
 
 def init_get():
-    """
-    Get a init system using 'ceph-detect-init'
-    """
-    init = _check_output(
-        args=[
-            'ceph-detect-init',
-            '--default', 'sysvinit',
-        ],
-    )
-    init = must_be_one_line(init)
-    return init
+    if os.path.isdir('/run/systemd/system'):
+        return 'systemd'
+    if not subprocess.call('. /lib/lsb/init-functions ; init_is_upstart',
+                           shell=True):
+        return 'upstart'
+    if os.path.isfile('/sbin/init') and not os.path.islink('/sbin/init'):
+        return 'sysvinit'
+    raise Error('Unsupported init system')
 
 
 def check_osd_magic(path):
