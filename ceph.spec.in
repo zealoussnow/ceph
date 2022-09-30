@@ -15,7 +15,12 @@
 # Please submit bugfixes or comments via http://tracker.ceph.com/
 #
 %bcond_without ocf
+
+# junit dependence not enough in loongarch64
+%ifnarch loongarch64
 %bcond_without cephfs_java
+%endif
+
 %if 0%{?suse_version}
 %bcond_with ceph_test_package
 %else
@@ -151,7 +156,10 @@ BuildRequires:	python-virtualenv
 BuildRequires:	snappy-devel
 BuildRequires:	udev
 BuildRequires:	util-linux
+%ifnarch loongarch64
+# no valgrind-devel in loongarch64
 BuildRequires:	valgrind-devel
+%endif
 BuildRequires:	which
 BuildRequires:	xfsprogs
 BuildRequires:	xfsprogs-devel
@@ -189,7 +197,12 @@ BuildRequires:	keyutils-libs-devel
 BuildRequires:	libibverbs-devel
 BuildRequires:  openldap-devel
 BuildRequires:  openssl-devel
+%if 0%{kylin}
+BuildRequires:  python3-Cython
+%else
 BuildRequires:  redhat-lsb-core
+BuildRequires:  python36-Cython
+%endif
 BuildRequires:	Cython
 BuildRequires:	python-prettytable
 BuildRequires:	python-sphinx
@@ -197,7 +210,6 @@ BuildRequires:	python-sphinx
 # python34-... for RHEL, python3-... for all other supported distros
 BuildRequires: python3-devel
 BuildRequires: python3-setuptools
-BuildRequires: python36-Cython
 # lttng and babeltrace for rbd-replay-prep
 %if %{with lttng}
 %if 0%{?fedora} || 0%{?rhel}
@@ -728,7 +740,10 @@ Group:		System/Libraries
 Requires:	java
 Requires:	libcephfs_jni1 = %{_epoch_prefix}%{version}-%{release}
 Requires:       junit
+# junit dependence not enough in loongarch64
+%ifnarch loongarch64
 BuildRequires:  junit
+%endif
 %description -n cephfs-java
 This package contains the Java libraries for the Ceph File System.
 
@@ -1613,14 +1628,25 @@ fi
 %files -n python%{python3_pkgversion}-cephfs
 %{python3_sitearch}/cephfs.cpython*.so
 %{python3_sitearch}/cephfs-*.egg-info
+# pycache don't generate in kylin
+%if 0%{kylin}
+%{python3_sitelib}/ceph_volume_client.py
+%else
 %{python3_sitelib}/ceph_volume_client.py
 %{python3_sitelib}/__pycache__/ceph_volume_client.cpython*.py*
+%endif
 
 %files -n python%{python3_pkgversion}-ceph-argparse
+# pycache don't generate in kylin
+%if 0%{kylin}
 %{python3_sitelib}/ceph_argparse.py
-%{python3_sitelib}/__pycache__/ceph_argparse.cpython*.py*
 %{python3_sitelib}/ceph_daemon.py
+%else
+%{python3_sitelib}/ceph_argparse.py
+%{python3_sitelib}/ceph_daemon.py
+%{python3_sitelib}/__pycache__/ceph_argparse.cpython*.py*
 %{python3_sitelib}/__pycache__/ceph_daemon.cpython*.py*
+%endif
 
 %if 0%{with ceph_test_package}
 %files -n ceph-test

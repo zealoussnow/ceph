@@ -15,6 +15,8 @@ static inline void prefetch(const volatile void *p)
   asm volatile ("PRFM PLDL1KEEP, [%0]" : : "r" (p));
 #elif defined(__powerpc__) || defined(__ppc__)
   asm volatile ("dcbt 0,%[p],0" : : [p] "r" (p));
+#elif defined(__loongarch__)
+  __builtin_prefetch((const void *)p);
 #endif
 }
 

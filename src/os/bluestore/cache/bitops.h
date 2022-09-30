@@ -19,7 +19,7 @@
 #define BITS_PER_LONG 		64
 #define BITS_PER_BYTE 		8
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__loongarch__)
 #define BIT_WORD(nr)            ((nr) / BITS_PER_LONG)
 #define BIT_MASK(nr)            (1UL << ((nr) % BITS_PER_LONG))
 #endif
